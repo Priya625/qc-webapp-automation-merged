@@ -1,0 +1,12 @@
+streamlit
+fastapi
+requests
+pandas
+numpy
+openpyxl
+python-multipart  # For handling file uploads in the backend if you are running it separately
+tenacity
+fuzzywuzzy       # Needed for the Confidence Imputation check logic
+python-Levenshtein # Recommended for fuzzywuzzy performance
+pydantic
+uvicorn          # If you deploy the backend on the same service (less common)
