@@ -10,19 +10,32 @@ import os
 BACKEND_BASE_URL = os.environ.get("STREAMLIT_BACKEND_URL", "http://localhost:8000")
 BACKEND_URL = BACKEND_BASE_URL + "/api"
 
-# -------------------- 🌐 Streamlit UI --------------------
-st.set_page_config(page_title="Data Processing App", layout="wide")
-st.title("📊 Data Processing and QC Automation")
+LOGO_PATH_1 = "images/nielsen1.png"
+LOGO_PATH_2 = "images/nielsen2.png"
+LOGO_PATH_3 = "images/nielsen sports.png"
+LOGO_PATH_4 = "images/Nielsen_Sports_logo.svg"
+# C:/Users/BHRAJG2501/Desktop/Nielsen_Sports_logo.svg
 
-st.markdown("""
-This application interfaces with a FastAPI backend to handle both heavy-duty BSR QC processing and Laliga QC.
-""")
+# -------------------- 🌐 Streamlit UI --------------------
+st.set_page_config(page_title="NIELSEN QC Automation Portal", layout="wide")
+# st.title("  Nielsen Sports ")
+
+try:
+    if os.path.exists(LOGO_PATH_4):
+        st.image(LOGO_PATH_4, width=150) # Adjust width as needed
+    else:
+        st.header("pic  ") # Fallback header
+except Exception:
+    st.header("pic")
+
+
 
 # --- Use Tabs for Clear Separation (MODIFIED) ---
-main_qc_tab, laliga_qc_tab, f1_tab = st.tabs([
-    "✅ Main QC Automation", 
-    "⚽ Laliga Specific QC", 
-    "🏎️ F1 Market Specific Checks"
+home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab = st.tabs([
+    " Home Page", 
+    " Main QC Automation", 
+    " Laliga Specific QC", 
+    " F1 Market Specific Checks"
 ])
 
 # --- Define all market check keys globally for management (UNTOUCHED) ---
@@ -67,6 +80,207 @@ all_market_check_keys = {
 }
 
 
+
+with home_page_tab:
+    # --- Custom CSS for Styling ---
+    st.markdown(
+        """
+        <style>
+            /* Ensure the overall background color is applied */
+            .stApp {
+                background-color:  #DCD2FF; 
+            }
+
+            .stApp > header {
+                text-align: center;
+            }
+
+            .stTabs [data-baseweb="tab-list"] {
+                justify-content: center;
+                gap: 50px; /* INCREASED GAP for more space between tabs */
+            }
+            
+            
+            /* Main Header Styling */
+            .header-title {
+                color: #0049BE; /* Vibrant Corporate Blue */
+                font-size: 3.5em;
+                font-weight: 900;
+                text-align: center;
+                padding-top: 80px; /* <-- INCREASED TOP SPACE */
+            }
+            .subtitle {
+                color:  #259600; 
+                font-size: 1.3em;
+                text-align: center;
+                margin-bottom: 8em; /* <-- INCREASED BOTTOM SPACE */
+            }
+            
+            /* Navigation Section (Hero Container) */
+            .nav-container {
+                background-color: #FFFFFF; /* White background for the action area */
+                padding: 40px 50px;
+                border-radius: 15px;
+                box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15); /* Stronger shadow */
+                margin-bottom: 30px;
+                text-align: center;
+            }
+            .nav-container h3 {
+                color: #0047AB;
+                font-size: 1.8em;
+                margin-bottom: 0.5em;
+            }
+            .nav-item-list {
+                list-style-type: none; 
+                padding: -100;
+                display: flex; /* Flex layout for horizontal tabs/buttons */
+                justify-content: space-around;
+                margin-top: 20px;
+            }
+            .nav-item {
+                flex: 1;
+                margin: 0 10px;
+                padding: 15px 20px;
+                border: 2px solid #4D577D;
+                border-radius: 8px;
+                transition: transform 0.2s, border-color 0.2s;
+                text-align: center;
+                cursor: pointer;
+            }
+            .nav-item:hover {
+                transform: translateY(-3px);
+                border-color: #B30095; /* Blue hover accent */
+            }
+
+            /* Capability Cards Styling (3-column layout) */
+            .metric-card {
+                background-color: #F7F7F9;
+                border-bottom: 4px solid var(--accent-color); /* Bottom border accent */
+                border-radius: 8px;
+                padding: 20px 20px;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); 
+                height: 100%;
+                transition: box-shadow 0.3s;
+            }
+            .metric-card:hover {
+                box-shadow: 0 6px 15px rgba(0, 0, 0, 0.15); 
+            }
+            .metric-card h3 {
+                color: #1A5276; 
+                font-size: 1.2em;
+                font-weight: 700;
+                margin-bottom: 0.5em;
+            }
+            .metric-card p {
+                font-size: 0.9em;
+                color: #555;
+            }
+            .stHeader {
+                background-color: #E4F0F7; /* Ensures Streamlit headers match background */
+            }
+            /* Targets the entire file uploader container for subtle background changes */
+                div[data-testid="stFileUploader"] {
+                    background-color: #EAE4FF; /* Light Lavender Background */
+                    padding: 10px;
+                    border-radius: 10px;
+                }
+                /* Targets the actual upload button/text area */
+                div[data-testid="stFileUploaderDropzone"] {
+                    border: 2px dashed #0049BE; /* Custom Border Color */
+                }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # --- Header Section (Centered) ---
+    st.markdown("<div class='header-title'> Nielsen  Automation Portal</div>", unsafe_allow_html=True)
+    st.markdown("<p class='subtitle'>The central hub for data integrity, transformation, and complex market modeling for Sports BSR data.</p>", unsafe_allow_html=True)
+    
+    # --- 1. Navigation Guide (Central Hero Section) ---
+    # st.markdown("<div class='nav-container'>", unsafe_allow_html=True)
+    st.markdown("<h3>Modules</h3>", unsafe_allow_html=True)
+    # st.markdown("<p style='color: #009DA8;'>Select a tab above  to access core functionality.</p>", unsafe_allow_html=True)
+    
+    # NOTE: Since we cannot programmatically link to Streamlit tabs via HTML/CSS, 
+    # this list is for display only, guiding the user to the top tabs.
+    st.markdown(
+        """
+        <ul class='nav-item-list'>
+            <li class='nav-item'>
+                <strong>Main QC Automation</strong>
+            </li>
+            <li class='nav-item'>
+                <strong>LaLiga Specific QC</strong>
+            </li>
+            <li class='nav-item'>
+                <strong>F1 Market Specific Checks</strong>
+            </li>
+        </ul>
+        """, unsafe_allow_html=True
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<h3 style='color: #1A5276; text-align: center; margin-top: 30px; margin-bottom: 25px;'>Key System Capabilities</h3>", unsafe_allow_html=True)
+
+    # --- 2. Core Capabilities Cards (STAGGERED GRID LAYOUT) ---
+    
+    # --- Row 1 ---
+    cap_row1_col1, cap_row1_col2 = st.columns(2) 
+    
+    # Card 1: Traceability & Auditing
+    with cap_row1_col1:
+        st.markdown(
+            """
+            <div class='metric-card' style='--accent-color:  #FF5AB4;'>
+                <h3>Full Data Traceability</h3>
+                <p>Ensures 100% auditability for every change—from initial loading to final weighted output—confirming pipeline integrity at every step.</p>
+            </div>
+            """, unsafe_allow_html=True
+        )
+
+    # Card 2: Upscaling & Reconciliation
+    with cap_row1_col2:
+        st.markdown(
+            """
+            <div class='metric-card' style='--accent-color: #D13CBD;'>
+                <h3>Audience Upscale & Reconciliation</h3>
+                <p>Automatically reconciles BSR audience estimates by overriding estimates with higher, verified maximum figures from Overnight Quick Reports.</p>
+            </div>
+            """, unsafe_allow_html=True
+        )
+            
+    # --- Row 2 ---
+    st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
+    cap_row2_col1, cap_row2_col2 = st.columns(2) 
+
+    # Card 3: Complex Market Modeling
+    with cap_row2_col1:
+        st.markdown(
+            """
+            <div class='metric-card' style='--accent-color: #FFC800;'>
+                <h3>Complex Market Modeling</h3>
+                <p>Applies conditional weighted duplication rules and validates channel existence essential for comprehensive pan-regional data models.</p>
+            </div>
+            """, unsafe_allow_html=True
+        )
+    
+    # Card 4: F1 Duplication Audit
+    with cap_row2_col2:
+        st.markdown(
+            """
+            <div class='metric-card' style='--accent-color: #8CE650;'>
+                <h3>F1 Duplication Audit</h3>
+                <p>Validates the completeness of all duplication rules by checking if required target channels exist in the destination market's current inventory.</p>
+            </div>
+            """, unsafe_allow_html=True
+        )
+
+
+    st.markdown("<div style='margin-bottom: 50px;'></div>", unsafe_allow_html=True)
+
+    
+
 # -----------------------------------------------------------
 #        ✅ MAIN QC AUTOMATION TAB (MODIFIED)
 # -----------------------------------------------------------
@@ -89,7 +303,7 @@ with main_qc_tab:
     st.write("---")
 
     # --- Run Button Logic (Calls Backend /api/run_general_qc) ---
-    if st.button("🚀 Run General QC Checks"):
+    if st.button(" Run General QC Checks"):
         if not rosco_file or not bsr_file:
             st.error("⚠️ Please upload both Rosco and BSR files before running QC.")
         else:
@@ -141,7 +355,7 @@ with main_qc_tab:
 # -----------------------------------------------------------
 
 with laliga_qc_tab:
-    st.header("⚽ Laliga Specific QC Checks")
+    st.header(" Laliga Specific QC Checks")
     st.markdown("""
     Upload your **Rosco**, **BSR**, and **Macro Duplicator** files.
     This will run the **Domestic Market Check** and **Duplicated Market Check**.
@@ -159,7 +373,7 @@ with laliga_qc_tab:
     st.write("---")
 
     # --- Run Button Logic (Calls Backend /api/run_laliga_qc) ---
-    if st.button("⚙️ Run Laliga QC Checks"):
+    if st.button(" Run Laliga QC Checks"):
         if not laliga_rosco_file or not laliga_bsr_file or not laliga_macro_file:
             st.error("⚠️ Please upload all three files (Rosco, BSR, and Macro).")
         else:
@@ -204,8 +418,8 @@ with laliga_qc_tab:
 #         🏎️ F1 MARKET SPECIFIC CHECKS TAB (UNTOUCHED)
 # -----------------------------------------------------------
 with f1_tab:
-    st.header("🌍 Market Specific Checks & Channel Configuration")
-    st.markdown("Upload the **BSR file** and the **F1 Obligation file** here to perform and log manual checks.")
+    st.header(" Formula 1 Specific Checks")
+    st.markdown("Upload the required files here to perform and log manual checks.")
 
     # --- Dedicated Upload for Manual Checks (MODIFIED) ---
     col_file1, col_file2, col_file3,col_file4 = st.columns(4) # <-- Increase columns to 3
@@ -216,7 +430,7 @@ with f1_tab:
     with col_file3: # <-- NEW UPLOADER
         overnight_file = st.file_uploader("📈 Upload Overnight Audience File (.xlsx)", type=["xlsx"], key="overnight_file") # <-- NEW
     with col_file4: # <-- NEW UPLOADER
-        macro_file = st.file_uploader("📋 4. BSA Duplicator File (Existence Check)", type=["xlsm", "xlsx"], key="macro_file") # <-- NEW
+        macro_file = st.file_uploader("📋 4. BSA Duplicator File", type=["xlsm", "xlsx"], key="macro_file") # <-- NEW
     
     st.write("---")
 
@@ -232,12 +446,12 @@ with f1_tab:
         st.checkbox(all_market_check_keys["check_italy_mexico"], key="check_italy_mexico")
         
         st.subheader("Specific Channel Checks (against uploaded file)")
-        st.checkbox(all_market_check_keys["check_channel4plus1"], key="check_channel4plus1")
-        st.checkbox(all_market_check_keys["check_espn4_bsa"], key="check_espn4_bsa")
+        # st.checkbox(all_market_check_keys["check_channel4plus1"], key="check_channel4plus1")
+        # st.checkbox(all_market_check_keys["check_espn4_bsa"], key="check_espn4_bsa")
         st.checkbox(all_market_check_keys["check_f1_obligations"], key="check_f1_obligations") # <--- F1 Check
-        st.checkbox(all_market_check_keys["apply_duplication_weights"], key="apply_duplication_weights") # <--- F1 Check
+        # st.checkbox(all_market_check_keys["apply_duplication_weights"], key="apply_duplication_weights") # <--- F1 Check
         st.checkbox(all_market_check_keys["check_session_completeness"], key="check_session_completeness")
-        st.checkbox(all_market_check_keys["impute_program_type"], key="impute_program_type")
+        # st.checkbox(all_market_check_keys["impute_program_type"], key="impute_program_type")
         st.checkbox(all_market_check_keys["duration_limits"], key="duration_limits")
         st.checkbox(all_market_check_keys["live_date_integrity"], key="live_date_integrity")
         st.checkbox(all_market_check_keys["update_audience_from_overnight"], key="update_audience_from_overnight") # <-- NEW
@@ -245,20 +459,20 @@ with f1_tab:
         st.checkbox(all_market_check_keys["dup_channel_existence"], key="dup_channel_existence") # <-- NEW CHECKBOX
 
     # ... (rest of the checkboxes remain here) ...
-    with st.expander("2. Broadcaster/Platform Coverage (BROADCASTER/GLOBAL)"):
-        st.subheader("Global/Platform Adds")
-        st.checkbox(all_market_check_keys["check_youtube_global"], key="check_youtube_global")
+    # with st.expander("2. Broadcaster/Platform Coverage (BROADCASTER/GLOBAL)"):
+    #     st.subheader("Global/Platform Adds")
+    #     st.checkbox(all_market_check_keys["check_youtube_global"], key="check_youtube_global")
         
-        st.subheader("Individual Broadcaster Confirmations")
-        st.checkbox(all_market_check_keys["check_pan_mena"], key="check_pan_mena")
-        st.checkbox(all_market_check_keys["check_china_tencent"], key="check_china_tencent")
-        st.checkbox(all_market_check_keys["check_czech_slovakia"], key="check_czech_slovakia")
-        st.checkbox(all_market_check_keys["check_ant1_greece"], key="check_ant1_greece")
-        st.checkbox(all_market_check_keys["check_india"], key="check_india")
-        st.checkbox(all_market_check_keys["check_usa_espn"], key="check_usa_espn")
-        st.checkbox(all_market_check_keys["check_dazn_japan"], key="check_dazn_japan")
-        st.checkbox(all_market_check_keys["check_aztv"], key="check_aztv")
-        st.checkbox(all_market_check_keys["check_rush_caribbean"], key="check_rush_caribbean")
+    #     st.subheader("Individual Broadcaster Confirmations")
+    #     st.checkbox(all_market_check_keys["check_pan_mena"], key="check_pan_mena")
+    #     st.checkbox(all_market_check_keys["check_china_tencent"], key="check_china_tencent")
+    #     st.checkbox(all_market_check_keys["check_czech_slovakia"], key="check_czech_slovakia")
+    #     st.checkbox(all_market_check_keys["check_ant1_greece"], key="check_ant1_greece")
+    #     st.checkbox(all_market_check_keys["check_india"], key="check_india")
+    #     st.checkbox(all_market_check_keys["check_usa_espn"], key="check_usa_espn")
+    #     st.checkbox(all_market_check_keys["check_dazn_japan"], key="check_dazn_japan")
+    #     st.checkbox(all_market_check_keys["check_aztv"], key="check_aztv")
+    #     st.checkbox(all_market_check_keys["check_rush_caribbean"], key="check_rush_caribbean")
 
 
     with st.expander("3. Removals and Recreations"):
@@ -270,15 +484,15 @@ with f1_tab:
         st.checkbox(all_market_check_keys["remove_switz_canal"], key="remove_switz_canal")
         st.checkbox(all_market_check_keys["remove_viaplay_baltics"], key="remove_viaplay_baltics")
 
-        st.subheader("Recreations (Check for full market coverage)")
-        st.checkbox(all_market_check_keys["recreate_viaplay"], key="recreate_viaplay")
-        st.checkbox(all_market_check_keys["recreate_disney_latam"], key="recreate_disney_latam")
+        # st.subheader("Recreations (Check for full market coverage)")
+        # st.checkbox(all_market_check_keys["recreate_viaplay"], key="recreate_viaplay")
+        # st.checkbox(all_market_check_keys["recreate_disney_latam"], key="recreate_disney_latam")
         
     st.write("---")
 
 
     # --- Run Processing Button (UNTOUCHED) ---
-    if st.button("⚙️ Apply Selected Checks"):
+    if st.button(" Apply Selected Checks"):
         
         active_checks = [key for key in all_market_check_keys.keys() if st.session_state[key]]
         
