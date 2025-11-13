@@ -66,18 +66,28 @@ if config is None:
     st.stop()
 
 # -------------------- 🌐 Streamlit UI --------------------
-st.set_page_config(page_title="Data Processing App", layout="wide")
-st.title("📊 Data Processing and QC Automation")
+LOGO_PATH_4 = "images/Nielsen_Sports_logo.svg"
+# C:/Users/BHRAJG2501/Desktop/Nielsen_Sports_logo.svg
 
-st.markdown("""
-This application runs all QC checks directly. You can run all three processes simultaneously.
-""")
+# -------------------- 🌐 Streamlit UI --------------------
+st.set_page_config(page_title="NIELSEN QC Automation Portal", layout="wide")
+# st.title("  Nielsen Sports ")
 
-# --- Use Tabs for Clear Separation ---
-main_qc_tab, laliga_qc_tab, f1_tab = st.tabs([
-    "✅ Main QC Automation", 
-    "⚽ Laliga Specific QC", 
-    "🏎️ F1 Market Specific Checks"
+try:
+    if os.path.exists(LOGO_PATH_4):
+        st.image(LOGO_PATH_4, width=150) # Adjust width as needed
+    else:
+        st.header("pic  ") # Fallback header
+except Exception:
+    st.header("pic")
+
+
+# --- Use Tabs for Clear Separation (MODIFIED) ---
+home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab = st.tabs([
+    " Home Page", 
+    " Main QC Automation", 
+    " Laliga Specific QC", 
+    " F1 Market Specific Checks"
 ])
 
 # --- Define all market check keys globally for management ---
@@ -118,6 +128,205 @@ all_market_check_keys = {
     "recreate_viaplay": "Viaplay: Recreate based on a full market of lives",
     "recreate_disney_latam": "Disney+ Latam: Recreate based on a full market of lives",
 }
+
+
+with home_page_tab:
+    # --- Custom CSS for Styling ---
+    st.markdown(
+        """
+        <style>
+            /* Ensure the overall background color is applied */
+            .stApp {
+                background-color:  #DCD2FF; 
+            }
+
+            .stApp > header {
+                text-align: center;
+            }
+
+            .stTabs [data-baseweb="tab-list"] {
+                justify-content: center;
+                gap: 50px; /* INCREASED GAP for more space between tabs */
+            }
+            
+            
+            /* Main Header Styling */
+            .header-title {
+                color: #0049BE; /* Vibrant Corporate Blue */
+                font-size: 3.5em;
+                font-weight: 900;
+                text-align: center;
+                padding-top: 80px; /* <-- INCREASED TOP SPACE */
+            }
+            .subtitle {
+                color:  #259600; 
+                font-size: 1.3em;
+                text-align: center;
+                margin-bottom: 8em; /* <-- INCREASED BOTTOM SPACE */
+            }
+            
+            /* Navigation Section (Hero Container) */
+            .nav-container {
+                background-color: #FFFFFF; /* White background for the action area */
+                padding: 40px 50px;
+                border-radius: 15px;
+                box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15); /* Stronger shadow */
+                margin-bottom: 30px;
+                text-align: center;
+            }
+            .nav-container h3 {
+                color: #0047AB;
+                font-size: 1.8em;
+                margin-bottom: 0.5em;
+            }
+            .nav-item-list {
+                list-style-type: none; 
+                padding: -100;
+                display: flex; /* Flex layout for horizontal tabs/buttons */
+                justify-content: space-around;
+                margin-top: 20px;
+            }
+            .nav-item {
+                flex: 1;
+                margin: 0 10px;
+                padding: 15px 20px;
+                border: 2px solid #4D577D;
+                border-radius: 8px;
+                transition: transform 0.2s, border-color 0.2s;
+                text-align: center;
+                cursor: pointer;
+            }
+            .nav-item:hover {
+                transform: translateY(-3px);
+                border-color: #B30095; /* Blue hover accent */
+            }
+
+            /* Capability Cards Styling (3-column layout) */
+            .metric-card {
+                background-color: #F7F7F9;
+                border-bottom: 4px solid var(--accent-color); /* Bottom border accent */
+                border-radius: 8px;
+                padding: 20px 20px;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); 
+                height: 100%;
+                transition: box-shadow 0.3s;
+            }
+            .metric-card:hover {
+                box-shadow: 0 6px 15px rgba(0, 0, 0, 0.15); 
+            }
+            .metric-card h3 {
+                color: #1A5276; 
+                font-size: 1.2em;
+                font-weight: 700;
+                margin-bottom: 0.5em;
+            }
+            .metric-card p {
+                font-size: 0.9em;
+                color: #555;
+            }
+            .stHeader {
+                background-color: #E4F0F7; /* Ensures Streamlit headers match background */
+            }
+            /* Targets the entire file uploader container for subtle background changes */
+                div[data-testid="stFileUploader"] {
+                    background-color: #EAE4FF; /* Light Lavender Background */
+                    padding: 10px;
+                    border-radius: 10px;
+                }
+                /* Targets the actual upload button/text area */
+                div[data-testid="stFileUploaderDropzone"] {
+                    border: 2px dashed #0049BE; /* Custom Border Color */
+                }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # --- Header Section (Centered) ---
+    st.markdown("<div class='header-title'> Nielsen  Automation Portal</div>", unsafe_allow_html=True)
+    st.markdown("<p class='subtitle'>The central hub for data integrity, transformation, and complex market modeling for Sports BSR data.</p>", unsafe_allow_html=True)
+    
+    # --- 1. Navigation Guide (Central Hero Section) ---
+    # st.markdown("<div class='nav-container'>", unsafe_allow_html=True)
+    st.markdown("<h3>Modules</h3>", unsafe_allow_html=True)
+    # st.markdown("<p style='color: #009DA8;'>Select a tab above  to access core functionality.</p>", unsafe_allow_html=True)
+    
+    # NOTE: Since we cannot programmatically link to Streamlit tabs via HTML/CSS, 
+    # this list is for display only, guiding the user to the top tabs.
+    st.markdown(
+        """
+        <ul class='nav-item-list'>
+            <li class='nav-item'>
+                <strong>Main QC Automation</strong>
+            </li>
+            <li class='nav-item'>
+                <strong>LaLiga Specific QC</strong>
+            </li>
+            <li class='nav-item'>
+                <strong>F1 Market Specific Checks</strong>
+            </li>
+        </ul>
+        """, unsafe_allow_html=True
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<h3 style='color: #1A5276; text-align: center; margin-top: 30px; margin-bottom: 25px;'>Key System Capabilities</h3>", unsafe_allow_html=True)
+
+    # --- 2. Core Capabilities Cards (STAGGERED GRID LAYOUT) ---
+    
+    # --- Row 1 ---
+    cap_row1_col1, cap_row1_col2 = st.columns(2) 
+    
+    # Card 1: Traceability & Auditing
+    with cap_row1_col1:
+        st.markdown(
+            """
+            <div class='metric-card' style='--accent-color:  #FF5AB4;'>
+                <h3>Full Data Traceability</h3>
+                <p>Ensures 100% auditability for every change—from initial loading to final weighted output—confirming pipeline integrity at every step.</p>
+            </div>
+            """, unsafe_allow_html=True
+        )
+
+    # Card 2: Upscaling & Reconciliation
+    with cap_row1_col2:
+        st.markdown(
+            """
+            <div class='metric-card' style='--accent-color: #D13CBD;'>
+                <h3>Audience Upscale & Reconciliation</h3>
+                <p>Automatically reconciles BSR audience estimates by overriding estimates with higher, verified maximum figures from Overnight Quick Reports.</p>
+            </div>
+            """, unsafe_allow_html=True
+        )
+            
+    # --- Row 2 ---
+    st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
+    cap_row2_col1, cap_row2_col2 = st.columns(2) 
+
+    # Card 3: Complex Market Modeling
+    with cap_row2_col1:
+        st.markdown(
+            """
+            <div class='metric-card' style='--accent-color: #FFC800;'>
+                <h3>Complex Market Modeling</h3>
+                <p>Applies conditional weighted duplication rules and validates channel existence essential for comprehensive pan-regional data models.</p>
+            </div>
+            """, unsafe_allow_html=True
+        )
+    
+    # Card 4: F1 Duplication Audit
+    with cap_row2_col2:
+        st.markdown(
+            """
+            <div class='metric-card' style='--accent-color: #8CE650;'>
+                <h3>F1 Duplication Audit</h3>
+                <p>Validates the completeness of all duplication rules by checking if required target channels exist in the destination market's current inventory.</p>
+            </div>
+            """, unsafe_allow_html=True
+        )
+
+
+    st.markdown("<div style='margin-bottom: 50px;'></div>", unsafe_allow_html=True)
 
 
 # -----------------------------------------------------------
@@ -271,54 +480,61 @@ with laliga_qc_tab:
 #         🏎️ F1 MARKET SPECIFIC CHECKS TAB (COLLEAGUE'S LOGIC)
 # -----------------------------------------------------------
 with f1_tab:
-    st.header("🌍 Market Specific Checks & Channel Configuration")
-    st.markdown("Upload the **BSR file** and the **F1 Obligation file** here to perform and log manual checks.")
+    st.header(" Formula 1 Specific Checks")
+    st.markdown("Upload the required files here to perform and log manual checks.")
 
-    col_file1, col_file2, col_file3,col_file4 = st.columns(4)
+    # --- Dedicated Upload for Manual Checks (MODIFIED) ---
+    col_file1, col_file2, col_file3,col_file4 = st.columns(4) # <-- Increase columns to 3
     with col_file1:
-        f1_bsr_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="market_check_file")
+        market_check_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="market_check_file")
     with col_file2:
-        f1_obligation_file = st.file_uploader("📄 Upload F1 Obligation File (.xlsx)", type=["xlsx"], key="obligation_file")
-    with col_file3:
-        f1_overnight_file = st.file_uploader("📈 Upload Overnight Audience File (.xlsx)", type=["xlsx"], key="overnight_file")
-    with col_file4:
-        f1_macro_file = st.file_uploader("📋 4. BSA Duplicator File (Existence Check)", type=["xlsm", "xlsx"], key="macro_file")
+        obligation_file = st.file_uploader("📄 Upload F1 Obligation File (.xlsx)", type=["xlsx"], key="obligation_file")
+    with col_file3: # <-- NEW UPLOADER
+        overnight_file = st.file_uploader("📈 Upload Overnight Audience File (.xlsx)", type=["xlsx"], key="overnight_file") # <-- NEW
+    with col_file4: # <-- NEW UPLOADER
+        macro_file = st.file_uploader("📋 4. BSA Duplicator File", type=["xlsm", "xlsx"], key="macro_file") # <-- NEW
     
     st.write("---")
 
+    # Initialize check states in session_state if not present
     for key in all_market_check_keys.keys():
         if key not in st.session_state:
             st.session_state[key] = False
 
+    # --- Checkbox UI generation (unchanged) ---
     with st.expander("1. Channel and Territory Review", expanded=True):
         st.subheader("General Market Checks")
         st.checkbox(all_market_check_keys["check_latam_espn"], key="check_latam_espn")
         st.checkbox(all_market_check_keys["check_italy_mexico"], key="check_italy_mexico")
+        
         st.subheader("Specific Channel Checks (against uploaded file)")
-        st.checkbox(all_market_check_keys["check_channel4plus1"], key="check_channel4plus1")
-        st.checkbox(all_market_check_keys["check_espn4_bsa"], key="check_espn4_bsa")
-        st.checkbox(all_market_check_keys["check_f1_obligations"], key="check_f1_obligations") 
-        st.checkbox(all_market_check_keys["apply_duplication_weights"], key="apply_duplication_weights") 
+        # st.checkbox(all_market_check_keys["check_channel4plus1"], key="check_channel4plus1")
+        # st.checkbox(all_market_check_keys["check_espn4_bsa"], key="check_espn4_bsa")
+        st.checkbox(all_market_check_keys["check_f1_obligations"], key="check_f1_obligations") # <--- F1 Check
+        # st.checkbox(all_market_check_keys["apply_duplication_weights"], key="apply_duplication_weights") # <--- F1 Check
         st.checkbox(all_market_check_keys["check_session_completeness"], key="check_session_completeness")
-        st.checkbox(all_market_check_keys["impute_program_type"], key="impute_program_type")
+        # st.checkbox(all_market_check_keys["impute_program_type"], key="impute_program_type")
         st.checkbox(all_market_check_keys["duration_limits"], key="duration_limits")
         st.checkbox(all_market_check_keys["live_date_integrity"], key="live_date_integrity")
-        st.checkbox(all_market_check_keys["update_audience_from_overnight"], key="update_audience_from_overnight") 
-        st.checkbox(all_market_check_keys["dup_channel_existence"], key="dup_channel_existence")
+        st.checkbox(all_market_check_keys["update_audience_from_overnight"], key="update_audience_from_overnight") # <-- NEW
+        
+        st.checkbox(all_market_check_keys["dup_channel_existence"], key="dup_channel_existence") # <-- NEW CHECKBOX
 
-    with st.expander("2. Broadcaster/Platform Coverage (BROADCASTER/GLOBAL)"):
-        st.subheader("Global/Platform Adds")
-        st.checkbox(all_market_check_keys["check_youtube_global"], key="check_youtube_global")
-        st.subheader("Individual Broadcaster Confirmations")
-        st.checkbox(all_market_check_keys["check_pan_mena"], key="check_pan_mena")
-        st.checkbox(all_market_check_keys["check_china_tencent"], key="check_china_tencent")
-        st.checkbox(all_market_check_keys["check_czech_slovakia"], key="check_czech_slovakia")
-        st.checkbox(all_market_check_keys["check_ant1_greece"], key="check_ant1_greece")
-        st.checkbox(all_market_check_keys["check_india"], key="check_india")
-        st.checkbox(all_market_check_keys["check_usa_espn"], key="check_usa_espn")
-        st.checkbox(all_market_check_keys["check_dazn_japan"], key="check_dazn_japan")
-        st.checkbox(all_market_check_keys["check_aztv"], key="check_aztv")
-        st.checkbox(all_market_check_keys["check_rush_caribbean"], key="check_rush_caribbean")
+    # ... (rest of the checkboxes remain here) ...
+    # with st.expander("2. Broadcaster/Platform Coverage (BROADCASTER/GLOBAL)"):
+    #     st.subheader("Global/Platform Adds")
+    #     st.checkbox(all_market_check_keys["check_youtube_global"], key="check_youtube_global")
+        
+    #     st.subheader("Individual Broadcaster Confirmations")
+    #     st.checkbox(all_market_check_keys["check_pan_mena"], key="check_pan_mena")
+    #     st.checkbox(all_market_check_keys["check_china_tencent"], key="check_china_tencent")
+    #     st.checkbox(all_market_check_keys["check_czech_slovakia"], key="check_czech_slovakia")
+    #     st.checkbox(all_market_check_keys["check_ant1_greece"], key="check_ant1_greece")
+    #     st.checkbox(all_market_check_keys["check_india"], key="check_india")
+    #     st.checkbox(all_market_check_keys["check_usa_espn"], key="check_usa_espn")
+    #     st.checkbox(all_market_check_keys["check_dazn_japan"], key="check_dazn_japan")
+    #     st.checkbox(all_market_check_keys["check_aztv"], key="check_aztv")
+    #     st.checkbox(all_market_check_keys["check_rush_caribbean"], key="check_rush_caribbean")
 
 
     with st.expander("3. Removals and Recreations"):
@@ -328,96 +544,155 @@ with f1_tab:
         st.checkbox(all_market_check_keys["remove_montenegro"], key="remove_montenegro")
         st.checkbox(all_market_check_keys["remove_brazil_espn_fox"], key="remove_brazil_espn_fox")
         st.checkbox(all_market_check_keys["remove_switz_canal"], key="remove_switz_canal")
-        # --- THIS IS THE FIXED LINE ---
         st.checkbox(all_market_check_keys["remove_viaplay_baltics"], key="remove_viaplay_baltics")
-        st.subheader("Recreations (Check for full market coverage)")
-        st.checkbox(all_market_check_keys["recreate_viaplay"], key="recreate_viaplay")
-        st.checkbox(all_market_check_keys["recreate_disney_latam"], key="recreate_disney_latam")
+
+        # st.subheader("Recreations (Check for full market coverage)")
+        # st.checkbox(all_market_check_keys["recreate_viaplay"], key="recreate_viaplay")
+        # st.checkbox(all_market_check_keys["recreate_disney_latam"], key="recreate_disney_latam")
         
     st.write("---")
 
-    if st.button("⚙️ Apply Selected Checks"):
+
+    # --- Run Processing Button (UNTOUCHED) ---
+    if st.button(" Apply Selected Checks"):
         
         active_checks = [key for key in all_market_check_keys.keys() if st.session_state[key]]
         
-        if f1_bsr_file is None:
+        # Check mandatory files
+        if market_check_file is None:
             st.error("⚠️ Please upload a BSR file before applying checks.")
-        elif "check_f1_obligations" in active_checks and f1_obligation_file is None:
+        elif "check_f1_obligations" in active_checks and obligation_file is None:
             st.error("⚠️ **F1 Obligation Check Selected:** Please upload the F1 Obligation File.")
-        elif "update_audience_from_overnight" in active_checks and f1_overnight_file is None:
-            st.error("⚠️ Audience Upscale Check Selected: Please upload the Overnight Audience File.")
-        elif "dup_channel_existence" in active_checks and f1_macro_file is None:
+        elif "update_audience_from_overnight" in active_checks and overnight_file is None: # <-- NEW CHECK
+            st.error("⚠️ Audience Upscale Check Selected: Please upload the Overnight Audience File.") # <-- NEW ERROR MESSAGE
+        elif "dup_channel_existence" in active_checks and macro_file is None: # <-- NEW DEPENDENCY CHECK
             st.error("⚠️ Duplication Channel Existence Check Selected: Please upload the BSA Macro Duplicator File.")
         else:
-            with st.spinner(f"Applying {len(active_checks)} checks..."):
-                try:
-                    # --- Save files temporarily ---
-                    bsr_file_path = os.path.join(UPLOAD_FOLDER, f1_bsr_file.name)
-                    with open(bsr_file_path, "wb") as f: f.write(f1_bsr_file.getbuffer())
-                    
-                    obligation_path = None
-                    if f1_obligation_file:
-                        obligation_path = os.path.join(UPLOAD_FOLDER, f1_obligation_file.name)
-                        with open(obligation_path, "wb") as f: f.write(f1_obligation_file.getbuffer())
-                    
-                    overnight_path = None
-                    if f1_overnight_file:
-                        overnight_path = os.path.join(UPLOAD_FOLDER, f1_overnight_file.name)
-                        with open(overnight_path, "wb") as f: f.write(f1_overnight_file.getbuffer())
-                    
-                    macro_path = None
-                    if f1_macro_file:
-                        macro_path = os.path.join(UPLOAD_FOLDER, f1_macro_file.name)
-                        with open(macro_path, "wb") as f: f.write(f1_macro_file.getbuffer())
-
-                    # --- Run F1 Logic Directly ---
-                    validator = BSRValidator(
-                        bsr_path=bsr_file_path, 
-                        obligation_path=obligation_path, 
-                        overnight_path=overnight_path, 
-                        macro_path=macro_path
-                    ) 
-                    
-                    status_summaries = validator.market_check_processor(active_checks)
-                    
-                    df_processed = validator.df
-                    
-                    # --- Generate Output File ---
-                    output_filename = f"Processed_BSR_{os.path.splitext(f1_bsr_file.name)[0]}_{int(time.time())}.xlsx"
-                    output_path = os.path.join(OUTPUT_FOLDER, output_filename)
-                    
-                    df_processed.to_excel(output_path, index=False)
-                    
-                    st.success(f"✅ F1 checks completed successfully!")
-                    
-                    # --- Display Summaries ---
-                    st.subheader("Processing Summary")
-                    if status_summaries:
-                        # Re-format summaries for display
-                        display_summaries = []
-                        for s in status_summaries:
-                            if isinstance(s, dict):
-                                display_summaries.append({
-                                    "Check": s.get('check_key', 'N/A'),
-                                    "Status": s.get('status', 'N/A'),
-                                    "Description": s.get('description', 'N/A'),
-                                    "Details": str(s.get('details', 'No details'))
-                                })
-                        
-                        df_summary = pd.DataFrame(display_summaries)
-                        st.dataframe(df_summary, use_container_width=True)
-                    else:
-                        st.info("No specific operational summaries were returned.")
-
-                    # --- Provide Download Button ---
-                    st.markdown("---")
-                    with open(output_path, "rb") as f:
-                        st.download_button(
-                            label="📥 Download Processed F1 File",
-                            data=f,
-                            file_name=output_filename,
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
+            with st.spinner(f"Applying {len(active_checks)} checks on the backend..."):
                 
-                except Exception as e:
-                    st.error(f"❌ An error occurred during F1 checks: {e}")
+                # 2. Prepare files for backend
+                files = {
+                    'bsr_file': (market_check_file.name, market_check_file.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                }
+                
+                # CONDITIONAL ADDITION OF OBLIGATION FILE
+                if obligation_file:
+                    files['obligation_file'] = (obligation_file.name, obligation_file.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+                # CONDITIONAL ADDITION OF OVERNIGHT FILE <--- NEW LOGIC
+                if overnight_file:
+                    files['overnight_file'] = (overnight_file.name, overnight_file.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+                if macro_file: # <-- ADD NEW FILE TO REQUEST
+                    files['macro_file'] = (macro_file.name, macro_file.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+                # Send active checks as form data
+                data = {'checks': active_checks} 
+
+                try:
+                    # 3. Call the backend endpoint
+                    response = requests.post(
+                        f"{BACKEND_URL}/market_check_and_process", 
+                        files=files, 
+                        data=data,
+                        timeout=600
+                    )
+
+                    if response.status_code == 200:
+                        # 4. Success: Handle the JSON response (unchanged)
+                        try:
+                            result_json = response.json()
+                            summaries = result_json.get("summaries", [])
+                            download_url_suffix = result_json.get("download_url")
+                            message = result_json.get("message", "Processing complete.")
+                            
+                            # Construct the full download URL using the base URL
+                            full_download_url = f"http://localhost:8000{download_url_suffix}"
+
+                            st.success(f"✅ Checks completed successfully! {message}")
+                            
+                            # --- Display Summaries ---
+                            st.subheader("Processing Summary")
+                            if summaries:
+                                # ... (summary display logic unchanged) ...
+                                df_summary = pd.DataFrame(summaries)
+                                
+                                df_summary_display = df_summary.copy()
+
+                                if 'details' in df_summary.columns:
+                                    
+                                    df_summary_display['Market'] = df_summary['details'].apply(
+                                        lambda d: d.get('market_affected', d.get('markets_context', 'Global/N/A'))
+                                    )
+                                    
+                                    def get_change_count(d):
+                                        if 'rows_removed' in d: return d['rows_removed']
+                                        if 'total_issues_flagged' in d: return d['total_issues_flagged']
+                                        if 'rows_added' in d: return d['rows_added']
+                                        if 'broadcasters_missing' in d: return d['broadcasters_missing'] 
+                                        return 0
+                                        
+                                    df_summary_display['Change Count'] = df_summary['details'].apply(get_change_count)
+                                    
+                                    df_summary_display = df_summary_display.rename(columns={
+                                        "description": "Operation", 
+                                        "status": "Status"
+                                    })
+                                    
+                                    df_summary_display = df_summary_display[[
+                                        'Status', 
+                                        'Operation', 
+                                        'Market', 
+                                        'Change Count', 
+                                        'check_key'
+                                    ]].set_index('check_key')
+                                else:
+                                    df_summary_display = df_summary_display.rename(columns={
+                                        "description": "Operation", 
+                                        "status": "Status"
+                                    })
+                                    if 'check_key' in df_summary_display.columns:
+                                            df_summary_display = df_summary_display[['Status', 'Operation', 'check_key']].set_index('check_key')
+                                            
+                                st.dataframe(df_summary_display, use_container_width=True)
+                                
+                                # --- Display Duplicates Dataframe (UNCHANGED) ---
+                                dupe_summary = next((s for s in summaries if s.get('check_key') == 'check_italy_mexico' and s['details'].get('duplicate_data')), None)
+                                
+                                if dupe_summary and dupe_summary['details']['duplicate_data']:
+                                    duplicate_data = dupe_summary['details']['duplicate_data']
+                                    st.subheader("⚠️ Duplicate Rows Found and Consolidated (Italy/Mexico)")
+                                    
+                                    duplicates_df = pd.DataFrame(duplicate_data)
+                                    st.dataframe(duplicates_df, use_container_width=True)
+                                    st.caption(
+                                        f"The table above shows {len(duplicates_df)} rows involved in the duplicate sets (including the one kept). "
+                                        f"**{dupe_summary['details'].get('rows_removed', 0)}** rows were removed."
+                                    )
+
+                            else:
+                                st.info("No specific operational summaries were returned.")
+
+                            # --- Provide Download Button (UNCHANGED) ---
+                            if download_url_suffix:
+                                st.markdown("---")
+                                st.markdown(
+                                    f'### 📥 Download Processed File <a href="{full_download_url}" download>Click Here to Download</a>',
+                                    unsafe_allow_html=True
+                                )
+                            else:
+                                st.warning("Processed file download link was not generated. Check backend logs.")
+
+                        except (requests.JSONDecodeError, KeyError) as e:
+                            st.error(f"❌ Failed to parse JSON response from backend. Error: {e}")
+                        
+                    else:
+                        # 5. Handle Backend Error
+                        try:
+                            error_detail = response.json().get("detail", "Unknown error occurred during check execution.")
+                        except requests.JSONDecodeError:
+                            error_detail = response.text
+                        st.error(f"❌ Backend Processing Error ({response.status_code}): {error_detail}")
+
+                except requests.exceptions.RequestException as e:
+                    st.error(f"❌ Connection Error: Could not reach the backend. Error: {e}")
