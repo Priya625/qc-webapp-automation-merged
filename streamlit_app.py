@@ -390,9 +390,11 @@ with main_qc_tab:
                     df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
                     df = qc_general.country_channel_id_check(df, col_map["bsr"])
                     df = qc_general.client_lstv_ott_check(df, col_map["bsr"], rules.get("client_check", {}))
-                    df = qc_general.rates_and_ratings_check(df, col_map["bsr"])  # backend does this twice
+                    # df = qc_general.rates_and_ratings_check(df, col_map["bsr"])  # Removed redundant call
 
                     # Duplicated Market BEFORE overlap/daybreak (as api.py)
+                    # The second argument is for the 'macro_path'. In General QC, this is None.
+                    # We maintain the argument count as per qc_checks_1.py definition (5 positional, 1 keyword).
                     df = qc_general.duplicated_market_check(df, None, project_rules, col_map, file_rules, debug=False)
 
                     df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules.get("overlap_check", {}))
@@ -530,7 +532,7 @@ with f1_tab:
     with c2:
         f1_obligation = st.file_uploader("Obligation File (.xlsx)", type=["xlsx"], key="f1_ob")
     with c3:
-        f1_overnight = st.file_uploader("Overnight File (.xlsx)", type=["xlsx"], key="f1_on")
+        f1_overnight = st.file_uploader("Overnight File (.xlsx)", type=["xlsx"), key="f1_on")
     with c4:
         f1_macro = st.file_uploader("Macro File (.xlsx/.xlsm)", type=["xlsm", "xlsx", "xls", "xlsb"], key="f1_macro")
 
