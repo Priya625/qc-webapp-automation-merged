@@ -180,7 +180,7 @@ def period_check(df, start_date, end_date, bsr_cols):
 
 
 # ----------------------------- 4️⃣ Completeness Check -----------------------------
-def completeness_check(df, bsr_cols, rules):
+def completeness_check(df, bsr_cols, rules=None):
     
     # --- Map logical names to actual columns (from config) ---
     colmap = {
@@ -1295,4 +1295,3 @@ def generate_summary_sheet(output_path, df, file_rules):
         ws.append(r)
     wb.save(output_path)
 
-    
