@@ -26,17 +26,18 @@ def resolve_backend_url():
     if "STREAMLIT_BACKEND_URL" in st.secrets:
         url = st.secrets["STREAMLIT_BACKEND_URL"].strip()
     else:
-        # 2️⃣ Next fallback: OS environment variable
+        # 2️⃣ Otherwise use OS environment variable
         url = os.environ.get("STREAMLIT_BACKEND_URL", "").strip()
 
-    # 3️⃣ Validate: Must be valid URL + NOT a GitHub page
+    # 3️⃣ Validate URL and reject GitHub pages
     if url and re.match(r"^https?://", url) and "github.com" not in url:
-        return url.rstrip("/")  
+        return url.rstrip("/")
     else:
-        return None  
+        return None
 
+# Final backend URLs
 BACKEND_BASE_URL = resolve_backend_url()
-BACKEND_URL = BACKEND_BASE_URL + "/api" if BACKEND_BASE_URL else NoneBACKEND_URL = BACKEND_BASE_URL + "/api"
+BACKEND_URL = BACKEND_BASE_URL + "/api" if BACKEND_BASE_URL else None
 
 
 # --- Import ALL QC functions from ALL your files ---
@@ -629,7 +630,7 @@ with f1_tab:
                     if BACKEND_URL is None:
                         st.error("❌ Backend is not configured. Please set STREAMLIT_BACKEND_URL in Streamlit Secrets.")
                         st.stop()
-                        
+
                     # 3. Call the backend endpoint
                     response = requests.post(
                         f"{BACKEND_URL}/market_check_and_process", 
