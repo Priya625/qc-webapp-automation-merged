@@ -336,68 +336,100 @@ with home_page_tab:
 # -----------------------------------------------------------
 
 with main_qc_tab:
-    st.header("QC File Uploader")
-    st.markdown("Upload your **Rosco** and **BSR** files below. This will run the 9 general QC checks.")
+    st.header("🧪 General QC Automation (9 Checks)")
 
     col1, col2 = st.columns(2)
     with col1:
-        main_rosco_file = st.file_uploader("📘 Upload Rosco File (.xlsx)", type=["xlsx"], key="main_rosco")
+        rosco_file = st.file_uploader("Upload Rosco (.xlsx)", type=["xlsx"], key="g_rosco")
     with col2:
-        main_bsr_file = st.file_uploader("📗 Upload BSR File (.xlsx)", type=["xlsx"], key="main_bsr")
-    
-    st.write("---")
+        bsr_file = st.file_uploader("Upload BSR (.xlsx)", type=["xlsx"], key="g_bsr")
 
-    if st.button("🚀 Run General QC Checks"):
-        if not main_rosco_file or not main_bsr_file or not config:
-            st.error("⚠️ Please upload both Rosco and BSR files (and ensure config.json is loaded).")
+    if st.button("▶ Run General QC"):
+        if not rosco_file or not bsr_file:
+            st.error("Please upload both Rosco and BSR files.")
         else:
-            with st.spinner("Running General QC checks... Please wait ⏳"):
-                try:
-                    # Load config
-                    col_map = config["column_mappings"]
-                    rules = config["qc_rules"]
-                    file_rules = config["file_rules"]
-                    
-                    # Save files temporarily
-                    rosco_path = os.path.join(UPLOAD_FOLDER, main_rosco_file.name)
-                    bsr_path = os.path.join(UPLOAD_FOLDER, main_bsr_file.name)
-                    with open(rosco_path, "wb") as f: f.write(main_rosco_file.getbuffer())
-                    with open(bsr_path, "wb") as f: f.write(main_bsr_file.getbuffer())
+            with st.spinner("Running General QC..."):
 
-                                        # --- Run YOUR 9 QC Checks Directly ---
+                # Load config
+                col_map = config["column_mappings"]
+                rules = config["qc_rules"]
+                file_rules = config["file_rules"]
+                project_rules = config.get("project_rules", {})
+
+                # Save uploaded files
+                rosco_path = os.path.join(UPLOAD_FOLDER, rosco_file.name)
+                bsr_path = os.path.join(UPLOAD_FOLDER, bsr_file.name)
+
+                with open(rosco_path, "wb") as f:
+                    f.write(rosco_file.getbuffer())
+                with open(bsr_path, "wb") as f:
+                    f.write(bsr_file.getbuffer())
+
+                try:
+                    # ---- EXACT LOGIC FROM api.py/run_general_qc ----
                     start_date, end_date = qc_general.detect_period_from_rosco(rosco_path)
                     df = qc_general.load_bsr(bsr_path, col_map["bsr"])
 
+                    # Cleaning (avoid deprecated applymap: use replace + string-strip)
+                    # Replace NBSP and then strip string columns
+                    df.columns = df.columns.str.strip().str.replace("\xa0", " ", regex=True)
+                    # replace NBSP in string values
+                    df = df.replace("\xa0", " ", regex=True)
+                    # strip whitespace from object/string columns
+                    for c in df.select_dtypes(include=["object"]).columns:
+                        df[c] = df[c].astype(str).str.strip().replace("nan", pd.NA)
+
+                    df.rename(columns={"Start(UTC)": "Start (UTC)", "End(UTC)": "End (UTC)"}, inplace=True)
+
+                    # Execution order EXACT AS BACKEND:
                     df = qc_general.period_check(df, start_date, end_date, col_map["bsr"])
-                    df = qc_general.completeness_check(df, col_map["bsr"], rules)  # FIXED
-                    df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules.get("overlap_check", {}))  # FIXED
-                    df = qc_general.program_category_check(bsr_path, df, col_map, rules["program_category"], file_rules)
+                    df = qc_general.completeness_check(df, col_map["bsr"], rules)
+                    df = qc_general.program_category_check(bsr_path, df, col_map, rules.get("program_category", {}), file_rules)
                     df = qc_general.check_event_matchday_competition(df, bsr_path, col_map, file_rules)
                     df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
+                    df = qc_general.domestic_market_check(df, project_rules, col_map["bsr"], debug=False)
                     df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
                     df = qc_general.country_channel_id_check(df, col_map["bsr"])
-                    df = qc_general.client_lstv_ott_check(df, col_map["bsr"], rules["client_check"])
+                    df = qc_general.client_lstv_ott_check(df, col_map["bsr"], rules.get("client_check", {}))
+                    df = qc_general.rates_and_ratings_check(df, col_map["bsr"])  # backend does this twice
 
-                    # --- Generate Output File ---
-                    output_file = f"General_QC_Result_{os.path.splitext(main_bsr_file.name)[0]}.xlsx"
+                    # Duplicated Market BEFORE overlap/daybreak (as api.py)
+                    df = qc_general.duplicated_market_check(df, None, project_rules, col_map, file_rules, debug=False)
+
+                    df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules.get("overlap_check", {}))
+
+                    # Output
+                    output_file = f"General_QC_Result_{os.path.splitext(bsr_file.name)[0]}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_file)
 
-                    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-                        df.to_excel(writer, index=False, sheet_name="QC Results")
+                    # Remove tz info if present
+                    for col in df.select_dtypes(include=["datetimetz"]).columns:
+                        try:
+                            if hasattr(df[col].dt, "tz"):
+                                df[col] = df[col].dt.tz_convert(None)
+                        except Exception:
+                            pass
 
-                    qc_general.color_excel(output_path, df)
-                    qc_general.generate_summary_sheet(output_path, df, file_rules)
-                    
-                    st.success("✅ General QC completed successfully!")
+                    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+                        df.to_excel(writer, index=False, sheet_name=file_rules.get("output_sheet_name", "QC Results"))
+
+                    # Post-processing formatting & summary
+                    try:
+                        qc_general.color_excel(output_path, df)
+                    except Exception as e:
+                        st.warning(f"color_excel warning: {e}")
+                    try:
+                        qc_general.generate_summary_sheet(output_path, df, file_rules)
+                    except Exception as e:
+                        st.warning(f"generate_summary_sheet warning: {e}")
+
+                    st.success("General QC Completed Successfully")
                     with open(output_path, "rb") as f:
-                        st.download_button(
-                            label="📥 Download General QC Result",
-                            data=f,
-                            file_name=output_file,
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
+                        st.download_button("Download General QC Result", f, file_name=output_file,
+                                          mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
                 except Exception as e:
-                    st.error(f"❌ An error occurred during General QC: {e}")
+                    st.error(f"Error during General QC: {e}")
 
 
 # -----------------------------------------------------------
@@ -405,78 +437,87 @@ with main_qc_tab:
 # -----------------------------------------------------------
 
 with laliga_qc_tab:
-    st.header("⚽ Laliga Specific QC Checks")
-    st.markdown("Upload your **Rosco**, **BSR**, and **Macro Duplicator** files. This will run all 11 QC checks.")
+    st.header("⚽ LaLiga QC Automation (11 Checks)")
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        laliga_rosco_file = st.file_uploader("📘 Upload Rosco File (.xlsx)", type=["xlsx"], key="laliga_rosco")
-    with col2:
-        laliga_bsr_file = st.file_uploader("📗 Upload BSR File (.xlsx)", type=["xlsx"], key="laliga_bsr")
-    with col3:
-        laliga_macro_file = st.file_uploader("📒 Upload Macro Duplicator File", type=["xlsx","xls","xlsm","xlsb"], key="laliga_macro")
-    
-    st.write("---")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        ll_rosco = st.file_uploader("Upload Rosco (.xlsx)", type=["xlsx"], key="ll_rosco")
+    with c2:
+        ll_bsr = st.file_uploader("Upload BSR (.xlsx)", type=["xlsx"], key="ll_bsr")
+    with c3:
+        ll_macro = st.file_uploader("Upload Macro Duplicator", type=["xlsx", "xlsm", "xlsb"], key="ll_macro")
 
-    if st.button("⚙️ Run Laliga QC Checks"):
-        if not laliga_rosco_file or not laliga_bsr_file or not laliga_macro_file or not config:
-            st.error("⚠️ Please upload all three files (and ensure config.json is loaded).")
+    if st.button("▶ Run LaLiga QC"):
+        if not ll_rosco or not ll_bsr or not ll_macro:
+            st.error("Please upload Rosco, BSR & Macro files.")
         else:
-            with st.spinner("Running all 11 Laliga QC checks..."):
+            with st.spinner("Running LaLiga QC..."):
+                col_map = config["column_mappings"]
+                rules = config["qc_rules"]
+                project = config["project_rules"]
+                file_rules = config["file_rules"]
+
+                rosco_path = os.path.join(UPLOAD_FOLDER, ll_rosco.name)
+                bsr_path = os.path.join(UPLOAD_FOLDER, ll_bsr.name)
+                macro_path = os.path.join(UPLOAD_FOLDER, ll_macro.name)
+
+                for f, p in [(ll_rosco, rosco_path), (ll_bsr, bsr_path), (ll_macro, macro_path)]:
+                    with open(p, "wb") as fh:
+                        fh.write(f.getbuffer())
+
                 try:
-                    # Load config
-                    col_map = config["column_mappings"]
-                    rules = config["qc_rules"]
-                    project = config["project_rules"]
-                    file_rules = config["file_rules"]
-                    
-                    # Save files temporarily
-                    rosco_path = os.path.join(UPLOAD_FOLDER, laliga_rosco_file.name)
-                    bsr_path = os.path.join(UPLOAD_FOLDER, laliga_bsr_file.name)
-                    macro_path = os.path.join(UPLOAD_FOLDER, laliga_macro_file.name)
-                    with open(rosco_path, "wb") as f: f.write(laliga_rosco_file.getbuffer())
-                    with open(bsr_path, "wb") as f: f.write(laliga_bsr_file.getbuffer())
-                    with open(macro_path, "wb") as f: f.write(laliga_macro_file.getbuffer())
-                    
-                    # --- Run YOUR 11 QC Checks Directly ---
+                    # ---- EXACT LOGIC FROM api.py/run_laliga_qc ----
                     start_date, end_date = qc_general.detect_period_from_rosco(rosco_path)
                     df = qc_general.load_bsr(bsr_path, col_map["bsr"])
 
-                    # Run the 9 General Checks
+                    df.columns = df.columns.str.strip().str.replace("\xa0", " ", regex=True)
+                    df = df.replace("\xa0", " ", regex=True)
+                    for c in df.select_dtypes(include=["object"]).columns:
+                        df[c] = df[c].astype(str).str.strip().replace("nan", pd.NA)
+                    df.rename(columns={"Start(UTC)": "Start (UTC)", "End(UTC)": "End (UTC)"}, inplace=True)
+
                     df = qc_general.period_check(df, start_date, end_date, col_map["bsr"])
-                    df = qc_general.completeness_check(df, col_map["bsr"], rules["program_category"])
-                    df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules["overlap_check"])
-                    df = qc_general.program_category_check(bsr_path, df, col_map, rules["program_category"], file_rules)
+                    df = qc_general.completeness_check(df, col_map["bsr"], rules)
+                    df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules.get("overlap_check", {}))
+                    df = qc_general.program_category_check(bsr_path, df, col_map, rules.get("program_category", {}), file_rules)
                     df = qc_general.check_event_matchday_competition(df, bsr_path, col_map, file_rules)
                     df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
                     df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
                     df = qc_general.country_channel_id_check(df, col_map["bsr"])
-                    df = qc_general.client_lstv_ott_check(df, col_map["bsr"], rules["client_check"])
-                    
-                    # Run the 2 Laliga-Specific Checks
-                    df = qc_general.domestic_market_check(df, project, col_map["bsr"], debug=True)
-                    df = qc_general.duplicated_market_check(df, macro_path, project, col_map, file_rules, debug=True)
+                    df = qc_general.client_lstv_ott_check(df, col_map["bsr"], rules.get("client_check", {}))
 
-                    # --- Generate Output File ---
-                    output_file = f"Laliga_QC_Result_{os.path.splitext(laliga_bsr_file.name)[0]}.xlsx"
+                    df = qc_general.domestic_market_check(df, project, col_map["bsr"], debug=False)
+                    df = qc_general.duplicated_market_check(df, macro_path, project, col_map, file_rules, debug=False)
+
+                    df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules.get("overlap_check", {}))
+
+                    # Output
+                    output_file = f"Laliga_QC_Result_{os.path.splitext(ll_bsr.name)[0]}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_file)
 
-                    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-                        df.to_excel(writer, index=False, sheet_name="Laliga QC Results")
+                    for col in df.select_dtypes(include=["datetimetz"]).columns:
+                        try:
+                            if hasattr(df[col].dt, "tz"):
+                                df[col] = df[col].dt.tz_convert(None)
+                        except Exception:
+                            pass
 
-                    qc_general.color_excel(output_path, df)
-                    qc_general.generate_summary_sheet(output_path, df, file_rules)
-                    
-                    st.success("✅ Laliga QC completed successfully!")
+                    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+                        df.to_excel(writer, index=False, sheet_name=file_rules.get("output_sheet_name", "Laliga QC Results"))
+
+                    try:
+                        qc_general.color_excel(output_path, df)
+                        qc_general.generate_summary_sheet(output_path, df, file_rules)
+                    except Exception as e:
+                        st.warning(f"Postprocessing warning: {e}")
+
+                    st.success("LaLiga QC Completed Successfully")
                     with open(output_path, "rb") as f:
-                        st.download_button(
-                            label="📥 Download Laliga QC Result",
-                            data=f,
-                            file_name=output_file,
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
+                        st.download_button("Download LaLiga QC Result", f, file_name=output_file,
+                                          mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
                 except Exception as e:
-                    st.error(f"❌ An error occurred during Laliga QC: {e}")
+                    st.error(f"Error during LaLiga QC: {e}")
 
 # -----------------------------------------------------------
 #        🏎️ F1 MARKET SPECIFIC CHECKS TAB 
