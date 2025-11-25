@@ -144,10 +144,6 @@ all_market_check_keys = {
 }
 
 
-<<<<<<< HEAD
-=======
-
->>>>>>> 4df4bd37f29e5c80c5783fead917b3425e8e9605
 with home_page_tab:
     # --- Custom CSS for Styling ---
     st.markdown(
@@ -544,11 +540,6 @@ with f1_tab:
     #     st.checkbox(all_market_check_keys["check_youtube_global"], key="check_youtube_global")
         
     #     st.subheader("Individual Broadcaster Confirmations")
-<<<<<<< HEAD
-    #     st.checkbox(all_key["check_pan_mena"], key="check_pan_mena")
-=======
-    #     st.checkbox(all_market_check_keys["check_pan_mena"], key="check_pan_mena")
->>>>>>> 4df4bd37f29e5c80c5783fead917b3425e8e9605
     #     st.checkbox(all_market_check_keys["check_china_tencent"], key="check_china_tencent")
     #     st.checkbox(all_market_check_keys["check_czech_slovakia"], key="check_czech_slovakia")
     #     st.checkbox(all_market_check_keys["check_ant1_greece"], key="check_ant1_greece")
@@ -717,9 +708,6 @@ with f1_tab:
                         st.error(f"❌ Backend Processing Error ({response.status_code}): {error_detail}")
 
                 except requests.exceptions.RequestException as e:
-<<<<<<< HEAD
-                    st.error(f"❌ Connection Error: Could not reach the backend. Error: {e}")
-=======
                     st.error(f"❌ Connection Error: Could not reach the backend. Error: {e}")
 
 with epl_tab:
@@ -739,4 +727,3 @@ with epl_tab:
     
     st.markdown("---")
     st.markdown("Thank you for your patience!")
->>>>>>> 4df4bd37f29e5c80c5783fead917b3425e8e9605
