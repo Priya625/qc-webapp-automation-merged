@@ -357,68 +357,94 @@ with home_page_tab:
 # -----------------------------------------------------------
 
 with main_qc_tab:
-    st.header("QC File Uploader")
-    st.markdown("Upload your **Rosco** and **BSR** files below. This will run the 9 general QC checks.")
+    st.header("🧪 General QC Automation")
 
     col1, col2 = st.columns(2)
     with col1:
-        main_rosco_file = st.file_uploader("📘 Upload Rosco File (.xlsx)", type=["xlsx"], key="main_rosco")
+        rosco_file = st.file_uploader("Upload Rosco (.xlsx)", type=["xlsx"], key="g_rosco")
     with col2:
-        main_bsr_file = st.file_uploader("📗 Upload BSR File (.xlsx)", type=["xlsx"], key="main_bsr")
-    
-    st.write("---")
+        bsr_file = st.file_uploader("Upload BSR (.xlsx)", type=["xlsx"], key="g_bsr")
 
-    if st.button("🚀 Run General QC Checks"):
-        if not main_rosco_file or not main_bsr_file or not config:
-            st.error("⚠️ Please upload both Rosco and BSR files (and ensure config.json is loaded).")
+    if st.button("▶ Run General QC"):
+        if not rosco_file or not bsr_file:
+            st.error("Please upload both Rosco and BSR files.")
         else:
-            with st.spinner("Running General QC checks... Please wait ⏳"):
-                try:
-                    # Load config
-                    col_map = config["column_mappings"]
-                    rules = config["qc_rules"]
-                    file_rules = config["file_rules"]
-                    
-                    # Save files temporarily
-                    rosco_path = os.path.join(UPLOAD_FOLDER, main_rosco_file.name)
-                    bsr_path = os.path.join(UPLOAD_FOLDER, main_bsr_file.name)
-                    with open(rosco_path, "wb") as f: f.write(main_rosco_file.getbuffer())
-                    with open(bsr_path, "wb") as f: f.write(main_bsr_file.getbuffer())
+            with st.spinner("Running General QC..."):
 
-                    # --- Run YOUR 9 QC Checks Directly ---
+                col_map = config["column_mappings"]
+                rules = config["qc_rules"]
+                file_rules = config["file_rules"]
+                project_rules = config.get("project_rules", {})
+
+                rosco_path = os.path.join(UPLOAD_FOLDER, rosco_file.name)
+                bsr_path = os.path.join(UPLOAD_FOLDER, bsr_file.name)
+
+                with open(rosco_path, "wb") as f:
+                    f.write(rosco_file.getbuffer())
+                with open(bsr_path, "wb") as f:
+                    f.write(bsr_file.getbuffer())
+
+                try:
+                    # --- Run QC Pipeline (The 9 Checks) ---
                     start_date, end_date = qc_general.detect_period_from_rosco(rosco_path)
                     df = qc_general.load_bsr(bsr_path, col_map["bsr"])
-                    
+
+                    # Cleaning (as seen in your original code)
+                    df.columns = df.columns.str.strip().str.replace("\xa0", " ", regex=True)
+                    df = df.replace("\xa0", " ", regex=True)
+                    for c in df.select_dtypes(include=["object"]).columns:
+                        df[c] = df[c].astype(str).str.strip().replace("nan", pd.NA)
+                    df.rename(columns={"Start(UTC)": "Start (UTC)", "End(UTC)": "End (UTC)"}, inplace=True)
+
+                    # Execution order:
                     df = qc_general.period_check(df, start_date, end_date, col_map["bsr"])
-                    df = qc_general.completeness_check(df, col_map["bsr"], rules["program_category"])
-                    df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules["overlap_check"])
+                    df = qc_general.completeness_check(df, col_map["bsr"], rules["program_category"]) # Using rules["program_category"]
                     df = qc_general.program_category_check(bsr_path, df, col_map, rules["program_category"], file_rules)
                     df = qc_general.check_event_matchday_competition(df, bsr_path, col_map, file_rules)
                     df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
+                    df = qc_general.domestic_market_check(df, project_rules, col_map["bsr"], debug=False)
                     df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
                     df = qc_general.country_channel_id_check(df, col_map["bsr"])
                     df = qc_general.client_lstv_ott_check(df, col_map["bsr"], rules["client_check"])
+                    
+                    # Duplicated Market BEFORE overlap/daybreak (Macro is None for General QC)
+                    df = qc_general.duplicated_market_check(df, None, project_rules, col_map, file_rules, debug=False)
 
-                    # --- Generate Output File ---
-                    output_file = f"General_QC_Result_{os.path.splitext(main_bsr_file.name)[0]}.xlsx"
+                    df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules["overlap_check"])
+
+                    # Output
+                    output_file = f"General_QC_Result_{os.path.splitext(bsr_file.name)[0]}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_file)
 
-                    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-                        df.to_excel(writer, index=False, sheet_name="QC Results")
+                    # Remove tz info if present
+                    for col in df.select_dtypes(include=["datetimetz"]).columns:
+                        try:
+                            if hasattr(df[col].dt, "tz"):
+                                df[col] = df[col].dt.tz_convert(None)
+                        except Exception:
+                            pass
 
-                    qc_general.color_excel(output_path, df)
-                    qc_general.generate_summary_sheet(output_path, df, file_rules)
-                    
-                    st.success("✅ General QC completed successfully!")
+                    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+                        df.to_excel(writer, index=False, sheet_name=file_rules.get("output_sheet_name", "QC Results"))
+
+                    # Post-processing formatting & summary
+                    try:
+                        qc_general.color_excel(output_path, df)
+                    except Exception as e:
+                        st.warning(f"color_excel warning: {e}")
+                    try:
+                        qc_general.generate_summary_sheet(output_path, df, file_rules)
+                    except Exception as e:
+                        st.warning(f"generate_summary_sheet warning: {e}")
+
+                    st.success("General QC Completed Successfully")
                     with open(output_path, "rb") as f:
-                        st.download_button(
-                            label="📥 Download General QC Result",
-                            data=f,
-                            file_name=output_file,
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
+                        st.download_button("Download General QC Result", f, file_name=output_file,
+                                          mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
                 except Exception as e:
-                    st.error(f"❌ An error occurred during General QC: {e}")
+                    # This should now catch genuine QC errors, not argument errors
+                    st.error(f"Error during General QC: {e}")
 
 
 # -----------------------------------------------------------
@@ -500,7 +526,7 @@ with laliga_qc_tab:
                     st.error(f"❌ An error occurred during Laliga QC: {e}")
 
 # -----------------------------------------------------------
-#         🏎️ F1 MARKET SPECIFIC CHECKS TAB (COLLEAGUE'S LOGIC)
+#         🏎️ F1 MARKET SPECIFIC CHECKS TAB 
 # -----------------------------------------------------------
 with f1_tab:
     st.header(" Formula 1 Specific Checks")
