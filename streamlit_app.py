@@ -5,7 +5,6 @@ import os
 import time
 import shutil
 import json
-import requests  # <-- FIX 1: Added missing import
 from typing import Optional, List
 
 BACKEND_BASE_URL = os.environ.get("STREAMLIT_BACKEND_URL", "http://localhost:8000")
@@ -14,25 +13,37 @@ BACKEND_URL = BACKEND_BASE_URL + "/api"
 
 # --- Import ALL QC functions from ALL your files ---
 
-# Unified QC Engine (your 9 + 11 checks)
+# Your colleague's original F1/QC functions
+try:
+    from qc_checks import (
+        detect_period_from_rosco as rosco_detect_orig, # Alias to avoid conflict
+        load_bsr as load_bsr_orig,
+        period_check as period_check_orig,
+        completeness_check as completeness_check_orig,
+        overlap_duplicate_daybreak_check as overlap_orig,
+        program_category_check as program_cat_orig,
+        duration_check as duration_orig,
+        check_event_matchday_competition as event_matchday_orig,
+        market_channel_program_duration_check as market_channel_orig,
+        domestic_market_coverage_check as domestic_orig,
+        rates_and_ratings_check as rates_orig,
+        duplicated_markets_check as duplicated_orig,
+        country_channel_id_check as country_id_orig,
+        client_lstv_ott_check as client_lstv_orig,
+        color_excel as color_excel_orig,
+        generate_summary_sheet as summary_orig,
+    )
+    from C_data_processing_f1 import BSRValidator
+except ImportError as e:
+    st.error(f"Failed to import colleague's files (qc_checks.py, C_data_processing_f1.py): {e}")
+    st.stop()
+
+
+# Your 11-check QC functions
 try:
     import qc_checks_1 as qc_general
-except Exception as e:
-    st.error(f"Error importing qc_checks_1.py: {e}")
-    st.stop()
-
-# F1 Validator
-try:
-    from C_data_processing_f1 import BSRValidator
-except Exception as e:
-    st.error(f"Error importing C_data_processing_f1.py: {e}")
-    st.stop()
-
-# EPL Checks (pre + post)
-try:
-    import epl_checks
-except Exception as e:
-    st.error(f"Error importing epl_checks.py: {e}")
+except ImportError as e:
+    st.error(f"Failed to import your QC file (qc_checks_1.py): {e}")
     st.stop()
 
 
@@ -59,16 +70,8 @@ config = load_config()
 if config is None:
     st.stop()
 
-# --- FIX 2: Define the BACKEND_URL for the F1 Tab ---
-# This is the address of your *other* (Flask/FastAPI) backend.
-# Change "http://localhost:8000" if it runs elsewhere.
-BACKEND_URL = "http://localhost:8000"
-
-
 # -------------------- 🌐 Streamlit UI --------------------
 LOGO_PATH_4 = "images/Nielsen_Sports_logo.svg"
-# C:/Users/BHRAJG2501/Desktop/Nielsen_Sports_logo.svg
-
 # -------------------- 🌐 Streamlit UI --------------------
 st.set_page_config(page_title="NIELSEN QC Automation Portal", layout="wide")
 # st.title("  Nielsen Sports ")
@@ -83,7 +86,6 @@ except Exception:
 
 
 # --- Use Tabs for Clear Separation (MODIFIED) ---
-
 home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab , epl_tab= st.tabs([
     " Home Page", 
     " Main QC Automation", 
@@ -129,7 +131,26 @@ all_market_check_keys = {
     "remove_viaplay_baltics": "Remove viaplay from Latvia, Lithuania, Poland, and Estonia",
     "recreate_viaplay": "Viaplay: Recreate based on a full market of lives",
     "recreate_disney_latam": "Disney+ Latam: Recreate based on a full market of lives",
+
+    #EPL
 }
+
+all_market_check_keys_epl = {
+    "impute_lt_live_status": "L/T Live Imputation: Flag program type based on 'L/T' keyword in Combined col", # Using the L/T check key
+    "consolidate_gillete_soccer": "Program Consolidation: Flag sequential 'Gillete Soccer' programs for merging (Gap <= 30min)",
+    "check_sky_showcase_live": "Sky Showcase Live Status Check (UK)",
+    "standardize_uk_ire_region" : "Region Standardization: Correct UK/Ireland Region field to 'Europe' and standardize market names",
+    "check_fixture_vs_case" : "Checks for Capital VS AND Small vs",
+    "check_pan_balkans_serbia_parity" : "Checks equal count in pan_balkans and serbia",
+    "audit_multi_match_status" : "Checking for these keywords 'GOAL RUSH', 'KONFERENZ', 'CONFERENCE'",
+    "check_date_time_format_integrity" : "Checking Time Integrity",
+    "check_live_broadcast_uniqueness" : "Checking 1 live for based on these col 'Market', 'TV-Channel', 'Competition', 'Date'",
+    "audit_channel_line_item_count" : "Channel line item count (New Tab)",
+    "check_combined_archive_status" : "Flag any row with archive in Combined column",
+    "suppress_duplicated_audience" : "Flag if it is a Duplicated Market and has audience "
+
+}
+
 
 
 with home_page_tab:
@@ -331,366 +352,560 @@ with home_page_tab:
     st.markdown("<div style='margin-bottom: 50px;'></div>", unsafe_allow_html=True)
 
 
-###########################################################
-#                    GENERAL QC (9 CHECKS)
-###########################################################
+# -----------------------------------------------------------
+#        ✅ MAIN QC AUTOMATION TAB (YOUR 9 CHECKS)
+# -----------------------------------------------------------
+
 with main_qc_tab:
-    st.header("🧪 General QC Automation")
+    st.header("QC File Uploader")
+    st.markdown("Upload your **Rosco** and **BSR** files below. This will run the 9 general QC checks.")
 
     col1, col2 = st.columns(2)
     with col1:
-        rosco_file = st.file_uploader("Upload Rosco (.xlsx)", type=["xlsx"], key="g_rosco")
+        main_rosco_file = st.file_uploader("📘 Upload Rosco File (.xlsx)", type=["xlsx"], key="main_rosco")
     with col2:
-        bsr_file = st.file_uploader("Upload BSR (.xlsx)", type=["xlsx"], key="g_bsr")
+        main_bsr_file = st.file_uploader("📗 Upload BSR File (.xlsx)", type=["xlsx"], key="main_bsr")
+    
+    st.write("---")
 
-    if st.button("▶ Run General QC"):
-        if not rosco_file or not bsr_file:
-            st.error("Please upload both Rosco and BSR files.")
+    if st.button("🚀 Run General QC Checks"):
+        if not main_rosco_file or not main_bsr_file or not config:
+            st.error("⚠️ Please upload both Rosco and BSR files (and ensure config.json is loaded).")
         else:
-            with st.spinner("Running General QC..."):
-
-                # Load config
-                col_map = config["column_mappings"]
-                rules = config["qc_rules"]
-                file_rules = config["file_rules"]
-                project_rules = config.get("project_rules", {})
-
-                # Save uploaded files
-                rosco_path = os.path.join(UPLOAD_FOLDER, rosco_file.name)
-                bsr_path = os.path.join(UPLOAD_FOLDER, bsr_file.name)
-
-                with open(rosco_path, "wb") as f:
-                    f.write(rosco_file.getbuffer())
-                with open(bsr_path, "wb") as f:
-                    f.write(bsr_file.getbuffer())
-
+            with st.spinner("Running General QC checks... Please wait ⏳"):
                 try:
-                    # ---- EXACT LOGIC FROM api.py/run_general_qc ----
+                    # Load config
+                    col_map = config["column_mappings"]
+                    rules = config["qc_rules"]
+                    file_rules = config["file_rules"]
+                    
+                    # Save files temporarily
+                    rosco_path = os.path.join(UPLOAD_FOLDER, main_rosco_file.name)
+                    bsr_path = os.path.join(UPLOAD_FOLDER, main_bsr_file.name)
+                    with open(rosco_path, "wb") as f: f.write(main_rosco_file.getbuffer())
+                    with open(bsr_path, "wb") as f: f.write(main_bsr_file.getbuffer())
+
+                    # --- Run YOUR 9 QC Checks Directly ---
                     start_date, end_date = qc_general.detect_period_from_rosco(rosco_path)
                     df = qc_general.load_bsr(bsr_path, col_map["bsr"])
-
-                    # Cleaning (avoid deprecated applymap: use replace + string-strip)
-                    # Replace NBSP and then strip string columns
-                    df.columns = df.columns.str.strip().str.replace("\xa0", " ", regex=True)
-                    # replace NBSP in string values
-                    df = df.replace("\xa0", " ", regex=True)
-                    # strip whitespace from object/string columns
-                    for c in df.select_dtypes(include=["object"]).columns:
-                        df[c] = df[c].astype(str).str.strip().replace("nan", pd.NA)
-
-                    df.rename(columns={"Start(UTC)": "Start (UTC)", "End(UTC)": "End (UTC)"}, inplace=True)
-
-                    # Execution order EXACT AS BACKEND:
+                    
                     df = qc_general.period_check(df, start_date, end_date, col_map["bsr"])
-                    df = qc_general.completeness_check(df, col_map["bsr"], rules)
-                    df = qc_general.program_category_check(bsr_path, df, col_map, rules.get("program_category", {}), file_rules)
+                    df = qc_general.completeness_check(df, col_map["bsr"], rules["program_category"])
+                    df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules["overlap_check"])
+                    df = qc_general.program_category_check(bsr_path, df, col_map, rules["program_category"], file_rules)
                     df = qc_general.check_event_matchday_competition(df, bsr_path, col_map, file_rules)
                     df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
-                    df = qc_general.domestic_market_check(df, project_rules, col_map["bsr"], debug=False)
                     df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
                     df = qc_general.country_channel_id_check(df, col_map["bsr"])
-                    df = qc_general.client_lstv_ott_check(df, col_map["bsr"], rules.get("client_check", {}))
-                    df = qc_general.rates_and_ratings_check(df, col_map["bsr"])  # backend does this twice
+                    df = qc_general.client_lstv_ott_check(df, col_map["bsr"], rules["client_check"])
 
-                    # Duplicated Market BEFORE overlap/daybreak (as api.py)
-                    df = qc_general.duplicated_market_check(df, None, project_rules, col_map, file_rules, debug=False)
-
-                    df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules.get("overlap_check", {}))
-
-                    # Output
-                    output_file = f"General_QC_Result_{os.path.splitext(bsr_file.name)[0]}.xlsx"
+                    # --- Generate Output File ---
+                    output_file = f"General_QC_Result_{os.path.splitext(main_bsr_file.name)[0]}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_file)
 
-                    # Remove tz info if present
-                    for col in df.select_dtypes(include=["datetimetz"]).columns:
-                        try:
-                            if hasattr(df[col].dt, "tz"):
-                                df[col] = df[col].dt.tz_convert(None)
-                        except Exception:
-                            pass
-
                     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-                        df.to_excel(writer, index=False, sheet_name=file_rules.get("output_sheet_name", "QC Results"))
+                        df.to_excel(writer, index=False, sheet_name="QC Results")
 
-                    # Post-processing formatting & summary
-                    try:
-                        qc_general.color_excel(output_path, df)
-                    except Exception as e:
-                        st.warning(f"color_excel warning: {e}")
-                    try:
-                        qc_general.generate_summary_sheet(output_path, df, file_rules)
-                    except Exception as e:
-                        st.warning(f"generate_summary_sheet warning: {e}")
-
-                    st.success("General QC Completed Successfully")
+                    qc_general.color_excel(output_path, df)
+                    qc_general.generate_summary_sheet(output_path, df, file_rules)
+                    
+                    st.success("✅ General QC completed successfully!")
                     with open(output_path, "rb") as f:
-                        st.download_button("Download General QC Result", f, file_name=output_file,
-                                          mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
+                        st.download_button(
+                            label="📥 Download General QC Result",
+                            data=f,
+                            file_name=output_file,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
                 except Exception as e:
-                    st.error(f"Error during General QC: {e}")
+                    st.error(f"❌ An error occurred during General QC: {e}")
 
 
-###########################################################
-#                    LALIGA QC (11 CHECKS)
-###########################################################
+# -----------------------------------------------------------
+#         ⚽ LALIGA QC TAB (YOUR 11 CHECKS)
+# -----------------------------------------------------------
+
 with laliga_qc_tab:
-    st.header("⚽ LaLiga QC Automation")
+    st.header("⚽ Laliga Specific QC Checks")
+    st.markdown("Upload your **Rosco**, **BSR**, and **Macro Duplicator** files. This will run all 11 QC checks.")
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        ll_rosco = st.file_uploader("Upload Rosco (.xlsx)", type=["xlsx"], key="ll_rosco")
-    with c2:
-        ll_bsr = st.file_uploader("Upload BSR (.xlsx)", type=["xlsx"], key="ll_bsr")
-    with c3:
-        ll_macro = st.file_uploader("Upload Macro Duplicator", type=["xlsx", "xlsm", "xlsb"], key="ll_macro")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        laliga_rosco_file = st.file_uploader("📘 Upload Rosco File (.xlsx)", type=["xlsx"], key="laliga_rosco")
+    with col2:
+        laliga_bsr_file = st.file_uploader("📗 Upload BSR File (.xlsx)", type=["xlsx"], key="laliga_bsr")
+    with col3:
+        laliga_macro_file = st.file_uploader("📒 Upload Macro Duplicator File", type=["xlsx","xls","xlsm","xlsb"], key="laliga_macro")
+    
+    st.write("---")
 
-    if st.button("▶ Run LaLiga QC"):
-        if not ll_rosco or not ll_bsr or not ll_macro:
-            st.error("Please upload Rosco, BSR & Macro files.")
+    if st.button("⚙️ Run Laliga QC Checks"):
+        if not laliga_rosco_file or not laliga_bsr_file or not laliga_macro_file or not config:
+            st.error("⚠️ Please upload all three files (and ensure config.json is loaded).")
         else:
-            with st.spinner("Running LaLiga QC..."):
-                col_map = config["column_mappings"]
-                rules = config["qc_rules"]
-                project = config["project_rules"]
-                file_rules = config["file_rules"]
-
-                rosco_path = os.path.join(UPLOAD_FOLDER, ll_rosco.name)
-                bsr_path = os.path.join(UPLOAD_FOLDER, ll_bsr.name)
-                macro_path = os.path.join(UPLOAD_FOLDER, ll_macro.name)
-
-                for f, p in [(ll_rosco, rosco_path), (ll_bsr, bsr_path), (ll_macro, macro_path)]:
-                    with open(p, "wb") as fh:
-                        fh.write(f.getbuffer())
-
+            with st.spinner("Running all 11 Laliga QC checks..."):
                 try:
-                    # ---- EXACT LOGIC FROM api.py/run_laliga_qc ----
+                    # Load config
+                    col_map = config["column_mappings"]
+                    rules = config["qc_rules"]
+                    project = config["project_rules"]
+                    file_rules = config["file_rules"]
+                    
+                    # Save files temporarily
+                    rosco_path = os.path.join(UPLOAD_FOLDER, laliga_rosco_file.name)
+                    bsr_path = os.path.join(UPLOAD_FOLDER, laliga_bsr_file.name)
+                    macro_path = os.path.join(UPLOAD_FOLDER, laliga_macro_file.name)
+                    with open(rosco_path, "wb") as f: f.write(laliga_rosco_file.getbuffer())
+                    with open(bsr_path, "wb") as f: f.write(laliga_bsr_file.getbuffer())
+                    with open(macro_path, "wb") as f: f.write(laliga_macro_file.getbuffer())
+                    
+                    # --- Run YOUR 11 QC Checks Directly ---
                     start_date, end_date = qc_general.detect_period_from_rosco(rosco_path)
                     df = qc_general.load_bsr(bsr_path, col_map["bsr"])
 
-                    df.columns = df.columns.str.strip().str.replace("\xa0", " ", regex=True)
-                    df = df.replace("\xa0", " ", regex=True)
-                    for c in df.select_dtypes(include=["object"]).columns:
-                        df[c] = df[c].astype(str).str.strip().replace("nan", pd.NA)
-                    df.rename(columns={"Start(UTC)": "Start (UTC)", "End(UTC)": "End (UTC)"}, inplace=True)
-
+                    # Run the 9 General Checks
                     df = qc_general.period_check(df, start_date, end_date, col_map["bsr"])
-                    df = qc_general.completeness_check(df, col_map["bsr"], rules)
-                    df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules.get("overlap_check", {}))
-                    df = qc_general.program_category_check(bsr_path, df, col_map, rules.get("program_category", {}), file_rules)
+                    df = qc_general.completeness_check(df, col_map["bsr"], rules["program_category"])
+                    df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules["overlap_check"])
+                    df = qc_general.program_category_check(bsr_path, df, col_map, rules["program_category"], file_rules)
                     df = qc_general.check_event_matchday_competition(df, bsr_path, col_map, file_rules)
                     df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
                     df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
                     df = qc_general.country_channel_id_check(df, col_map["bsr"])
-                    df = qc_general.client_lstv_ott_check(df, col_map["bsr"], rules.get("client_check", {}))
+                    df = qc_general.client_lstv_ott_check(df, col_map["bsr"], rules["client_check"])
+                    
+                    # Run the 2 Laliga-Specific Checks
+                    df = qc_general.domestic_market_check(df, project, col_map["bsr"], debug=True)
+                    df = qc_general.duplicated_market_check(df, macro_path, project, col_map, file_rules, debug=True)
 
-                    df = qc_general.domestic_market_check(df, project, col_map["bsr"], debug=False)
-                    df = qc_general.duplicated_market_check(df, macro_path, project, col_map, file_rules, debug=False)
-
-                    df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules.get("overlap_check", {}))
-
-                    # Output
-                    output_file = f"Laliga_QC_Result_{os.path.splitext(ll_bsr.name)[0]}.xlsx"
+                    # --- Generate Output File ---
+                    output_file = f"Laliga_QC_Result_{os.path.splitext(laliga_bsr_file.name)[0]}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_file)
 
-                    for col in df.select_dtypes(include=["datetimetz"]).columns:
-                        try:
-                            if hasattr(df[col].dt, "tz"):
-                                df[col] = df[col].dt.tz_convert(None)
-                        except Exception:
-                            pass
-
                     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-                        df.to_excel(writer, index=False, sheet_name=file_rules.get("output_sheet_name", "Laliga QC Results"))
+                        df.to_excel(writer, index=False, sheet_name="Laliga QC Results")
 
-                    try:
-                        qc_general.color_excel(output_path, df)
-                        qc_general.generate_summary_sheet(output_path, df, file_rules)
-                    except Exception as e:
-                        st.warning(f"Postprocessing warning: {e}")
-
-                    st.success("LaLiga QC Completed Successfully")
+                    qc_general.color_excel(output_path, df)
+                    qc_general.generate_summary_sheet(output_path, df, file_rules)
+                    
+                    st.success("✅ Laliga QC completed successfully!")
                     with open(output_path, "rb") as f:
-                        st.download_button("Download LaLiga QC Result", f, file_name=output_file,
-                                          mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
+                        st.download_button(
+                            label="📥 Download Laliga QC Result",
+                            data=f,
+                            file_name=output_file,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
                 except Exception as e:
-                    st.error(f"Error during LaLiga QC: {e}")
+                    st.error(f"❌ An error occurred during Laliga QC: {e}")
 
-
-###########################################################
-#                F1 MARKET SPECIFIC CHECKS
-###########################################################
+# -----------------------------------------------------------
+#         🏎️ F1 MARKET SPECIFIC CHECKS TAB (COLLEAGUE'S LOGIC)
+# -----------------------------------------------------------
 with f1_tab:
-    st.header("🏎️ F1 Market Specific Checks")
+    st.header(" Formula 1 Specific Checks")
+    st.markdown("Upload the required files here to perform and log manual checks.")
 
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        bsr_f1 = st.file_uploader("BSR File (.xlsx)", type=["xlsx"], key="f1_bsr")
-    with c2:
-        f1_obligation = st.file_uploader("Obligation File (.xlsx)", type=["xlsx"], key="f1_ob")
-    with c3:
-        f1_overnight = st.file_uploader("Overnight File (.xlsx)", type=["xlsx"], key="f1_on")
-    with c4:
-        f1_macro = st.file_uploader("Macro File (.xlsx/.xlsm)", type=["xlsm", "xlsx", "xls", "xlsb"], key="f1_macro")
+    # --- Dedicated Upload for Manual Checks (MODIFIED) ---
+    col_file1, col_file2, col_file3,col_file4 = st.columns(4) # <-- Increase columns to 3
+    with col_file1:
+        market_check_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="market_check_file")
+    with col_file2:
+        obligation_file = st.file_uploader("📄 Upload F1 Obligation File (.xlsx)", type=["xlsx"], key="obligation_file")
+    with col_file3: # <-- NEW UPLOADER
+        overnight_file = st.file_uploader("📈 Upload Overnight Audience File (.xlsx)", type=["xlsx"], key="overnight_file") # <-- NEW
+    with col_file4: # <-- NEW UPLOADER
+        macro_file = st.file_uploader("📋 4. BSA Duplicator File", type=["xlsm", "xlsx"], key="macro_file") # <-- NEW
+    
+    st.write("---")
 
-    # simple check list (this can be expanded)
-    possible_checks = [
-        "check_f1_obligations",
-        "check_session_completeness",
-        "duration_limits",
-        "live_date_integrity",
-        "update_audience_from_overnight",
-        "dup_channel_existence"
-    ]
+    # Initialize check states in session_state if not present
+    for key in all_market_check_keys.keys():
+        if key not in st.session_state:
+            st.session_state[key] = False
 
-    st.subheader("Select Checks:")
-    selected = []
-    for ck in possible_checks:
-        if st.checkbox(ck, key=f"ck_{ck}"):
-            selected.append(ck)
+    # --- Checkbox UI generation (unchanged) ---
+    with st.expander("1. Channel and Territory Review", expanded=True):
+        st.subheader("General Market Checks")
+        st.checkbox(all_market_check_keys["check_latam_espn"], key="check_latam_espn")
+        st.checkbox(all_market_check_keys["check_italy_mexico"], key="check_italy_mexico")
+        
+        st.subheader("Specific Channel Checks (against uploaded file)")
+        # st.checkbox(all_market_check_keys["check_channel4plus1"], key="check_channel4plus1")
+        # st.checkbox(all_market_check_keys["check_espn4_bsa"], key="check_espn4_bsa")
+        st.checkbox(all_market_check_keys["check_f1_obligations"], key="check_f1_obligations") # <--- F1 Check
+        # st.checkbox(all_market_check_keys["apply_duplication_weights"], key="apply_duplication_weights") # <--- F1 Check
+        st.checkbox(all_market_check_keys["check_session_completeness"], key="check_session_completeness")
+        # st.checkbox(all_market_check_keys["impute_program_type"], key="impute_program_type")
+        st.checkbox(all_market_check_keys["duration_limits"], key="duration_limits")
+        st.checkbox(all_market_check_keys["live_date_integrity"], key="live_date_integrity")
+        st.checkbox(all_market_check_keys["update_audience_from_overnight"], key="update_audience_from_overnight") # <-- NEW
+        
+        st.checkbox(all_market_check_keys["dup_channel_existence"], key="dup_channel_existence") # <-- NEW CHECKBOX
 
-    if st.button("▶ Run F1 Checks"):
-        if not bsr_f1:
-            st.error("Upload BSR file.")
+    # ... (rest of the checkboxes remain here) ...
+    # with st.expander("2. Broadcaster/Platform Coverage (BROADCASTER/GLOBAL)"):
+    #     st.subheader("Global/Platform Adds")
+    #     st.checkbox(all_market_check_keys["check_youtube_global"], key="check_youtube_global")
+        
+    #     st.subheader("Individual Broadcaster Confirmations")
+    #     st.checkbox(all_market_check_keys["check_pan_mena"], key="check_pan_mena")
+    #     st.checkbox(all_market_check_keys["check_china_tencent"], key="check_china_tencent")
+    #     st.checkbox(all_market_check_keys["check_czech_slovakia"], key="check_czech_slovakia")
+    #     st.checkbox(all_market_check_keys["check_ant1_greece"], key="check_ant1_greece")
+    #     st.checkbox(all_market_check_keys["check_india"], key="check_india")
+    #     st.checkbox(all_market_check_keys["check_usa_espn"], key="check_usa_espn")
+    #     st.checkbox(all_market_check_keys["check_dazn_japan"], key="check_dazn_japan")
+    #     st.checkbox(all_market_check_keys["check_aztv"], key="check_aztv")
+    #     st.checkbox(all_market_check_keys["check_rush_caribbean"], key="check_rush_caribbean")
+
+
+    with st.expander("3. Removals and Recreations"):
+        st.subheader("Removals (Ensure these are absent)")
+        st.checkbox(all_market_check_keys["remove_andorra"], key="remove_andorra")
+        st.checkbox(all_market_check_keys["remove_serbia"], key="remove_serbia")
+        st.checkbox(all_market_check_keys["remove_montenegro"], key="remove_montenegro")
+        st.checkbox(all_market_check_keys["remove_brazil_espn_fox"], key="remove_brazil_espn_fox")
+        st.checkbox(all_market_check_keys["remove_switz_canal"], key="remove_switz_canal")
+        st.checkbox(all_market_check_keys["remove_viaplay_baltics"], key="remove_viaplay_baltics")
+
+        # st.subheader("Recreations (Check for full market coverage)")
+        # st.checkbox(all_market_check_keys["recreate_viaplay"], key="recreate_viaplay")
+        # st.checkbox(all_market_check_keys["recreate_disney_latam"], key="recreate_disney_latam")
+        
+    st.write("---")
+
+
+    # --- Run Processing Button (UNTOUCHED) ---
+    if st.button(" Apply Selected Checks"):
+        
+        active_checks = [key for key in all_market_check_keys.keys() if st.session_state[key]]
+        
+        # Check mandatory files
+        if market_check_file is None:
+            st.error("⚠️ Please upload a BSR file before applying checks.")
+        elif "check_f1_obligations" in active_checks and obligation_file is None:
+            st.error("⚠️ **F1 Obligation Check Selected:** Please upload the F1 Obligation File.")
+        elif "update_audience_from_overnight" in active_checks and overnight_file is None: # <-- NEW CHECK
+            st.error("⚠️ Audience Upscale Check Selected: Please upload the Overnight Audience File.") # <-- NEW ERROR MESSAGE
+        elif "dup_channel_existence" in active_checks and macro_file is None: # <-- NEW DEPENDENCY CHECK
+            st.error("⚠️ Duplication Channel Existence Check Selected: Please upload the BSA Macro Duplicator File.")
         else:
-            with st.spinner("Running F1 checks..."):
-                bsr_path = os.path.join(UPLOAD_FOLDER, bsr_f1.name)
-                with open(bsr_path, "wb") as f:
-                    f.write(bsr_f1.getbuffer())
+            with st.spinner(f"Applying {len(active_checks)} checks on the backend..."):
+                
+                # 2. Prepare files for backend
+                files = {
+                    'bsr_file': (market_check_file.name, market_check_file.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                }
+                
+                # CONDITIONAL ADDITION OF OBLIGATION FILE
+                if obligation_file:
+                    files['obligation_file'] = (obligation_file.name, obligation_file.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
-                obligation_path = None
-                overnight_path = None
-                macro_path = None
+                # CONDITIONAL ADDITION OF OVERNIGHT FILE <--- NEW LOGIC
+                if overnight_file:
+                    files['overnight_file'] = (overnight_file.name, overnight_file.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
-                if f1_obligation:
-                    obligation_path = os.path.join(UPLOAD_FOLDER, f1_obligation.name)
-                    with open(obligation_path, "wb") as f:
-                        f.write(f1_obligation.getbuffer())
+                if macro_file: # <-- ADD NEW FILE TO REQUEST
+                    files['macro_file'] = (macro_file.name, macro_file.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
-                if f1_overnight:
-                    overnight_path = os.path.join(UPLOAD_FOLDER, f1_overnight.name)
-                    with open(overnight_path, "wb") as f:
-                        f.write(f1_overnight.getbuffer())
-
-                if f1_macro:
-                    macro_path = os.path.join(UPLOAD_FOLDER, f1_macro.name)
-                    with open(macro_path, "wb") as f:
-                        f.write(f1_macro.getbuffer())
+                # Send active checks as form data
+                data = {'checks': active_checks} 
 
                 try:
-                    # EXACT backend logic:
-                    validator = BSRValidator(
-                        bsr_path=bsr_path,
-                        obligation_path=obligation_path,
-                        overnight_path=overnight_path,
-                        macro_path=macro_path
+                    # 3. Call the backend endpoint
+                    response = requests.post(
+                        f"{BACKEND_URL}/market_check_and_process", 
+                        files=files, 
+                        data=data,
+                        timeout=600
                     )
 
-                    summaries = validator.market_check_processor(selected)
-                    df_processed = validator.df
+                    if response.status_code == 200:
+                        # 4. Success: Handle the JSON response (unchanged)
+                        try:
+                            result_json = response.json()
+                            summaries = result_json.get("summaries", [])
+                            download_url_suffix = result_json.get("download_url")
+                            message = result_json.get("message", "Processing complete.")
+                            
+                            # Construct the full download URL using the base URL
+                            full_download_url = f"http://localhost:8000{download_url_suffix}"
 
-                    if df_processed is None or (hasattr(df_processed, "empty") and df_processed.empty):
-                        st.error("Processed DataFrame is empty.")
+                            st.success(f"✅ Checks completed successfully! {message}")
+                            
+                            # --- Display Summaries ---
+                            st.subheader("Processing Summary")
+                            if summaries:
+                                # ... (summary display logic unchanged) ...
+                                df_summary = pd.DataFrame(summaries)
+                                
+                                df_summary_display = df_summary.copy()
+
+                                if 'details' in df_summary.columns:
+                                    
+                                    df_summary_display['Market'] = df_summary['details'].apply(
+                                        lambda d: d.get('market_affected', d.get('markets_context', 'Global/N/A'))
+                                    )
+                                    
+                                    def get_change_count(d):
+                                        if 'rows_removed' in d: return d['rows_removed']
+                                        if 'total_issues_flagged' in d: return d['total_issues_flagged']
+                                        if 'rows_added' in d: return d['rows_added']
+                                        if 'broadcasters_missing' in d: return d['broadcasters_missing'] 
+                                        return 0
+                                        
+                                    df_summary_display['Change Count'] = df_summary['details'].apply(get_change_count)
+                                    
+                                    df_summary_display = df_summary_display.rename(columns={
+                                        "description": "Operation", 
+                                        "status": "Status"
+                                    })
+                                    
+                                    df_summary_display = df_summary_display[[
+                                        'Status', 
+                                        'Operation', 
+                                        'Market', 
+                                        'Change Count', 
+                                        'check_key'
+                                    ]].set_index('check_key')
+                                else:
+                                    df_summary_display = df_summary_display.rename(columns={
+                                        "description": "Operation", 
+                                        "status": "Status"
+                                    })
+                                    if 'check_key' in df_summary_display.columns:
+                                            df_summary_display = df_summary_display[['Status', 'Operation', 'check_key']].set_index('check_key')
+                                            
+                                st.dataframe(df_summary_display, use_container_width=True)
+                                
+                                # --- Display Duplicates Dataframe (UNCHANGED) ---
+                                dupe_summary = next((s for s in summaries if s.get('check_key') == 'check_italy_mexico' and s['details'].get('duplicate_data')), None)
+                                
+                                if dupe_summary and dupe_summary['details']['duplicate_data']:
+                                    duplicate_data = dupe_summary['details']['duplicate_data']
+                                    st.subheader("⚠️ Duplicate Rows Found and Consolidated (Italy/Mexico)")
+                                    
+                                    duplicates_df = pd.DataFrame(duplicate_data)
+                                    st.dataframe(duplicates_df, use_container_width=True)
+                                    st.caption(
+                                        f"The table above shows {len(duplicates_df)} rows involved in the duplicate sets (including the one kept). "
+                                        f"**{dupe_summary['details'].get('rows_removed', 0)}** rows were removed."
+                                    )
+
+                            else:
+                                st.info("No specific operational summaries were returned.")
+
+                            # --- Provide Download Button (UNCHANGED) ---
+                            if download_url_suffix:
+                                st.markdown("---")
+                                st.markdown(
+                                    f'### 📥 Download Processed File <a href="{full_download_url}" download>Click Here to Download</a>',
+                                    unsafe_allow_html=True
+                                )
+                            else:
+                                st.warning("Processed file download link was not generated. Check backend logs.")
+
+                        except (requests.JSONDecodeError, KeyError) as e:
+                            st.error(f"❌ Failed to parse JSON response from backend. Error: {e}")
+                        
                     else:
-                        output_file = f"F1_Processed_{os.path.splitext(bsr_f1.name)[0]}.xlsx"
-                        output_path = os.path.join(OUTPUT_FOLDER, output_file)
+                        # 5. Handle Backend Error
+                        try:
+                            error_detail = response.json().get("detail", "Unknown error occurred during check execution.")
+                        except requests.JSONDecodeError:
+                            error_detail = response.text
+                        st.error(f"❌ Backend Processing Error ({response.status_code}): {error_detail}")
 
-                        df_processed.to_excel(output_path, index=False)
+                except requests.exceptions.RequestException as e:
+                    st.error(f"❌ Connection Error: Could not reach the backend. Error: {e}")
 
-                        st.success("F1 Checks Completed Successfully")
-                        if summaries:
-                            st.subheader("Check Summaries")
-                            try:
-                                st.dataframe(pd.DataFrame(summaries))
-                            except Exception:
-                                st.write(summaries)
-
-                        with open(output_path, "rb") as f:
-                            st.download_button("Download F1 Processed File", f, file_name=output_file,
-                                              mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-                except Exception as e:
-                    st.error(f"F1 Processing Error: {e}")
-
-
-###########################################################
-#                EPL PRE & POST CHECKS
-###########################################################
 with epl_tab:
-    st.header("🏴 EPL Specific Checks")
+    st.header(" EPL Specific Checks")
+    st.markdown("Upload the required files here to perform and log manual checks.")
 
-    st.subheader("EPL Pre Checks")
-    p1, p2, p3 = st.columns(3)
-    with p1:
-        epl_p_bsr = st.file_uploader("BSR File", type=["xlsx"], key="epl_pre_bsr")
-    with p2:
-        epl_p_rosco = st.file_uploader("Rosco File", type=["xlsx"], key="epl_pre_rosco")
-    with p3:
-        epl_p_market = st.file_uploader("Market Dup File", type=["xlsx"], key="epl_pre_market")
+    # --- Dedicated Upload for Manual Checks (MODIFIED) ---
+    col_file1, col_file2, col_file3,col_file4 = st.columns(4) # <-- Increase columns to 3
+    with col_file1:
+        market_check_file_epl = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="market_check_file_epl")
+    with col_file2:
+        obligation_file_epl = st.file_uploader("📄 Upload F1 Obligation File (.xlsx)", type=["xlsx"], key="obligation_file_epl")
+    with col_file3: # <-- NEW UPLOADER
+        overnight_file_epl = st.file_uploader("📈 Upload Overnight Audience File (.xlsx)", type=["xlsx"], key="overnight_file_epl") # <-- NEW
+    with col_file4: # <-- NEW UPLOADER
+        macro_file_epl = st.file_uploader("📋 4. BSA Duplicator File", type=["xlsm", "xlsx"], key="macro_file_epl") # <-- NEW
+    
+    st.write("---")
 
-    if st.button("▶ Run EPL Pre Checks"):
-        if not (epl_p_bsr and epl_p_rosco and epl_p_market):
-            st.error("Upload BSR, Rosco, and Market Dup files.")
+    # Initialize check states in session_state if not present
+    for key in all_market_check_keys_epl.keys():
+        if key not in st.session_state:
+            st.session_state[key] = False
+
+    # --- Checkbox UI generation (unchanged) ---
+    with st.expander("1. Channel and Territory Review", expanded=True):
+        st.subheader("General Market Checks")
+        st.checkbox(all_market_check_keys_epl["impute_lt_live_status"], key="impute_lt_live_status")
+        st.checkbox(all_market_check_keys_epl["consolidate_gillete_soccer"], key="consolidate_gillete_soccer")
+        st.checkbox(all_market_check_keys_epl["check_sky_showcase_live"], key="check_sky_showcase_live")
+        st.checkbox(all_market_check_keys_epl["standardize_uk_ire_region"], key="standardize_uk_ire_region")
+        st.checkbox(all_market_check_keys_epl["check_fixture_vs_case"], key="check_fixture_vs_case")
+        st.checkbox(all_market_check_keys_epl["check_pan_balkans_serbia_parity"], key="check_pan_balkans_serbia_parity")
+        st.checkbox(all_market_check_keys_epl["audit_multi_match_status"], key="audit_multi_match_status")
+        st.checkbox(all_market_check_keys_epl["check_date_time_format_integrity"], key="check_date_time_format_integrity")
+        st.checkbox(all_market_check_keys_epl["check_live_broadcast_uniqueness"], key="check_live_broadcast_uniqueness")
+        st.checkbox(all_market_check_keys_epl["audit_channel_line_item_count"], key="audit_channel_line_item_count")
+        st.checkbox(all_market_check_keys_epl["check_combined_archive_status"], key="check_combined_archive_status")
+        st.checkbox(all_market_check_keys_epl["suppress_duplicated_audience"], key="suppress_duplicated_audience")
+
+
+
+
+        
+
+    st.write("---")
+
+
+    # --- Run Processing Button (UNTOUCHED) ---
+    if st.button(" EPL Apply Selected Checks"):
+        
+        active_checks = [key for key in all_market_check_keys_epl.keys() if st.session_state[key]]
+        
+        # Check mandatory files
+        if market_check_file_epl is None:
+            st.error("⚠️ Please upload a BSR file before applying checks.")
+        elif "check_f1_obligations_epl" in active_checks and obligation_file is None:
+            st.error("⚠️ **F1 Obligation Check Selected:** Please upload the F1 Obligation File.")
+        elif "update_audience_from_overnight_epl" in active_checks and overnight_file is None: # <-- NEW CHECK
+            st.error("⚠️ Audience Upscale Check Selected: Please upload the Overnight Audience File.") # <-- NEW ERROR MESSAGE
+        elif "dup_channel_existence_epl" in active_checks and macro_file is None: # <-- NEW DEPENDENCY CHECK
+            st.error("⚠️ Duplication Channel Existence Check Selected: Please upload the BSA Macro Duplicator File.")
         else:
-            with st.spinner("Running EPL Pre Checks..."):
+            with st.spinner(f"Applying {len(active_checks)} checks on the backend..."):
+                
+                # 2. Prepare files for backend
+                files = {
+                    'bsr_file': (market_check_file_epl.name, market_check_file_epl.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                }
+                
+                # CONDITIONAL ADDITION OF OBLIGATION FILE
+                if obligation_file:
+                    files['obligation_file'] = (obligation_file_epl.name, obligation_file_epl.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
-                bsr_path = os.path.join(UPLOAD_FOLDER, epl_p_bsr.name)
-                rosco_path = os.path.join(UPLOAD_FOLDER, epl_p_rosco.name)
-                market_path = os.path.join(UPLOAD_FOLDER, epl_p_market.name)
+                # CONDITIONAL ADDITION OF OVERNIGHT FILE <--- NEW LOGIC
+                if overnight_file:
+                    files['overnight_file'] = (overnight_file_epl.name, overnight_file_epl.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
-                for f, p in [(epl_p_bsr, bsr_path), (epl_p_rosco, rosco_path), (epl_p_market, market_path)]:
-                    with open(p, "wb") as fh:
-                        fh.write(f.getbuffer())
+                if macro_file: # <-- ADD NEW FILE TO REQUEST
+                    files['macro_file'] = (macro_file_epl.name, macro_file_epl.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+                # Send active checks as form data
+                data = {'checks': active_checks} 
 
                 try:
-                    df = epl_checks.run_pre_checks(bsr_path, rosco_path, market_path)
-                    out_file = "EPL_Pre_Checks.xlsx"
-                    out_path = os.path.join(OUTPUT_FOLDER, out_file)
-                    df.to_excel(out_path, index=False)
+                    # 3. Call the backend endpoint
+                    response = requests.post(
+                        f"{BACKEND_URL}/market_check_and_process", 
+                        files=files, 
+                        data=data,
+                        timeout=600
+                    )
 
-                    st.success("EPL Pre Checks Completed")
-                    with open(out_path, "rb") as f:
-                        st.download_button("Download EPL Pre Check File", f, file_name=out_file,
-                                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                except Exception as e:
-                    st.error(f"EPL Pre Check Error: {e}")
+                    if response.status_code == 200:
+                        # 4. Success: Handle the JSON response (unchanged)
+                        try:
+                            result_json = response.json()
+                            summaries = result_json.get("summaries", [])
+                            download_url_suffix = result_json.get("download_url")
+                            message = result_json.get("message", "Processing complete.")
+                            
+                            # Construct the full download URL using the base URL
+                            full_download_url = f"http://localhost:8000{download_url_suffix}"
 
-    st.write("----")
-    st.subheader("EPL Post Checks")
-    q1, q2, q3 = st.columns(3)
-    with q1:
-        epl_post_bsr = st.file_uploader("BSR File", type=["xlsx"], key="epl_post_bsr")
-    with q2:
-        epl_post_rosco = st.file_uploader("Rosco File", type=["xlsx"], key="epl_post_rosco")
-    with q3:
-        epl_post_macro = st.file_uploader("Macro File", type=["xlsx"], key="epl_post_macro")
+                            st.success(f"✅ Checks completed successfully! {message}")
+                            
+                            # --- Display Summaries ---
+                            st.subheader("Processing Summary")
+                            if summaries:
+                                # ... (summary display logic unchanged) ...
+                                df_summary = pd.DataFrame(summaries)
+                                
+                                df_summary_display = df_summary.copy()
 
-    if st.button("▶ Run EPL Post Checks"):
-        if not (epl_post_bsr and epl_post_rosco and epl_post_macro):
-            st.error("Upload BSR, Rosco, and Macro files.")
-        else:
-            with st.spinner("Running EPL Post Checks..."):
+                                if 'details' in df_summary.columns:
+                                    
+                                    df_summary_display['Market'] = df_summary['details'].apply(
+                                        lambda d: d.get('market_affected', d.get('markets_context', 'Global/N/A'))
+                                    )
+                                    
+                                    def get_change_count(d):
+                                        if 'rows_removed' in d: return d['rows_removed']
+                                        if 'total_issues_flagged' in d: return d['total_issues_flagged']
+                                        if 'rows_added' in d: return d['rows_added']
+                                        if 'broadcasters_missing' in d: return d['broadcasters_missing'] 
+                                        return 0
+                                        
+                                    df_summary_display['Change Count'] = df_summary['details'].apply(get_change_count)
+                                    
+                                    df_summary_display = df_summary_display.rename(columns={
+                                        "description": "Operation", 
+                                        "status": "Status"
+                                    })
+                                    
+                                    df_summary_display = df_summary_display[[
+                                        'Status', 
+                                        'Operation', 
+                                        'Market', 
+                                        'Change Count', 
+                                        'check_key'
+                                    ]].set_index('check_key')
+                                else:
+                                    df_summary_display = df_summary_display.rename(columns={
+                                        "description": "Operation", 
+                                        "status": "Status"
+                                    })
+                                    if 'check_key' in df_summary_display.columns:
+                                            df_summary_display = df_summary_display[['Status', 'Operation', 'check_key']].set_index('check_key')
+                                            
+                                st.dataframe(df_summary_display, use_container_width=True)
+                                
+                                # --- Display Duplicates Dataframe (UNCHANGED) ---
+                                dupe_summary = next((s for s in summaries if s.get('check_key') == 'check_italy_mexico' and s['details'].get('duplicate_data')), None)
+                                
+                                if dupe_summary and dupe_summary['details']['duplicate_data']:
+                                    duplicate_data = dupe_summary['details']['duplicate_data']
+                                    st.subheader("⚠️ Duplicate Rows Found and Consolidated (Italy/Mexico)")
+                                    
+                                    duplicates_df = pd.DataFrame(duplicate_data)
+                                    st.dataframe(duplicates_df, use_container_width=True)
+                                    st.caption(
+                                        f"The table above shows {len(duplicates_df)} rows involved in the duplicate sets (including the one kept). "
+                                        f"**{dupe_summary['details'].get('rows_removed', 0)}** rows were removed."
+                                    )
 
-                bsr_path = os.path.join(UPLOAD_FOLDER, epl_post_bsr.name)
-                rosco_path = os.path.join(UPLOAD_FOLDER, epl_post_rosco.name)
-                macro_path = os.path.join(UPLOAD_FOLDER, epl_post_macro.name)
+                            else:
+                                st.info("No specific operational summaries were returned.")
 
-                for f, p in [(epl_post_bsr, bsr_path),
-                             (epl_post_rosco, rosco_path),
-                             (epl_post_macro, macro_path)]:
-                    with open(p, "wb") as fh:
-                        fh.write(f.getbuffer())
+                            # --- Provide Download Button (UNCHANGED) ---
+                            if download_url_suffix:
+                                st.markdown("---")
+                                st.markdown(
+                                    f'### 📥 Download Processed File <a href="{full_download_url}" download>Click Here to Download</a>',
+                                    unsafe_allow_html=True
+                                )
+                            else:
+                                st.warning("Processed file download link was not generated. Check backend logs.")
 
-                try:
-                    df = epl_checks.run_post_checks(bsr_path, rosco_path, macro_path)
-                    out_file = "EPL_Post_Checks.xlsx"
-                    out_path = os.path.join(OUTPUT_FOLDER, out_file)
-                    df.to_excel(out_path, index=False)
+                        except (requests.JSONDecodeError, KeyError) as e:
+                            st.error(f"❌ Failed to parse JSON response from backend. Error: {e}")
+                        
+                    else:
+                        # 5. Handle Backend Error
+                        try:
+                            error_detail = response.json().get("detail", "Unknown error occurred during check execution.")
+                        except requests.JSONDecodeError:
+                            error_detail = response.text
+                        st.error(f"❌ Backend Processing Error ({response.status_code}): {error_detail}")
 
-                    st.success("EPL Post Checks Completed")
-                    with open(out_path, "rb") as f:
-                        st.download_button("Download EPL Post Check File", f, file_name=out_file,
-                                           mime="application/vnd.openxmlformats-officedocument-spreadsheetml.sheet")
-                except Exception as e:
-                    st.error(f"EPL Post Check Error: {e}")
+                except requests.exceptions.RequestException as e:
+                    st.error(f"❌ Connection Error: Could not reach the backend. Error: {e}")
