@@ -72,8 +72,6 @@ if config is None:
 
 # -------------------- 🌐 Streamlit UI --------------------
 LOGO_PATH_4 = "images/Nielsen_Sports_logo.svg"
-# C:/Users/BHRAJG2501/Desktop/Nielsen_Sports_logo.svg
-
 # -------------------- 🌐 Streamlit UI --------------------
 st.set_page_config(page_title="NIELSEN QC Automation Portal", layout="wide")
 # st.title("  Nielsen Sports ")
@@ -133,6 +131,24 @@ all_market_check_keys = {
     "remove_viaplay_baltics": "Remove viaplay from Latvia, Lithuania, Poland, and Estonia",
     "recreate_viaplay": "Viaplay: Recreate based on a full market of lives",
     "recreate_disney_latam": "Disney+ Latam: Recreate based on a full market of lives",
+
+    #EPL
+}
+
+all_market_check_keys_epl = {
+    "impute_lt_live_status": "L/T Live Imputation: Flag program type based on 'L/T' keyword in Combined col", # Using the L/T check key
+    "consolidate_gillete_soccer": "Program Consolidation: Flag sequential 'Gillete Soccer' programs for merging (Gap <= 30min)",
+    "check_sky_showcase_live": "Sky Showcase Live Status Check (UK)",
+    "standardize_uk_ire_region" : "Region Standardization: Correct UK/Ireland Region field to 'Europe' and standardize market names",
+    "check_fixture_vs_case" : "Checks for Capital VS AND Small vs",
+    "check_pan_balkans_serbia_parity" : "Checks equal count in pan_balkans and serbia",
+    "audit_multi_match_status" : "Checking for these keywords 'GOAL RUSH', 'KONFERENZ', 'CONFERENCE'",
+    "check_date_time_format_integrity" : "Checking Time Integrity",
+    "check_live_broadcast_uniqueness" : "Checking 1 live for based on these col 'Market', 'TV-Channel', 'Competition', 'Date'",
+    "audit_channel_line_item_count" : "Channel line item count (New Tab)",
+    "check_combined_archive_status" : "Flag any row with archive in Combined column",
+    "suppress_duplicated_audience" : "Flag if it is a Duplicated Market and has audience "
+
 }
 
 
@@ -705,19 +721,191 @@ with f1_tab:
                     st.error(f"❌ Connection Error: Could not reach the backend. Error: {e}")
 
 with epl_tab:
-    # Use st.title, st.header, or st.markdown for clear visual separation
-    st.header("EPL Specific Checks")
+    st.header(" EPL Specific Checks")
+    st.markdown("Upload the required files here to perform and log manual checks.")
+
+    # --- Dedicated Upload for Manual Checks (MODIFIED) ---
+    col_file1, col_file2, col_file3,col_file4 = st.columns(4) # <-- Increase columns to 3
+    with col_file1:
+        market_check_file_epl = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="market_check_file_epl")
+    with col_file2:
+        obligation_file_epl = st.file_uploader("📄 Upload F1 Obligation File (.xlsx)", type=["xlsx"], key="obligation_file_epl")
+    with col_file3: # <-- NEW UPLOADER
+        overnight_file_epl = st.file_uploader("📈 Upload Overnight Audience File (.xlsx)", type=["xlsx"], key="overnight_file_epl") # <-- NEW
+    with col_file4: # <-- NEW UPLOADER
+        macro_file_epl = st.file_uploader("📋 4. BSA Duplicator File", type=["xlsm", "xlsx"], key="macro_file_epl") # <-- NEW
     
-    # Display the "Work in Progress" message
-    st.info("⚠️ **Work in Progress:** This tab is currently under development. Please check back later for the available checks and automation features for the English Premier League.")
-    
-    # You can optionally add a placeholder or a brief roadmap
-    st.subheader("Expected Features:")
-    st.markdown("""
-    * Verification of market types specific to the EPL (e.g., specific outrights).
-    * Check for correct team names and player mappings.
-    * Automated checks for specific data fields.
-    """)
-    
-    st.markdown("---")
-    st.markdown("Thank you for your patience!")
+    st.write("---")
+
+    # Initialize check states in session_state if not present
+    for key in all_market_check_keys_epl.keys():
+        if key not in st.session_state:
+            st.session_state[key] = False
+
+    # --- Checkbox UI generation (unchanged) ---
+    with st.expander("1. Channel and Territory Review", expanded=True):
+        st.subheader("General Market Checks")
+        st.checkbox(all_market_check_keys_epl["impute_lt_live_status"], key="impute_lt_live_status")
+        st.checkbox(all_market_check_keys_epl["consolidate_gillete_soccer"], key="consolidate_gillete_soccer")
+        st.checkbox(all_market_check_keys_epl["check_sky_showcase_live"], key="check_sky_showcase_live")
+        st.checkbox(all_market_check_keys_epl["standardize_uk_ire_region"], key="standardize_uk_ire_region")
+        st.checkbox(all_market_check_keys_epl["check_fixture_vs_case"], key="check_fixture_vs_case")
+        st.checkbox(all_market_check_keys_epl["check_pan_balkans_serbia_parity"], key="check_pan_balkans_serbia_parity")
+        st.checkbox(all_market_check_keys_epl["audit_multi_match_status"], key="audit_multi_match_status")
+        st.checkbox(all_market_check_keys_epl["check_date_time_format_integrity"], key="check_date_time_format_integrity")
+        st.checkbox(all_market_check_keys_epl["check_live_broadcast_uniqueness"], key="check_live_broadcast_uniqueness")
+        st.checkbox(all_market_check_keys_epl["audit_channel_line_item_count"], key="audit_channel_line_item_count")
+        st.checkbox(all_market_check_keys_epl["check_combined_archive_status"], key="check_combined_archive_status")
+        st.checkbox(all_market_check_keys_epl["suppress_duplicated_audience"], key="suppress_duplicated_audience")
+
+
+
+
+        
+
+    st.write("---")
+
+
+    # --- Run Processing Button (UNTOUCHED) ---
+    if st.button(" EPL Apply Selected Checks"):
+        
+        active_checks = [key for key in all_market_check_keys_epl.keys() if st.session_state[key]]
+        
+        # Check mandatory files
+        if market_check_file_epl is None:
+            st.error("⚠️ Please upload a BSR file before applying checks.")
+        elif "check_f1_obligations_epl" in active_checks and obligation_file is None:
+            st.error("⚠️ **F1 Obligation Check Selected:** Please upload the F1 Obligation File.")
+        elif "update_audience_from_overnight_epl" in active_checks and overnight_file is None: # <-- NEW CHECK
+            st.error("⚠️ Audience Upscale Check Selected: Please upload the Overnight Audience File.") # <-- NEW ERROR MESSAGE
+        elif "dup_channel_existence_epl" in active_checks and macro_file is None: # <-- NEW DEPENDENCY CHECK
+            st.error("⚠️ Duplication Channel Existence Check Selected: Please upload the BSA Macro Duplicator File.")
+        else:
+            with st.spinner(f"Applying {len(active_checks)} checks on the backend..."):
+                
+                # 2. Prepare files for backend
+                files = {
+                    'bsr_file': (market_check_file_epl.name, market_check_file_epl.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                }
+                
+                # CONDITIONAL ADDITION OF OBLIGATION FILE
+                if obligation_file:
+                    files['obligation_file'] = (obligation_file_epl.name, obligation_file_epl.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+                # CONDITIONAL ADDITION OF OVERNIGHT FILE <--- NEW LOGIC
+                if overnight_file:
+                    files['overnight_file'] = (overnight_file_epl.name, overnight_file_epl.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+                if macro_file: # <-- ADD NEW FILE TO REQUEST
+                    files['macro_file'] = (macro_file_epl.name, macro_file_epl.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
+                # Send active checks as form data
+                data = {'checks': active_checks} 
+
+                try:
+                    # 3. Call the backend endpoint
+                    response = requests.post(
+                        f"{BACKEND_URL}/market_check_and_process", 
+                        files=files, 
+                        data=data,
+                        timeout=600
+                    )
+
+                    if response.status_code == 200:
+                        # 4. Success: Handle the JSON response (unchanged)
+                        try:
+                            result_json = response.json()
+                            summaries = result_json.get("summaries", [])
+                            download_url_suffix = result_json.get("download_url")
+                            message = result_json.get("message", "Processing complete.")
+                            
+                            # Construct the full download URL using the base URL
+                            full_download_url = f"http://localhost:8000{download_url_suffix}"
+
+                            st.success(f"✅ Checks completed successfully! {message}")
+                            
+                            # --- Display Summaries ---
+                            st.subheader("Processing Summary")
+                            if summaries:
+                                # ... (summary display logic unchanged) ...
+                                df_summary = pd.DataFrame(summaries)
+                                
+                                df_summary_display = df_summary.copy()
+
+                                if 'details' in df_summary.columns:
+                                    
+                                    df_summary_display['Market'] = df_summary['details'].apply(
+                                        lambda d: d.get('market_affected', d.get('markets_context', 'Global/N/A'))
+                                    )
+                                    
+                                    def get_change_count(d):
+                                        if 'rows_removed' in d: return d['rows_removed']
+                                        if 'total_issues_flagged' in d: return d['total_issues_flagged']
+                                        if 'rows_added' in d: return d['rows_added']
+                                        if 'broadcasters_missing' in d: return d['broadcasters_missing'] 
+                                        return 0
+                                        
+                                    df_summary_display['Change Count'] = df_summary['details'].apply(get_change_count)
+                                    
+                                    df_summary_display = df_summary_display.rename(columns={
+                                        "description": "Operation", 
+                                        "status": "Status"
+                                    })
+                                    
+                                    df_summary_display = df_summary_display[[
+                                        'Status', 
+                                        'Operation', 
+                                        'Market', 
+                                        'Change Count', 
+                                        'check_key'
+                                    ]].set_index('check_key')
+                                else:
+                                    df_summary_display = df_summary_display.rename(columns={
+                                        "description": "Operation", 
+                                        "status": "Status"
+                                    })
+                                    if 'check_key' in df_summary_display.columns:
+                                            df_summary_display = df_summary_display[['Status', 'Operation', 'check_key']].set_index('check_key')
+                                            
+                                st.dataframe(df_summary_display, use_container_width=True)
+                                
+                                # --- Display Duplicates Dataframe (UNCHANGED) ---
+                                dupe_summary = next((s for s in summaries if s.get('check_key') == 'check_italy_mexico' and s['details'].get('duplicate_data')), None)
+                                
+                                if dupe_summary and dupe_summary['details']['duplicate_data']:
+                                    duplicate_data = dupe_summary['details']['duplicate_data']
+                                    st.subheader("⚠️ Duplicate Rows Found and Consolidated (Italy/Mexico)")
+                                    
+                                    duplicates_df = pd.DataFrame(duplicate_data)
+                                    st.dataframe(duplicates_df, use_container_width=True)
+                                    st.caption(
+                                        f"The table above shows {len(duplicates_df)} rows involved in the duplicate sets (including the one kept). "
+                                        f"**{dupe_summary['details'].get('rows_removed', 0)}** rows were removed."
+                                    )
+
+                            else:
+                                st.info("No specific operational summaries were returned.")
+
+                            # --- Provide Download Button (UNCHANGED) ---
+                            if download_url_suffix:
+                                st.markdown("---")
+                                st.markdown(
+                                    f'### 📥 Download Processed File <a href="{full_download_url}" download>Click Here to Download</a>',
+                                    unsafe_allow_html=True
+                                )
+                            else:
+                                st.warning("Processed file download link was not generated. Check backend logs.")
+
+                        except (requests.JSONDecodeError, KeyError) as e:
+                            st.error(f"❌ Failed to parse JSON response from backend. Error: {e}")
+                        
+                    else:
+                        # 5. Handle Backend Error
+                        try:
+                            error_detail = response.json().get("detail", "Unknown error occurred during check execution.")
+                        except requests.JSONDecodeError:
+                            error_detail = response.text
+                        st.error(f"❌ Backend Processing Error ({response.status_code}): {error_detail}")
+
+                except requests.exceptions.RequestException as e:
+                    st.error(f"❌ Connection Error: Could not reach the backend. Error: {e}")

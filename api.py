@@ -46,6 +46,8 @@ from C_data_processing_f1 import (
     # generate_summary_sheet,
 )
 
+from C_data_processing_EPL import EPLValidator
+
 # --- NEW QC IMPORTS (YOURS - ADDED) ---
 # We import your file with an alias 'qc_general' to prevent name conflicts
 import qc_checks_1 as qc_general
@@ -240,8 +242,24 @@ def run_qc_checks(  # <-- CHANGED from async def to def
 
 
 # -------------------- 🌍 F1 MARKET CHECK ENDPOINT (MODIFIED FOR CONCURRENCY) --------------------
+
+EPL_CHECK_KEYS = {
+    "impute_lt_live_status",
+    "consolidate_gillete_soccer",
+    "check_sky_showcase_live",
+    "standardize_uk_ire_region",
+    "check_fixture_vs_case",
+    "check_pan_balkans_serbia_parity",
+    "audit_multi_match_status",
+    "check_date_time_format_integrity",
+    "check_live_broadcast_uniqueness",
+    "audit_channel_line_item_count",
+    "check_combined_archive_status",
+    "suppress_duplicated_audience"
+    } 
+
 @app.post("/api/market_check_and_process", response_model=None)
-def market_check_and_process( # <-- CHANGED from async def to def
+def market_check_and_process( 
     bsr_file: UploadFile = File(..., description="BSR file for market-specific checks"),
     obligation_file: Optional[UploadFile] = File(None, description="F1 Obligation file for broadcaster checks"), 
     overnight_file: Optional[UploadFile] = File(None, description="Overnight Audience file for upscale/integrity check"),
@@ -255,46 +273,80 @@ def market_check_and_process( # <-- CHANGED from async def to def
     
     output_filename = f"Processed_BSR_{os.path.splitext(bsr_file.filename)[0]}_{int(time.time())}.xlsx"
     output_path = os.path.join(OUTPUT_FOLDER, output_filename)
+
+    secondary_reports = {} 
     
     try:
-        # 1. Save files synchronously
+        # 1. Save files synchronously (Skipped file save logic for brevity)
         with open(bsr_file_path, "wb") as buffer:
             shutil.copyfileobj(bsr_file.file, buffer)
-            
+        # ... (Save other files) ...
         if obligation_file and obligation_file.filename:
             obligation_path = os.path.join(UPLOAD_FOLDER, obligation_file.filename)
             with open(obligation_path, "wb") as buffer:
                 shutil.copyfileobj(obligation_file.file, buffer)
-            print(f"Saved obligation file to: {obligation_path}")
-
         if overnight_file and overnight_file.filename: 
             overnight_path = os.path.join(UPLOAD_FOLDER, overnight_file.filename)
             with open(overnight_path, "wb") as buffer:
                 shutil.copyfileobj(overnight_file.file, buffer)
-            print(f"Saved overnight file to: {overnight_path}")
-        
         if macro_file and macro_file.filename: 
             macro_path = os.path.join(UPLOAD_FOLDER, macro_file.filename)
             with open(macro_path, "wb") as buffer:
                 shutil.copyfileobj(macro_file.file, buffer)
-            print(f"Saved macro rules file to: {macro_path}")
 
-        # 2. Run blocking code (now in a thread)
-        validator = BSRValidator(
-            bsr_path=bsr_file_path, 
-            obligation_path=obligation_path, 
-            overnight_path=overnight_path, 
-            macro_path=macro_path 
-        ) 
 
-        status_summaries = validator.market_check_processor(checks)
-        df_processed = validator.df
+        # 2. Split Checks and Initialize Validators
+        bsr_checks_to_run = [c for c in checks if c not in EPL_CHECK_KEYS]
+        epl_checks_to_run = [c for c in checks if c in EPL_CHECK_KEYS]
+        status_summaries = []
+
+        # Instantiate BSRValidator
+        bsr_validator = BSRValidator(bsr_path=bsr_file_path, obligation_path=obligation_path, overnight_path=overnight_path, macro_path=macro_path)
+        df_processed = bsr_validator.df
+
+        # Run general/F1 checks
+        if bsr_checks_to_run:
+            status_summaries.extend(bsr_validator.market_check_processor(bsr_checks_to_run))
+            df_processed = bsr_validator.df 
         
+        # Run EPL checks
+        if epl_checks_to_run:
+            epl_validator = EPLValidator(df=df_processed, bsr_path=bsr_file_path, obligation_path=obligation_path, overnight_path=overnight_path, macro_path=macro_path)
+            epl_summaries = [epl_validator.check_map[c]() for c in epl_checks_to_run]
+            status_summaries.extend(epl_summaries)
+            df_processed = epl_validator.df 
+
+        # 3. Finalize and Save
         clean_summaries = [s for s in status_summaries if isinstance(s, dict)]
         if df_processed.empty:
              raise Exception("Processed DataFrame is empty after applying checks.")
 
-        df_processed.to_excel(output_path, index=False)
+        # --- CRITICAL FIX: EXTRACT AND CONVERT SECONDARY REPORTS ---
+        for summary in clean_summaries:
+            details = summary.get('details', {})
+            
+            # Check 1: Channel Count Report
+            if 'channel_count_report_df' in details and details['channel_count_report_df']:
+                df_report = pd.DataFrame.from_records(details['channel_count_report_df'])
+                secondary_reports['Channel Summary'] = df_report # Use "Channel Summary" as sheet name
+                
+            # Check 2: SA Defect Report
+            if 'sa_defect_report_df' in details and isinstance(details['sa_defect_report_df'], pd.DataFrame):
+                secondary_reports['SA Defect Report'] = details['sa_defect_report_df']
+
+
+        # --- 4. MULTI-SHEET EXCEL WRITER (Guarantees New Tab) ---
+        # NOTE: Using 'xlsxwriter' engine is usually more reliable for multi-sheet output
+        with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+            # Sheet 1: Main Processed BSR Data (Mandatory)
+            df_processed.to_excel(writer, sheet_name='Processed BSR', index=False)
+            
+            # Write all extracted secondary reports to their own sheets
+            for sheet_name, report_df in secondary_reports.items():
+                report_df.to_excel(writer, sheet_name= sheet_name, index=False) # Creates the new tab
+
+
+        # 5. Finalize JSON Response
         download_url = f"/api/download_file?filename={output_filename}" 
 
         return JSONResponse(content={
@@ -308,7 +360,7 @@ def market_check_and_process( # <-- CHANGED from async def to def
         print(f"Market Check Error: {e}")
         raise HTTPException(status_code=500, detail=f"An error occurred during market checks: {str(e)}")
     finally:
-        # Removed all 'await file.close()' calls
+        # Cleanup files
         for path in [bsr_file_path, obligation_path, overnight_path, macro_path]:
             if path and os.path.exists(path):
                 os.remove(path)
