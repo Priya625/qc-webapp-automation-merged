@@ -16,7 +16,7 @@ import json # <-- ADDED
 # from constants import DATA_PATH 
 # from data_processing import DataExplorer # Assuming this is imported
 
-# --- QC Specific Imports (UNTOUCHED) ---
+# --- QC Specific Imports (MODIFIED: duration_check removed) ---
 from qc_checks import (
     # ... (Your original QC imports) ...
     detect_period_from_rosco,
@@ -25,12 +25,11 @@ from qc_checks import (
     completeness_check,
     overlap_duplicate_daybreak_check,
     program_category_check,
-    duration_check,
     check_event_matchday_competition,
-    market_channel_program_duration_check,
-    domestic_market_coverage_check,
+    market_channel_consistency_check,
+    domestic_market_check,
     rates_and_ratings_check,
-    duplicated_markets_check,
+    duplicated_market_check,
     country_channel_id_check,
     client_lstv_ott_check,
     color_excel,
@@ -142,7 +141,7 @@ async def upload_csv(file: UploadFile = File(...)):
     finally:
         await file.close() # This endpoint can remain async, it's fine
 
-# -------------------- 📂 End Points Using DataExplorer Class (UNTOUCHED) --------------------
+# --------------------  End Points Using DataExplorer Class  --------------------
 
 @app.get("/api/summary")
 async def read_summary_data():
@@ -165,7 +164,7 @@ async def read_sales(limit: int = Query(100, gt=0, lt=150000)):
     data = DataExplorer(app.state.df, limit)
     return data.json_response()
 
-# -------------------- 🚀 QC API Endpoint (MODIFIED FOR CONCURRENCY) --------------------
+# --------------------  QC API Endpoint (MODIFIED: duration_check removed) --------------------
 
 @app.post("/api/run_qc")
 def run_qc_checks(  # <-- CHANGED from async def to def
@@ -205,12 +204,11 @@ def run_qc_checks(  # <-- CHANGED from async def to def
         df = completeness_check(df)
         df = overlap_duplicate_daybreak_check(df)
         df = program_category_check(df)
-        df = duration_check(df)
         df = check_event_matchday_competition(df, df_data=df_data, rosco_path=rosco_path)
-        df = market_channel_program_duration_check(df, reference_df=df_data)
-        df = domestic_market_coverage_check(df, reference_df=df_data)
+        df = market_channel_consistency_check(df, reference_df=df_data)
+        df = domestic_market_check(df, reference_df=df_data)
         df = rates_and_ratings_check(df)
-        df = duplicated_markets_check(df)
+        df = duplicated_market_check(df)
         df = country_channel_id_check(df)
         df = client_lstv_ott_check(df)
 
@@ -381,25 +379,29 @@ async def download_file(filename: str = Query(...)):
     )
 
 # -----------------------------------------------------------
-# -------------------- 🚀 YOUR NEW ENDPOINTS (MODIFIED FOR CONCURRENCY) --------------------
+# -------------------- YOUR NEW ENDPOINTS (UPDATED) --------------------
 # -----------------------------------------------------------
 
-# -------------------- 1. NEW GENERAL QC ENDPOINT --------------------
+# -------------------- 1. UPDATED GENERAL QC ENDPOINT --------------------
 @app.post("/api/run_general_qc")
-def run_general_qc_checks( # <-- CHANGED from async def to def
+def run_general_qc_checks( # <-- CHANGED from async def to def, now supports macro_file optional
     rosco_file: UploadFile = File(...),
-    bsr_file: UploadFile = File(...)
+    bsr_file: UploadFile = File(...),
+    macro_file: Optional[UploadFile] = File(None)
 ):
     """
     Runs YOUR 9-check GENERAL QC pipeline from qc_checks_1.py
+    This endpoint mirrors the same ordering & logic you implemented in app.py
     """
     config = load_config()
     col_map = config["column_mappings"]
     rules = config["qc_rules"]
+    project = config.get("project_rules", {})
     file_rules = config["file_rules"]
 
     rosco_path = os.path.join(UPLOAD_FOLDER, rosco_file.filename)
     bsr_path = os.path.join(UPLOAD_FOLDER, bsr_file.filename)
+    macro_path = None
     
     try:
         # Save files synchronously
@@ -407,27 +409,61 @@ def run_general_qc_checks( # <-- CHANGED from async def to def
             shutil.copyfileobj(rosco_file.file, buffer)
         with open(bsr_path, "wb") as buffer:
             shutil.copyfileobj(bsr_file.file, buffer)
+        
+        if macro_file and macro_file.filename:
+            macro_path = os.path.join(UPLOAD_FOLDER, macro_file.filename)
+            with open(macro_path, "wb") as buffer:
+                shutil.copyfileobj(macro_file.file, buffer)
 
         # --- Run YOUR QC Pipeline (The 9 Checks) ---
         start_date, end_date = qc_general.detect_period_from_rosco(rosco_path)
         df = qc_general.load_bsr(bsr_path, col_map["bsr"])
 
+        # Clean headers & values (same as app.py)
+        df.columns = df.columns.str.strip().str.replace("\xa0", " ", regex=True)
+        df = df.applymap(lambda x: str(x).replace("\xa0", " ").strip() if isinstance(x, str) else x)
+        df.rename(columns={"Start(UTC)": "Start (UTC)", "End(UTC)": "End (UTC)"}, inplace=True)
+
+        # Execution order aligned with app.py:
         df = qc_general.period_check(df, start_date, end_date, col_map["bsr"])
-        df = qc_general.completeness_check(df, col_map["bsr"], rules["program_category"])
-        df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules["overlap_check"])
-        df = qc_general.program_category_check(bsr_path, df, col_map, rules["program_category"], file_rules)
+        # completeness_check expects full rules dict in app.py — pass rules
+        df = qc_general.completeness_check(df, col_map["bsr"], rules)
+        df = qc_general.program_category_check(bsr_path, df, col_map, rules.get("program_category", {}), file_rules)
         df = qc_general.check_event_matchday_competition(df, bsr_path, col_map, file_rules)
         df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
+        # domestic market check as in app.py
+        df = qc_general.domestic_market_check(df, project, col_map["bsr"], debug=True)
         df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
         df = qc_general.country_channel_id_check(df, col_map["bsr"])
-        df = qc_general.client_lstv_ott_check(df, col_map["bsr"], rules["client_check"])
+        df = qc_general.client_lstv_ott_check(df, col_map["bsr"], rules.get("client_check", {}))
+        # rates_and_ratings_check called again in app.py — keep consistent
+        df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
 
-        # Generate Output File
-        output_file = f"General_QC_Result_{os.path.splitext(bsr_file.filename)[0]}.xlsx"
+        # 2️ Duplicate Market Check FIRST — because Overlap depends on it (app.py flow)
+        # duplicated_market_check returns (df, duplicated_channels) in app.py
+        df = qc_general.duplicated_market_check(
+            df, macro_path, project, col_map, file_rules, debug=True
+        )
+
+        # 3️ Overlap / Duplicate / Daybreak Check — pass duplicated channels
+        df = qc_general.overlap_duplicate_daybreak_check(
+            df, col_map["bsr"], rules.get("overlap_check", {}) # Note: duplicated_channels argument was removed from the qc_checks_1 definition.
+        )
+
+        # -----------------------------------------------------------
+        #   OUTPUT SAVE (use file_rules)
+        # -----------------------------------------------------------
+        output_prefix = file_rules.get("output_prefix", "General_QC_Result_")
+        output_sheet = file_rules.get("output_sheet_name", "QC Results")
+        output_file = f"{output_prefix}{os.path.splitext(bsr_file.filename)[0]}.xlsx"
         output_path = os.path.join(OUTPUT_FOLDER, output_file)
 
+        # Cleanup datetime formats (remove tz info if present)
+        for col in df.select_dtypes(include=["datetimetz"]).columns:
+            df[col] = df[col].dt.tz_convert(None).dt.tz_localize(None) if hasattr(df[col].dt, "tz") else df[col].dt.tz_localize(None)
+
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-            df.to_excel(writer, index=False, sheet_name="QC Results")
+            df.to_excel(writer, index=False, sheet_name=output_sheet)
 
         qc_general.color_excel(output_path, df)
         qc_general.generate_summary_sheet(output_path, df, file_rules)
@@ -438,14 +474,14 @@ def run_general_qc_checks( # <-- CHANGED from async def to def
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
     except Exception as e:
-        for path in [rosco_path, bsr_path]:
+        for path in [rosco_path, bsr_path, macro_path]:
             if path and os.path.exists(path): os.remove(path)
         raise HTTPException(status_code=500, detail=f"An error occurred during General QC: {str(e)}")
     finally:
         # Removed 'await file.close()'
         pass
 
-# -------------------- 2. NEW LALIGA QC ENDPOINT --------------------
+# -------------------- 2. UPDATED LALIGA QC ENDPOINT --------------------
 @app.post("/api/run_laliga_qc")
 def run_laliga_qc_checks( # <-- CHANGED from async def to def
     rosco_file: UploadFile = File(...),
@@ -454,6 +490,7 @@ def run_laliga_qc_checks( # <-- CHANGED from async def to def
 ):
     """
     Runs YOUR FULL 11-check QC pipeline from qc_checks_1.py
+    This mirrors the app.py flow (cleaning, ordering, duplicated market before overlap)
     """
     config = load_config()
     col_map = config["column_mappings"]
@@ -478,25 +515,44 @@ def run_laliga_qc_checks( # <-- CHANGED from async def to def
         start_date, end_date = qc_general.detect_period_from_rosco(rosco_path)
         df = qc_general.load_bsr(bsr_path, col_map["bsr"])
 
+        # Clean headers & values (same as app.py)
+        df.columns = df.columns.str.strip().str.replace("\xa0", " ", regex=True)
+        df = df.applymap(lambda x: str(x).replace("\xa0", " ").strip() if isinstance(x, str) else x)
+        df.rename(columns={"Start(UTC)": "Start (UTC)", "End(UTC)": "End (UTC)"}, inplace=True)
+
+        # Execution order aligned with app.py:
         df = qc_general.period_check(df, start_date, end_date, col_map["bsr"])
-        df = qc_general.completeness_check(df, col_map["bsr"], rules["program_category"])
-        df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules["overlap_check"])
-        df = qc_general.program_category_check(bsr_path, df, col_map, rules["program_category"], file_rules)
+        df = qc_general.completeness_check(df, col_map["bsr"], rules)
+        df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules.get("overlap_check", {}))
+        df = qc_general.program_category_check(bsr_path, df, col_map, rules.get("program_category", {}), file_rules)
         df = qc_general.check_event_matchday_competition(df, bsr_path, col_map, file_rules)
         df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
         df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
         df = qc_general.country_channel_id_check(df, col_map["bsr"])
-        df = qc_general.client_lstv_ott_check(df, col_map["bsr"], rules["client_check"])
+        df = qc_general.client_lstv_ott_check(df, col_map["bsr"], rules.get("client_check", {}))
         
         df = qc_general.domestic_market_check(df, project, col_map["bsr"], debug=True)
+        # For Laliga we still run duplicated market check using macro_path
         df = qc_general.duplicated_market_check(df, macro_path, project, col_map, file_rules, debug=True)
 
+        # After the duplicated check ensure overlap/daybreak is run with duplicated channels
+        # Note: duplicated_channels argument was removed from the qc_checks_1 definition.
+        df = qc_general.overlap_duplicate_daybreak_check(
+            df, col_map["bsr"], rules.get("overlap_check", {})
+        )
+
         # Generate Output File
-        output_file = f"Laliga_QC_Result_{os.path.splitext(bsr_file.filename)[0]}.xlsx"
+        output_prefix = file_rules.get("output_prefix", "Laliga_QC_Result_")
+        output_sheet = file_rules.get("output_sheet_name", "Laliga QC Results")
+        output_file = f"{output_prefix}{os.path.splitext(bsr_file.filename)[0]}.xlsx"
         output_path = os.path.join(OUTPUT_FOLDER, output_file)
 
+        # Cleanup datetime formats
+        for col in df.select_dtypes(include=["datetimetz"]).columns:
+            df[col] = df[col].dt.tz_convert(None).dt.tz_localize(None) if hasattr(df[col].dt, "tz") else df[col].dt.tz_localize(None)
+
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-            df.to_excel(writer, index=False, sheet_name="Laliga QC Results")
+            df.to_excel(writer, index=False, sheet_name=output_sheet)
 
         qc_general.color_excel(output_path, df)
         qc_general.generate_summary_sheet(output_path, df, file_rules)
@@ -513,3 +569,87 @@ def run_laliga_qc_checks( # <-- CHANGED from async def to def
     finally:
         # Removed 'await file.close()'
         pass
+
+# -------------------- EPL Endpoints --------------------
+import epl_checks   # <-- your new EPL backend file
+
+# --------------------------------------------------------------------
+# EPL PRE CHECKS
+# --------------------------------------------------------------------
+@app.post("/api/run_epl_pre_checks")
+def run_epl_pre_checks(
+    notfinal_bsr: UploadFile = File(...),
+    rosco_file: UploadFile = File(...),
+    market_dup_file: UploadFile = File(...)
+):
+
+    bsr_path = os.path.join(UPLOAD_FOLDER, notfinal_bsr.filename)
+    rosco_path = os.path.join(UPLOAD_FOLDER, rosco_file.filename)
+    market_dup_path = os.path.join(UPLOAD_FOLDER, market_dup_file.filename)
+
+    try:
+        # Save files
+        for obj, path in [
+            (notfinal_bsr, bsr_path),
+            (rosco_file, rosco_path),
+            (market_dup_file, market_dup_path)
+        ]:
+            with open(path, "wb") as f:
+                shutil.copyfileobj(obj.file, f)
+
+        # Run EPL Pre-Checks
+        df = epl_checks.run_pre_checks(
+            bsr_path=bsr_path,
+            rosco_path=rosco_path,
+            market_dup_path=market_dup_path
+        )
+
+        output_file = "EPL_Pre_Checks.xlsx"
+        output_path = os.path.join(OUTPUT_FOLDER, output_file)
+
+        df.to_excel(output_path, index=False)
+        return FileResponse(output_path, filename=output_file)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --------------------------------------------------------------------
+# EPL POST CHECKS
+# --------------------------------------------------------------------
+@app.post("/api/run_epl_post_checks")
+def run_epl_post_checks(
+    bsr_file: UploadFile = File(...),
+    rosco_file: UploadFile = File(...),
+    macro_file: UploadFile = File(...)
+):
+
+    bsr_path = os.path.join(UPLOAD_FOLDER, bsr_file.filename)
+    rosco_path = os.path.join(UPLOAD_FOLDER, rosco_file.filename)
+    macro_path = os.path.join(UPLOAD_FOLDER, macro_file.filename)
+
+    try:
+        # Save files
+        for obj, path in [
+            (bsr_file, bsr_path),
+            (rosco_file, rosco_path),
+            (macro_file, macro_path)
+        ]:
+            with open(path, "wb") as f:
+                shutil.copyfileobj(obj.file, f)
+
+        # Run EPL Post-Checks
+        df = epl_checks.run_post_checks(
+            bsr_path=bsr_path,
+            rosco_path=rosco_path,
+            macro_path=macro_path
+        )
+
+        output_file = "EPL_Post_Checks.xlsx"
+        output_path = os.path.join(OUTPUT_FOLDER, output_file)
+
+        df.to_excel(output_path, index=False)
+        return FileResponse(output_path, filename=output_file)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

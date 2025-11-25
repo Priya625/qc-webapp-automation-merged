@@ -31,11 +31,11 @@ except Exception:
 
 
 # --- Use Tabs for Clear Separation (MODIFIED) ---
-home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab = st.tabs([
-    " Home Page", 
-    " Main QC Automation", 
-    " Laliga Specific QC", 
-    " F1 Market Specific Checks"
+main_qc_tab, laliga_qc_tab, f1_tab, epl_tab= st.tabs([
+    "✅ Main QC Automation", 
+    "⚽ Laliga Specific QC", 
+    "🏎️ F1 Market Specific Checks", 
+    "⚽ EPL Specific Checks"
 ])
 
 # --- Define all market check keys globally for management (UNTOUCHED) ---
@@ -282,7 +282,7 @@ with home_page_tab:
     
 
 # -----------------------------------------------------------
-#        ✅ MAIN QC AUTOMATION TAB (MODIFIED)
+#        ✅ MAIN QC AUTOMATION TAB 
 # -----------------------------------------------------------
 
 with main_qc_tab:
@@ -292,7 +292,7 @@ with main_qc_tab:
     This will run the 9 general QC checks.
     """)
 
-    # --- File Upload Section (MODIFIED) ---
+    # --- File Upload Section  ---
     col1, col2 = st.columns(2)
     with col1:
         rosco_file = st.file_uploader("📘 Upload Rosco File (.xlsx)", type=["xlsx"], key="rosco")
@@ -315,8 +315,6 @@ with main_qc_tab:
                     'bsr_file': (bsr_file.name, bsr_file.getbuffer(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
                 }
                 
-                # data_file logic removed
-
                 try:
                     # 2. Make the POST request to YOUR new endpoint
                     response = requests.post(f"{BACKEND_URL}/run_general_qc", files=files, timeout=600) 
@@ -351,7 +349,7 @@ with main_qc_tab:
                     st.error(f"❌ Connection or Timeout Error: Could not reach the backend. Check if FastAPI is running. Error: {e}")
 
 # -----------------------------------------------------------
-#         ⚽ LALIGA QC TAB (REPLACED)
+#         ⚽ LALIGA QC TAB
 # -----------------------------------------------------------
 
 with laliga_qc_tab:
@@ -415,13 +413,13 @@ with laliga_qc_tab:
                     st.error(f"❌ Connection Error: {e}")
 
 # -----------------------------------------------------------
-#         🏎️ F1 MARKET SPECIFIC CHECKS TAB (UNTOUCHED)
+#         🏎️ F1 MARKET SPECIFIC CHECKS TAB 
 # -----------------------------------------------------------
 with f1_tab:
     st.header(" Formula 1 Specific Checks")
     st.markdown("Upload the required files here to perform and log manual checks.")
 
-    # --- Dedicated Upload for Manual Checks (MODIFIED) ---
+    # --- Dedicated Upload for Manual Checks ---
     col_file1, col_file2, col_file3,col_file4 = st.columns(4) # <-- Increase columns to 3
     with col_file1:
         market_check_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="market_check_file")
@@ -489,6 +487,7 @@ with f1_tab:
         # st.checkbox(all_market_check_keys["recreate_disney_latam"], key="recreate_disney_latam")
         
     st.write("---")
+
 
 
     # --- Run Processing Button (UNTOUCHED) ---
@@ -594,7 +593,7 @@ with f1_tab:
                                             
                                 st.dataframe(df_summary_display, use_container_width=True)
                                 
-                                # --- Display Duplicates Dataframe (UNCHANGED) ---
+                                # --- Display Duplicates Dataframe  ---
                                 dupe_summary = next((s for s in summaries if s.get('check_key') == 'check_italy_mexico' and s['details'].get('duplicate_data')), None)
                                 
                                 if dupe_summary and dupe_summary['details']['duplicate_data']:
@@ -611,7 +610,7 @@ with f1_tab:
                             else:
                                 st.info("No specific operational summaries were returned.")
 
-                            # --- Provide Download Button (UNCHANGED) ---
+                            # --- Provide Download Button  ---
                             if download_url_suffix:
                                 st.markdown("---")
                                 st.markdown(
@@ -634,3 +633,111 @@ with f1_tab:
 
                 except requests.exceptions.RequestException as e:
                     st.error(f"❌ Connection Error: Could not reach the backend. Error: {e}")
+    
+# --------------------------------------------------------------------
+# EPL SPECIFIC CHECKS TAB
+# --------------------------------------------------------------------
+with epl_tab:
+
+    st.header("⚽ EPL Specific Checks")
+
+    # Select Pre or Post
+    epl_mode = st.radio(
+        "Select EPL Check Type",
+        ["Pre-Checks", "Post-Checks"],
+        horizontal=True
+    )
+
+    # ----------------------- PRE-CHECK SECTION -----------------------
+    if epl_mode == "Pre-Checks":
+        st.subheader("EPL Pre-Checks")
+
+        notfinal_bsr = st.file_uploader(
+            "Upload Not Finalised BSR",
+            type=["xlsx", "xls", "csv"],
+            key="pre_bsr"
+        )
+        rosco_file = st.file_uploader(
+            "Upload ROSCO File",
+            type=["xlsx", "xls", "csv"],
+            key="pre_rosco"
+        )
+        market_dup = st.file_uploader(
+            "Upload Market Duplicator File",
+            type=["xlsx", "xls", "csv"],
+            key="pre_market_dup"
+        )
+
+        if st.button("Run EPL Pre-Checks"):
+            if notfinal_bsr and rosco_file and market_dup:
+
+                files = {
+                    "notfinal_bsr": (notfinal_bsr.name, notfinal_bsr, notfinal_bsr.type),
+                    "rosco_file": (rosco_file.name, rosco_file, rosco_file.type),
+                    "market_dup_file": (market_dup.name, market_dup, market_dup.type)
+                }
+
+                with st.spinner("Running EPL Pre-Checks..."):
+                    response = requests.post(
+                        "http://localhost:8000/api/run_epl_pre_checks",
+                        files=files
+                    )
+
+                if response.status_code == 200:
+                    st.success("Pre-Checks completed. Download below:")
+                    st.download_button(
+                        "Download EPL Pre-Check Output",
+                        response.content,
+                        file_name="EPL_Pre_Checks.xlsx"
+                    )
+                else:
+                    st.error(response.json().get("detail", "Something went wrong"))
+            else:
+                st.error("Please upload all 3 files.")
+
+    # ----------------------- POST-CHECK SECTION -----------------------
+    elif epl_mode == "Post-Checks":
+        st.subheader("EPL Post-Checks")
+
+        bsr_file = st.file_uploader(
+            "Upload Final BSR",
+            type=["xlsx", "xls", "csv"],
+            key="post_bsr"
+        )
+        rosco_file = st.file_uploader(
+            "Upload ROSCO File",
+            type=["xlsx", "xls", "csv"],
+            key="post_rosco"
+        )
+        macro_dup = st.file_uploader(
+            "Upload Macro Duplicator File",
+            type=["xlsx", "xls", "csv"],
+            key="post_macro"
+        )
+
+        if st.button("Run EPL Post-Checks"):
+            if bsr_file and rosco_file and macro_dup:
+
+                files = {
+                    "bsr_file": (bsr_file.name, bsr_file, bsr_file.type),
+                    "rosco_file": (rosco_file.name, rosco_file, rosco_file.type),
+                    "macro_file": (macro_dup.name, macro_dup, macro_dup.type)
+                }
+
+                with st.spinner("Running EPL Post-Checks..."):
+                    response = requests.post(
+                        "http://localhost:8000/api/run_epl_post_checks",
+                        files=files
+                    )
+
+                if response.status_code == 200:
+                    st.success("Post-Checks completed. Download below:")
+                    st.download_button(
+                        "Download EPL Post-Check Output",
+                        response.content,
+                        file_name="EPL_Post_Checks.xlsx"
+                    )
+                else:
+                    st.error(response.json().get("detail", "Something went wrong"))
+            else:
+                st.error("Please upload all 3 files.")
