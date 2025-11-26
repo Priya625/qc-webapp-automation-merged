@@ -1080,192 +1080,205 @@ def domestic_market_coverage_check(df_worksheet, reference_df=None, debug_rows=1
 # -----------------------------------------------------------
 # 11️⃣ Rates & Ratings Check
 # --------------------------------------------
-def rates_and_ratings_check(df):
-    """
-    Rates and Ratings QC Check
-    Outputs two columns:
-      - Rates_Ratings_QC_OK (True/False)
-      - Rates_Ratings_QC_Remark
-    """
-    print("\n--- Running Rates and Ratings Check ---")
+def rates_and_ratings_check(df, bsr_cols):
+    
+    est_col = _find_column(df, bsr_cols['aud_estimates'])
+    met_col = _find_column(df, bsr_cols['aud_metered'])
+    
+    if est_col is None:
+        df[est_col] = pd.NA # Create dummy column to avoid errors
+        logging.warning("Rates/Ratings Check: Audience Estimates column not found.")
+    if met_col is None:
+        df[met_col] = pd.NA
+        logging.warning("Rates/Ratings Check: Audience Metered column not found.")
 
-    if 'Source' not in df.columns:
-        df['Source'] = None
-    if 'TVR% 3+' not in df.columns:
-        df['TVR% 3+'] = None
-    if "CPT's [Euro]" not in df.columns and "Spot price in Euro [30 sec.]" in df.columns:
-        df["CPT's [Euro]"] = df["Spot price in Euro [30 sec.]"]
+    present_est = df[est_col].apply(_is_present)
+    present_met = df[met_col].apply(_is_present)
+
+    both_empty_mask = (~present_est) & (~present_met)
+    both_present_mask = (present_est) & (present_met)
+    exactly_one_mask = (present_est ^ present_met)
 
     df["Rates_Ratings_QC_OK"] = True
     df["Rates_Ratings_QC_Remark"] = ""
-
-    # 1️⃣ Source overlap
-    overlap_rows = []
-    grouped = df.groupby(["TV-Channel", "Date"], dropna=False)
-    for (channel, date), group in grouped:
-        sources = group["Source"].dropna().unique().tolist()
-        if "Meter" in sources and any(s not in ["Meter", None] for s in sources):
-            overlap_rows.extend(group.index.tolist())
-
-    df.loc[overlap_rows, "Rates_Ratings_QC_OK"] = False
-    df.loc[overlap_rows, "Rates_Ratings_QC_Remark"] = "Meter and Non-Meter overlap"
-
-    # 2️⃣ Linear vs OTT conflict
-    if "Type of program" in df.columns:
-        ott_mask = df["TV-Channel"].astype(str).str.contains("OTT", case=False, na=False)
-        linear_mask = df["TV-Channel"].astype(str).str.contains("HD|TV", case=False, na=False)
-        both_mask = ott_mask & linear_mask
-        df.loc[both_mask, "Rates_Ratings_QC_OK"] = False
-        df.loc[both_mask, "Rates_Ratings_QC_Remark"] = "Channel classified as both Linear and OTT"
-
-    # 3️⃣ Missing rate/rating values
-    invalid_rates = df[df["CPT's [Euro]"].astype(str).isin(["", "nan", "None"])]
-    invalid_ratings = df[df["TVR% 3+"].astype(str).isin(["", "nan", "None"])]
-
-    df.loc[invalid_rates.index, "Rates_Ratings_QC_OK"] = False
-    df.loc[invalid_rates.index, "Rates_Ratings_QC_Remark"] = "Missing rate values"
-
-    df.loc[invalid_ratings.index, "Rates_Ratings_QC_OK"] = False
-    df.loc[invalid_ratings.index, "Rates_Ratings_QC_Remark"] = "Missing audience ratings"
-
-    total = len(df)
-    failed = (~df["Rates_Ratings_QC_OK"]).sum()
-    print(f"Rates & Ratings QC Summary: {failed}/{total} failed ({(failed/total)*100:.2f}%)")
+    
+    df.loc[both_empty_mask, "Rates_Ratings_QC_OK"] = False
+    df.loc[both_empty_mask, "Rates_Ratings_QC_Remark"] = "Missing audience ratings (both empty)"
+    
+    df.loc[both_present_mask, "Rates_Ratings_QC_OK"] = False
+    df.loc[both_present_mask, "Rates_Ratings_QC_Remark"] = "Invalid: both metered and estimated present"
+    
+    df.loc[exactly_one_mask, "Rates_Ratings_QC_OK"] = True
+    df.loc[exactly_one_mask, "Rates_Ratings_QC_Remark"] = "Valid: one rating source available"
 
     return df
 
 # -----------------------------------------------------------
 # 12️⃣ Comparison of Duplicated Markets
-def duplicated_markets_check(df):
-    """
-    Comparison of Duplicated Markets Check
-    Outputs two columns:
-      - Duplicated_Market_Check_OK (True/False)
-      - Duplicated_Market_Check (remark)
-    """
-    print("\n--- Running Comparison of Duplicated Markets Check ---")
+def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, debug=False):
+    
+    result_col = "Duplicated_Markets_Check_OK"
+    remark_col = "Duplicated_Markets_Remark"
+    
+    df_bsr[result_col] = pd.NA # Default to Not Applicable
+    df_bsr[result_col] = df_bsr[result_col].astype('object')
+    df_bsr[remark_col] = "Not Applicable"
+    
+    league_keyword = project.get('league_keyword', 'F24 Spain')
+    bsr_cols = col_map['bsr']
+    macro_cols = col_map['macro']
 
-    for col in ["Market", "TV-Channel", "Duration"]:
-        if col not in df.columns:
-            df["Duplicated_Market_Check_OK"] = False
-            df["Duplicated_Market_Check"] = f"Missing required column: {col}"
-            print(f"⚠️ Missing required column: {col}. Skipping duplicated markets check.")
-            return df
+    if not macro_path or not os.path.exists(macro_path):
+        df_bsr[remark_col] = "Macro file missing"
+        return df_bsr
 
-    def duration_to_hours(d):
-        try:
-            if pd.isna(d):
-                return 0
-            parts = str(d).split(":")
-            h, m, s = (int(parts[i]) if i < len(parts) else 0 for i in range(3))
-            return h + m/60 + s/3600
-        except:
-            return 0
+    try:
+        # --- Load and clean Macro Data ---
+        macro_sheet = file_rules.get('macro_sheet_name', 'Data Core')
+        header_row = file_rules.get('macro_header_row', 1)
+        macro_df = pd.read_excel(macro_path, sheet_name=macro_sheet, header=header_row, dtype=str)
+        macro_df.columns = macro_df.columns.str.strip()
 
-    df["Duration_Hours"] = df["Duration"].apply(duration_to_hours)
-    df["Duplicated_Market_Check_OK"] = True
-    df["Duplicated_Market_Check"] = "Not Applicable"
+        # Find macro columns
+        proj_col = macro_cols['projects']
+        orig_mkt_col = macro_cols['orig_market']
+        orig_ch_col = macro_cols['orig_channel']
+        dup_mkt_col = macro_cols['dup_market']
+        dup_ch_col = macro_cols['dup_channel']
+        
+        macro_df = macro_df[
+            macro_df[proj_col].astype(str).str.contains(league_keyword, case=False, na=False)
+        ].copy()
 
-    dup_channels = df.groupby("TV-Channel")["Market"].nunique()
-    dup_channels = dup_channels[dup_channels > 1].index
+        if macro_df.empty:
+            df_bsr[remark_col] = f"No duplication rules found for {league_keyword}"
+            return df_bsr
 
-    count_diff_threshold = 0.2
-    duration_diff_threshold = 0.2
+        for col in [orig_mkt_col, orig_ch_col, dup_mkt_col, dup_ch_col]:
+            macro_df[col] = macro_df[col].astype(str).str.strip().str.lower()
 
-    for ch in dup_channels:
-        subset = df[df["TV-Channel"] == ch]
-        stats = subset.groupby("Market").agg(
-            entry_count=("TV-Channel", "count"),
-            total_duration=("Duration_Hours", "sum")
-        ).reset_index()
+        # --- Find BSR columns ---
+        mkt_col = _find_column(df_bsr, bsr_cols['market'])
+        ch_col = _find_column(df_bsr, bsr_cols['tv_channel'])
+        comp_col = _find_column(df_bsr, bsr_cols['competition'])
+        evt_col = _find_column(df_bsr, bsr_cols['event'])
 
-        max_count, min_count = stats["entry_count"].max(), stats["entry_count"].min()
-        max_dur, min_dur = stats["total_duration"].max(), stats["total_duration"].min()
-        count_diff = abs(max_count - min_count) / max_count if max_count else 0
-        dur_diff = abs(max_dur - min_dur) / max_dur if max_dur else 0
+        # --- Filter BSR for selected league (competition/event) ---
+        in_league = (
+            df_bsr[comp_col].astype(str).str.lower().str.contains(league_keyword.lower(), na=False)
+            | df_bsr[evt_col].astype(str).str.lower().str.contains(league_keyword.lower(), na=False)
+        )
+        df_league = df_bsr[in_league].copy()
 
-        if count_diff > count_diff_threshold or dur_diff > duration_diff_threshold:
-            remark = f"Inconsistent across markets (count diff={count_diff:.0%}, duration diff={dur_diff:.0%})"
-            df.loc[df["TV-Channel"] == ch, "Duplicated_Market_Check_OK"] = False
-        else:
-            remark = "Consistent across markets"
+        if df_league.empty:
+            df_bsr[remark_col] = f"No events found for {league_keyword}"
+            return df_bsr
 
-        df.loc[df["TV-Channel"] == ch, "Duplicated_Market_Check"] = remark
+        # --- Core Duplication Logic ---
+        for _, row in macro_df.iterrows():
+            orig_market = row[orig_mkt_col]
+            orig_channel = row[orig_ch_col]
+            dup_market = row[dup_mkt_col]
+            dup_channel = row[dup_ch_col]
 
-    total_checked = len(dup_channels)
-    failed = (~df["Duplicated_Market_Check_OK"]).sum()
-    print(f"Duplicated Markets checked: {total_checked}, Failed: {failed}")
+            orig_events = set(df_league[
+                (df_league[mkt_col].astype(str).str.lower() == orig_market)
+                & (df_league[ch_col].astype(str).str.lower() == orig_channel)
+            ][evt_col])
 
-    return df
+            dup_events = set(df_league[
+                (df_league[mkt_col].astype(str).str.lower() == dup_market)
+                & (df_league[ch_col].astype(str).str.lower() == dup_channel)
+            ][evt_col])
+
+            status, remark = pd.NA, "Not Applicable"
+            if not orig_events:
+                status = pd.NA
+                remark = f"No events found in {orig_market} / {orig_channel}"
+            elif orig_events.issubset(dup_events):
+                status = True
+                remark = f"All events correctly duplicated to {dup_market} / {dup_channel}"
+            else:
+                missing = orig_events - dup_events
+                status = False
+                remark = f"Missing {len(missing)} events in {dup_market} / {dup_channel}"
+
+            # Apply results to all relevant rows
+            orig_rows_mask = (df_bsr[mkt_col].astype(str).str.lower() == orig_market) & \
+                             (df_bsr[ch_col].astype(str).str.lower() == orig_channel) & in_league
+            dup_rows_mask = (df_bsr[mkt_col].astype(str).str.lower() == dup_market) & \
+                            (df_bsr[ch_col].astype(str).str.lower() == dup_channel) & in_league
+
+            df_bsr.loc[orig_rows_mask | dup_rows_mask, result_col] = status
+            df_bsr.loc[orig_rows_mask | dup_rows_mask, remark_col] = remark
+
+        return df_bsr
+
+    except Exception as e:
+        df_bsr[result_col] = False
+        df_bsr[remark_col] = str(e)
+        return df_bsr
 # -----------------------------------------------------------
 # 13️⃣ Country & Channel IDs Check
-def country_channel_id_check(df):
-    """
-    Ensures that each channel and market is mapped to a single, consistent ID.
-    Outputs two columns:
-      - Market_Channel_ID_OK (True/False)
-      - Market_Channel_ID_Remark (string)
-    """
+def country_channel_id_check(df, bsr_cols):
+    
+    df["Market_Channel_ID_OK"] = True
+    df["Market_Channel_ID_Remark"] = "OK"
 
-    df_result = df.copy()
-    df_result["Market_Channel_ID_OK"] = True
-    df_result["Market_Channel_ID_Remark"] = ""
+    ch_col = _find_column(df, bsr_cols['tv_channel'])
+    ch_id_col = _find_column(df, bsr_cols['channel_id'])
+    mkt_col = _find_column(df, bsr_cols['market'])
+    mkt_id_col = _find_column(df, bsr_cols['market_id'])
+    
+    if not all([ch_col, ch_id_col, mkt_col, mkt_id_col]):
+        logging.warning("ID Check: Missing one or more ID columns. Skipping.")
+        df["Market_Channel_ID_OK"] = False
+        df["Market_Channel_ID_Remark"] = "Check skipped: ID columns not found"
+        return df
 
     def norm(x):
         return str(x).strip() if pd.notna(x) else ""
 
-    # Maps to track consistency
     channel_id_map = {}
     market_id_map = {}
+    
+    # Build maps first
+    for idx, row in df.iterrows():
+        channel = norm(row.get(ch_col))
+        channel_id = norm(row.get(ch_id_col))
+        market = norm(row.get(mkt_col))
+        market_id = norm(row.get(mkt_id_col))
 
-    for idx, row in df_result.iterrows():
-        channel = norm(row.get("TV-Channel"))
-        channel_id = norm(row.get("Channel ID"))
-        market = norm(row.get("Market"))
-        market_id = norm(row.get("Market ID"))
-
+        if channel and channel_id and channel not in channel_id_map:
+            channel_id_map[channel] = channel_id
+        if market and market_id and market not in market_id_map:
+            market_id_map[market] = market_id
+            
+    # Check for inconsistencies
+    for idx, row in df.iterrows():
+        channel = norm(row.get(ch_col))
+        channel_id = norm(row.get(ch_id_col))
+        market = norm(row.get(mkt_col))
+        market_id = norm(row.get(mkt_id_col))
+        
         remarks = []
         ok = True
 
-        # ✅ Check 1 – Same channel shouldn't have multiple Channel IDs
-        if channel:
-            if channel in channel_id_map and channel_id_map[channel] != channel_id:
-                remarks.append(
-                    f"Channel '{channel}' has multiple IDs ({channel_id_map[channel]} vs {channel_id})"
-                )
-                ok = False
-            else:
-                channel_id_map[channel] = channel_id
-
-        # ✅ Check 2 – Same market shouldn't have multiple Market IDs
-        if market:
-            if market in market_id_map and market_id_map[market] != market_id:
-                remarks.append(
-                    f"Market '{market}' has multiple IDs ({market_id_map[market]} vs {market_id})"
-                )
-                ok = False
-            else:
-                market_id_map[market] = market_id
-
-        # ✅ Check 3 – Same Channel ID shouldn't be used for multiple channels
-        if channel_id and list(channel_id_map.values()).count(channel_id) > 1:
-            remarks.append(f"Channel ID '{channel_id}' assigned to multiple channels")
+        if channel and channel_id_map.get(channel) != channel_id:
+            remarks.append(f"Channel '{channel}' has multiple IDs")
             ok = False
-
-        # ✅ Check 4 – Same Market ID shouldn't be used for multiple markets
-        if market_id and list(market_id_map.values()).count(market_id) > 1:
-            remarks.append(f"Market ID '{market_id}' assigned to multiple markets")
+        if market and market_id_map.get(market) != market_id:
+            remarks.append(f"Market '{market}' has multiple IDs")
             ok = False
+            
+        df.at[idx, "Market_Channel_ID_OK"] = ok
+        df.at[idx, "Market_Channel_ID_Remark"] = "; ".join(remarks) if remarks else "OK"
 
-        # ✅ Write results
-        df_result.at[idx, "Market_Channel_ID_OK"] = ok
-        df_result.at[idx, "Market_Channel_ID_Remark"] = "; ".join(remarks) if remarks else "OK"
-
-    return df_result
+    return df
 
 # -----------------------------------------------------------
 # 14️⃣ Client Data / LSTV / OTT Check (corrected)
-def client_lstv_ott_check(df_worksheet, project_config=None):
+#def client_lstv_ott_check(df_worksheet, project_config=None):
     """
     Checks:
       - Market and Channel ID consistency

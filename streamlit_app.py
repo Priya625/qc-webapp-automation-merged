@@ -23,11 +23,8 @@ try:
         overlap_duplicate_daybreak_check as overlap_orig,
         program_category_check as program_cat_orig,
         check_event_matchday_competition as event_matchday_orig,
-        domestic_market_coverage_check as domestic_orig,
         rates_and_ratings_check as rates_orig,
-        duplicated_markets_check as duplicated_orig,
         country_channel_id_check as country_id_orig,
-        client_lstv_ott_check as client_lstv_orig,
         color_excel as color_excel_orig,
         generate_summary_sheet as summary_orig,
     )
@@ -373,7 +370,7 @@ with main_qc_tab:
         if not main_rosco_file or not main_bsr_file or not config:
             st.error("⚠️ Please upload both Rosco and BSR files (and ensure config.json is loaded).")
         else:
-            with st.spinner("Running General QC checks... Please wait ⏳"):
+            with st.spinner("Running General QC checks... Please wait"):
                 try:
                     # Load config
                     col_map = config["column_mappings"]
@@ -398,7 +395,6 @@ with main_qc_tab:
                     df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
                     df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
                     df = qc_general.country_channel_id_check(df, col_map["bsr"])
-                    df = qc_general.client_lstv_ott_check(df, col_map["bsr"], rules["client_check"])
 
                     # --- Generate Output File ---
                     output_file = f"General_QC_Result_{os.path.splitext(main_bsr_file.name)[0]}.xlsx"
@@ -410,16 +406,16 @@ with main_qc_tab:
                     qc_general.color_excel(output_path, df)
                     qc_general.generate_summary_sheet(output_path, df, file_rules)
                     
-                    st.success("✅ General QC completed successfully!")
+                    st.success(" General QC completed successfully!")
                     with open(output_path, "rb") as f:
                         st.download_button(
-                            label="📥 Download General QC Result",
+                            label=" Download General QC Result",
                             data=f,
                             file_name=output_file,
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
                 except Exception as e:
-                    st.error(f"❌ An error occurred during General QC: {e}")
+                    st.error(f" An error occurred during General QC: {e}")
 
 
 # -----------------------------------------------------------
@@ -473,7 +469,6 @@ with laliga_qc_tab:
                     df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
                     df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
                     df = qc_general.country_channel_id_check(df, col_map["bsr"])
-                    df = qc_general.client_lstv_ott_check(df, col_map["bsr"], rules["client_check"])
                     
                     # Run the 2 Laliga-Specific Checks
                     df = qc_general.domestic_market_check(df, project, col_map["bsr"], debug=True)
