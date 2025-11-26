@@ -23,7 +23,6 @@ try:
         overlap_duplicate_daybreak_check as overlap_orig,
         program_category_check as program_cat_orig,
         check_event_matchday_competition as event_matchday_orig,
-        market_channel_program_duration_check as market_channel_orig,
         domestic_market_coverage_check as domestic_orig,
         rates_and_ratings_check as rates_orig,
         duplicated_markets_check as duplicated_orig,

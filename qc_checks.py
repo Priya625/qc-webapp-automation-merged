@@ -740,100 +740,6 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
     return df
 
-
-# ----------------------------- 7️⃣ Duration Check -----------------------------
-#def duration_check(df):
-    """Validate program type vs actual duration (Start (UTC) / End (UTC))."""
-    print("\n--- DEBUG: Running Duration Check ---")
-
-    # --- Clean column names ---
-    df.columns = [str(c).strip() for c in df.columns]
-
-    # --- Detect columns robustly ---
-    start_col = None
-    end_col = None
-    type_col = None
-    for col in df.columns:
-        col_l = col.lower().strip()
-        if col_l in ["start (utc)", "start"]:
-            start_col = col
-        elif col_l in ["end (utc)", "end"]:
-            end_col = col
-        elif "type" in col_l and "program" in col_l:
-            type_col = col
-
-    if start_col is None or end_col is None or type_col is None:
-        print(f"⚠️  Missing columns. Found Start={start_col}, End={end_col}, Type={type_col}")
-        df["Duration_Check_OK"] = True
-        df["Expected_Category_From_Duration"] = "unknown"
-        return df
-
-    # --- Convert to string to avoid NaT issues ---
-    df[start_col] = df[start_col].astype(str).str.strip()
-    df[end_col] = df[end_col].astype(str).str.strip()
-
-    # --- Helper: parse HH:MM:SS to minutes ---
-    def parse_hms_to_minutes(val):
-        if not val or val in ["None", "nan", "NaT"]:
-            return None
-        try:
-            parts = val.split(":")
-            if len(parts) >= 2:
-                h, m = int(parts[0]), int(parts[1])
-                s = int(parts[2]) if len(parts) == 3 else 0
-                return h * 60 + m + s / 60
-        except Exception as e:
-            print(f"[WARN] Could not parse time '{val}': {e}")
-        return None
-
-    # --- Helper: classify by duration ---
-    def expected_category(duration_min):
-        if duration_min is None:
-            return "unknown"
-        if duration_min >= 120:
-            return "live"
-        elif 60 <= duration_min < 120:
-            return "repeat"
-        elif 30 <= duration_min < 60:
-            return "highlights"
-        elif 0 < duration_min < 30:
-            return "support"
-        else:
-            return "unknown"
-
-    expected_list = []
-    ok_list = []
-
-    for idx, row in df.iterrows():
-        start_val = row[start_col]
-        end_val = row[end_col]
-        actual_prog = str(row[type_col]).strip().lower() if pd.notna(row[type_col]) else "unknown"
-
-        start_min = parse_hms_to_minutes(start_val)
-        end_min = parse_hms_to_minutes(end_val)
-
-        if start_min is None or end_min is None:
-            duration_min = None
-        else:
-            duration_min = end_min - start_min
-            if duration_min < 0:
-                duration_min += 24 * 60  # Handle midnight crossover
-
-        expected = expected_category(duration_min)
-        ok = expected in actual_prog or actual_prog in expected
-
-        expected_list.append(expected)
-        ok_list.append(ok)
-
-        print(f"[Row {idx}] Start={start_val} | End={end_val} | Duration(min)={duration_min} | "
-              f"Expected='{expected}' | Actual='{actual_prog}' | OK={ok}")
-
-    df["Expected_Category_From_Duration"] = expected_list
-    df["Duration_Check_OK"] = ok_list
-
-    print("--- DEBUG: Duration Check Completed ---\n")
-    return df
-
 # 8️⃣ Event / Matchday / Competition Check
 def check_event_matchday_competition(df_worksheet, df_data=None, rosco_path=None, debug_rows=20):
     """
@@ -1056,75 +962,90 @@ def check_event_matchday_competition(df_worksheet, df_data=None, rosco_path=None
 
     return df
 
-# -----------------------------------------------------------
-# 9️⃣ Market / Channel / Program / Duration Consistency Check
+#-------------- 9️⃣ Market / Channel /  Consistency Check -----------------
 
-def market_channel_program_duration_check(df_worksheet, reference_df=None, debug_rows=10):
-    df = df_worksheet.copy()
-    df["Market_Channel_Consistency_OK"] = True
-    df["Program_Duration_Consistency_OK"] = True
-    df["Market_Channel_Program_Remark"] = "OK"
+def market_channel_consistency_check(df_bsr, rosco_path, col_map, file_rules):
+    
+    logging.info("🔍 Starting Market & Channel Consistency Check...")
+    
+    bsr_cols = col_map['bsr']
+    rosco_cols = col_map['rosco']
+    
+    # --- Normalization helper for ROSCO ---
+    def normalize_channel(name):
+        if pd.isna(name): return ""
+        s = str(name)
+        s = re.sub(r"\(.*?\)|\[.*?\]", "", s)
+        s = re.split(r"[-–—]", s)[0]
+        s = re.sub(r"[^0-9a-zA-Z\s]", " ", s)
+        s = re.sub(r"\s+", " ", s).strip().lower()
+        return s
 
-    def norm(x):
-        if pd.isna(x):
-            return ""
-        return str(x).strip()
-
-    def parse_duration_to_minutes(val):
+    # --- Load ROSCO reference sheet ---
+    rosco_df = None
+    if rosco_path:
         try:
-            parts = str(val).split(":")
-            if len(parts) < 2:
-                return None
-            h, m, s = int(parts[0]), int(parts[1]), int(parts[2]) if len(parts) == 3 else 0
-            return h * 60 + m + s / 60
-        except Exception:
-            return None
+            xls = pd.ExcelFile(rosco_path)
+            ignore_sheet = file_rules.get('rosco_ignore_sheet', 'general')
+            sheet_name = next((s for s in xls.sheet_names if ignore_sheet not in s.lower()), None)
+            if sheet_name:
+                rosco_df = xls.parse(sheet_name)
+            else:
+                logging.warning(f"⚠️ No valid sheet found in ROSCO (ignoring '{ignore_sheet}').")
+        except Exception as e:
+            logging.error(f"❌ Error loading ROSCO file: {e}")
+            df_bsr["Market_Channel_Consistency_OK"] = False
+            df_bsr["Market_Channel_Program_Remark"] = f"Error loading ROSCO: {e}"
+            return df_bsr
 
-    reference_markets = set()
-    reference_channels = set()
-    if reference_df is not None:
-        if "Market" in reference_df.columns:
-            reference_markets.update(reference_df["Market"].dropna().astype(str).str.strip().unique())
-        if "TV-Channel" in reference_df.columns:
-            reference_channels.update(reference_df["TV-Channel"].dropna().astype(str).str.strip().unique())
+    # --- Build valid (Market, Channel) pairs from ROSCO ---
+    valid_pairs = set()
+    rosco_country_col = rosco_cols.get('channel_country', 'ChannelCountry')
+    rosco_name_col = rosco_cols.get('channel_name', 'ChannelName')
+    
+    if rosco_df is not None:
+        if {rosco_country_col, rosco_name_col}.issubset(rosco_df.columns):
+            for _, row in rosco_df.iterrows():
+                market = str(row[rosco_country_col]).strip().lower()
+                channel = normalize_channel(row[rosco_name_col])
+                if market and channel:
+                    valid_pairs.add((market, channel))
+            logging.info(f"✅ Loaded {len(valid_pairs)} valid Market+Channel pairs from ROSCO.")
+        else:
+            logging.warning(f"⚠️ '{rosco_country_col}' or '{rosco_name_col}' not in ROSCO sheet.")
 
-    for idx, row in df.iterrows():
-        market = norm(row.get("Market", ""))
-        channel = norm(row.get("TV-Channel", ""))
-        program = norm(row.get("Program Title", "")) or norm(row.get("Combined", ""))
-        duration_min = parse_duration_to_minutes(row.get("Duration", ""))
+    # --- Prepare result columns ---
+    df_bsr["Market_Channel_Consistency_OK"] = True
+    df_bsr["Market_Channel_Program_Remark"] = "OK"
+    
+    # --- Find BSR columns ---
+    bsr_market_col = _find_column(df_bsr, bsr_cols['market'])
+    bsr_channel_col = _find_column(df_bsr, bsr_cols['tv_channel'])
+    
+    if not bsr_market_col or not bsr_channel_col:
+        logging.error("❌ Market/Channel Check: BSR columns not found. Skipping.")
+        df_bsr["Market_Channel_Consistency_OK"] = False
+        df_bsr["Market_Channel_Program_Remark"] = "BSR columns not found"
+        return df_bsr
 
+    # --- Validate each row in BSR ---
+    for idx, row in df_bsr.iterrows():
         remarks = []
-        ok1 = True
-        ok2 = True
+        market = str(row.get(bsr_market_col, "")).strip().lower()
+        channel = str(row.get(bsr_channel_col, "")).strip()
 
-        if not market:
-            ok1 = False
-            remarks.append("Missing Market")
-        elif reference_markets and market not in reference_markets:
-            ok1 = False
-            remarks.append(f"Unexpected Market '{market}'")
+        if not market or not channel:
+            df_bsr.at[idx, "Market_Channel_Consistency_OK"] = False
+            remarks.append("Missing market or channel")
+        elif valid_pairs:
+            if (market, normalize_channel(channel)) not in valid_pairs:
+                df_bsr.at[idx, "Market_Channel_Consistency_OK"] = False
+                remarks.append("Market+Channel not found in ROSCO")
 
-        if not channel:
-            ok1 = False
-            remarks.append("Missing TV-Channel")
-        elif reference_channels and channel not in reference_channels:
-            ok1 = False
-            remarks.append(f"Unexpected TV-Channel '{channel}'")
+        df_bsr.at[idx, "Market_Channel_Program_Remark"] = "; ".join(remarks) if remarks else "OK"
 
-        if not program:
-            ok2 = False
-            remarks.append("Missing Program Title")
-
-        if duration_min is None:
-            ok2 = False
-            remarks.append("Invalid Duration")
-
-        df.at[idx, "Market_Channel_Consistency_OK"] = ok1
-        df.at[idx, "Program_Duration_Consistency_OK"] = ok2
-        df.at[idx, "Market_Channel_Program_Remark"] = "; ".join(remarks) if remarks else "OK"
-
-    return df
+    logging.info("✅ Market & Channel Consistency Check completed.")
+    return df_bsr
 
 # -----------------------------------------------------------
 # 10️⃣ Domestic Market Coverage Check
