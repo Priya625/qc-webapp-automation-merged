@@ -135,9 +135,25 @@ all_market_check_keys = {
     "remove_viaplay_baltics": "Remove viaplay from Latvia, Lithuania, Poland, and Estonia",
     "recreate_viaplay": "Viaplay: Recreate based on a full market of lives",
     "recreate_disney_latam": "Disney+ Latam: Recreate based on a full market of lives",
+
+    #EPL
 }
 
+all_market_check_keys_epl = {
+    "impute_lt_live_status": "L/T Live Imputation: Flag program type based on 'L/T' keyword in Combined col", # Using the L/T check key
+    "consolidate_gillete_soccer": "Program Consolidation: Flag sequential 'Gillete Soccer' programs for merging (Gap <= 30min)",
+    "check_sky_showcase_live": "Sky Showcase Live Status Check (UK)",
+    "standardize_uk_ire_region" : "Region Standardization: Correct UK/Ireland Region field to 'Europe' and standardize market names",
+    "check_fixture_vs_case" : "Checks for Capital VS AND Small vs",
+    "check_pan_balkans_serbia_parity" : "Checks equal count in pan_balkans and serbia",
+    "audit_multi_match_status" : "Checking for these keywords 'GOAL RUSH', 'KONFERENZ', 'CONFERENCE'",
+    "check_date_time_format_integrity" : "Checking Time Integrity",
+    "check_live_broadcast_uniqueness" : "Checking 1 live for based on these col 'Market', 'TV-Channel', 'Competition', 'Date'",
+    "audit_channel_line_item_count" : "Channel line item count (New Tab)",
+    "check_combined_archive_status" : "Flag any row with archive in Combined column",
+    "suppress_duplicated_audience" : "Flag if it is a Duplicated Market and has audience "
 
+}
 
 with home_page_tab:
     # --- Custom CSS for Styling ---
