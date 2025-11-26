@@ -742,7 +742,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
 
 # ----------------------------- 7️⃣ Duration Check -----------------------------
-def duration_check(df):
+#def duration_check(df):
     """Validate program type vs actual duration (Start (UTC) / End (UTC))."""
     print("\n--- DEBUG: Running Duration Check ---")
 
