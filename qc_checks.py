@@ -227,55 +227,173 @@ def completeness_check(df, bsr_cols, rules):
 
 
 # ----------------------------- 5️⃣ Overlap / Duplicate / Day Break -----------------------------
-def overlap_duplicate_daybreak_check(df):
-    df_result = df.copy()
-    channel_col = next((c for c in df.columns if "channel" in str(c).lower()), None)
-    start_col = next((c for c in df.columns if "start" in str(c).lower()), None)
-    end_col = next((c for c in df.columns if "end" in str(c).lower()), None)
-    date_col = next((c for c in df.columns if "date" in str(c).lower()), None)
+def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
+    """
+    Final optimized & realistic Overlap + Duplicate + Daybreak check.
+    Includes:
+        - Duplicate check using exact UTC date/time + channel + market + broadcaster
+        - Overlap check using time windows (ANY two events on the same channel/date)
+        - Daybreak check using midnight continuation and tolerance rules
+    """
 
-    for col in [start_col, end_col]:
-        if col:
-            df_result[col] = pd.to_datetime(df_result[col], errors="coerce")
+    df = df.copy()
 
-    overlap_flags = [False] * len(df_result)
-    if channel_col and start_col and end_col and date_col:
-        df_sorted = df_result.sort_values(by=[channel_col, date_col, start_col]).reset_index(drop=True)
-        prev_end = prev_channel = prev_date = None
-        for i, row in df_sorted.iterrows():
-            overlap = False
-            if prev_channel == row[channel_col] and prev_date == row[date_col]:
-                if pd.notna(row[start_col]) and pd.notna(prev_end) and row[start_col] < prev_end:
-                    overlap = True
-            overlap_flags[i] = overlap
-            prev_end = row[end_col]
-            prev_channel = row[channel_col]
-            prev_date = row[date_col]
-        df_result["No_Overlap"] = ~pd.Series(overlap_flags, index=df_sorted.index)
-    else:
-        df_result["No_Overlap"] = True
+    # ------------------------------------------------------------
+    # Column mappings
+    # ------------------------------------------------------------
+    # Ensure these keys exist in your bsr_cols dictionary and map to valid columns
+    col_channel       = _find_column(df, bsr_cols['tv_channel'])
+    col_channel_id    = _find_column(df, bsr_cols['channel_id'])
+    col_market        = _find_column(df, bsr_cols['market'])
+    col_broadcaster   = _find_column(df, bsr_cols['broadcaster'])
+    col_date          = _find_column(df, bsr_cols['date'])
+    col_title         = _find_column(df, bsr_cols['program_title'])
+    col_start         = _find_column(df, bsr_cols['start_time'])
+    col_end           = _find_column(df, bsr_cols['end_time'])
 
-    df_result["No_Overlap_Remark"] = df_result["No_Overlap"].apply(lambda x: "" if x else "Overlap detected")
+    required = [col_channel, col_channel_id, col_market, col_broadcaster,
+                col_date, col_title, col_start, col_end]
 
-    # Duplicate check
-    exclude_keywords = ["_ok", "within", "date_checked"]
-    dup_cols = [c for c in df_result.columns if not any(x in str(c).lower() for x in exclude_keywords)]
-    if dup_cols:
-        hashes = pd.util.hash_pandas_object(df_result[dup_cols], index=False)
-        df_result["Is_Duplicate"] = hashes.duplicated(keep=False)
-    else:
-        df_result["Is_Duplicate"] = False
-    df_result["Is_Duplicate_OK"] = ~df_result["Is_Duplicate"]
-    df_result["Is_Duplicate_Remark"] = df_result["Is_Duplicate"].apply(lambda x: "" if not x else "Duplicate row found")
+    if any(c is None for c in required):
+        df["Overlap_OK"] = False
+        df["Overlap_Remark"] = "Missing required columns"
+        df["Duplicate_OK"] = False
+        df["Duplicate_Remark"] = "Missing required columns"
+        df["Daybreak_OK"] = False
+        df["Daybreak_Remark"] = "Missing required columns"
+        return df
 
-    # Day break check
-    if start_col and end_col:
-        df_result["Day_Break_OK"] = ~((df_result[start_col].dt.day != df_result[end_col].dt.day) &
-                                      (df_result[start_col].dt.hour >= 20))
-    else:
-        df_result["Day_Break_OK"] = True
-    df_result["Day_Break_Remark"] = df_result["Day_Break_OK"].apply(lambda x: "" if x else "Day break mismatch")
-    return df_result
+    # ------------------------------------------------------------
+    # Parse datetime
+    # ------------------------------------------------------------
+    df["_start_dt"] = pd.to_datetime(df[col_start], errors="coerce")
+    df["_end_dt"]   = pd.to_datetime(df[col_end], errors="coerce")
+    df["_orig_idx"] = df.index
+
+    # ------------------------------------------------------------
+    # Sort order for logical scanning
+    # ------------------------------------------------------------
+    # Sorting by channel, market, date, and start time is essential for the row-by-row checks.
+    df = df.sort_values(
+        by=[col_channel, col_channel_id, col_market, col_date, "_start_dt"],
+        na_position="last"
+    ).reset_index(drop=True)
+
+    n = len(df)
+
+    # ------------------------------------------------------------
+    # OUTPUT CONTAINERS
+    # ------------------------------------------------------------
+    overlap_ok = [True]  * n
+    overlap_r  = [""]    * n
+    duplicate_ok = [True] * n
+    duplicate_r  = [""]   * n
+    daybreak_ok = [True] * n
+    daybreak_r  = [""]   * n
+
+    # ------------------------------------------------------------
+    # 1️⃣ DUPLICATE CHECK 
+    # ------------------------------------------------------------
+    dup_columns = [
+        col_channel, col_channel_id, col_market, col_broadcaster,
+        col_date, col_start, col_end
+    ]
+
+    dup_mask = df.duplicated(subset=dup_columns, keep=False)
+
+    for i in range(n):
+        if dup_mask.iloc[i]:
+            duplicate_ok[i] = False
+            duplicate_r[i] = (
+                "Duplicate row (Channel, Channel ID, Market, Broadcaster, "
+                "Date UTC, Start UTC, End UTC match)"
+            )
+
+    # ------------------------------------------------------------
+    # 2️⃣ OVERLAP CHECK (ANY overlap on same channel/date)
+    # The requirement is that event A (prev) and event B (curr) must NOT overlap.
+    # An overlap occurs if curr starts before prev ends.
+    # ------------------------------------------------------------
+    for i in range(1, n):
+        prev = df.iloc[i - 1]
+        curr = df.iloc[i]
+
+        # Check if the events are on the same channel and date/market/feed
+        if (
+            curr[col_channel] == prev[col_channel] and
+            curr[col_date] == prev[col_date] and
+            curr[col_market] == prev[col_market] # Added market check for rigor, if appropriate
+        ):
+            # Overlap condition: Current event starts before the previous one ends.
+            # This correctly handles your examples:
+            # Case 1: A (9-11) & B (10-12) -> B starts (10) < A ends (11) -> OVERLAP (False)
+            # Case 2: A (9-11) & B (11-12) -> B starts (11) < A ends (11) -> FALSE (No Overlap)
+            if curr["_start_dt"] < prev["_end_dt"]:
+                overlap_ok[i] = False
+                overlap_r[i] = "Overlap detected between consecutive programs on the same channel/date."
+
+    # ------------------------------------------------------------
+    # 3️⃣ DAYBREAK CHECK 
+    # ------------------------------------------------------------
+    gap_tolerance = rules.get("daybreak_gap_tolerance_min", 5)
+
+    for i in range(1, n):
+        prev = df.iloc[i - 1]
+        curr = df.iloc[i]
+
+        # must match the same broadcast chain
+        same_feed = (
+            curr[col_channel] == prev[col_channel] and
+            curr[col_channel_id] == prev[col_channel_id] and
+            curr[col_market] == prev[col_market] and
+            curr[col_title] == prev[col_title]     
+        )
+
+        if not same_feed:
+            continue
+
+        if pd.isna(prev["_end_dt"]) or pd.isna(curr["_start_dt"]):
+            continue
+
+        # true daybreak scenario
+        if (
+            prev["_end_dt"].hour >= 23 and
+            curr["_start_dt"].hour <= 1 and
+            curr[col_date] == prev[col_date] + pd.Timedelta(days=1)
+        ):
+            gap = (curr["_start_dt"] - prev["_end_dt"]).total_seconds() / 60
+
+            if 0 <= gap <= gap_tolerance:
+                daybreak_ok[i] = True
+                daybreak_r[i] = "Valid midnight continuation"
+            else:
+                daybreak_ok[i] = False
+                daybreak_r[i] = f"Invalid continuation gap ({gap:.1f} min > {gap_tolerance} min)"
+        else:
+            # If it looks like it SHOULD be a continuation but is not
+            if (
+                prev["_end_dt"].hour >= 23 and
+                curr["_start_dt"].hour <= 1
+            ):
+                daybreak_ok[i] = False
+                daybreak_r[i] = "Possible continuation mismatch across midnight"
+
+    # ------------------------------------------------------------
+    # Attach results and restore original index order
+    # ------------------------------------------------------------
+    df["Overlap_OK"] = overlap_ok
+    df["Overlap_Remark"] = overlap_r
+
+    df["Duplicate_OK"] = duplicate_ok
+    df["Duplicate_Remark"] = duplicate_r
+
+    df["Daybreak_OK"] = daybreak_ok
+    df["Daybreak_Remark"] = daybreak_r
+
+    # Clean up temporary columns
+    df = df.sort_values("_orig_idx").drop(columns=["_start_dt", "_end_dt", "_orig_idx"])
+
+    return df
 
 
 # ----------------------------- 6️⃣ Program Category Check -----------------------------

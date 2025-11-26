@@ -7,37 +7,8 @@ import shutil
 import json
 from typing import Optional, List
 
-# ---------------------------------------------------------
-#  SAFE BACKEND URL RESOLVER (NO OTHER CODE TOUCHED)
-# ---------------------------------------------------------
-
-import re
-
-def resolve_backend_url():
-    """
-    Resolves a valid backend URL safely.
-    - Uses Streamlit secrets first
-    - Then environment variable STREAMLIT_BACKEND_URL
-    - Rejects GitHub or invalid URLs
-    - Returns None if no valid backend is available
-    """
-
-    # 1️⃣ Prefer Streamlit Secrets
-    if "STREAMLIT_BACKEND_URL" in st.secrets:
-        url = st.secrets["STREAMLIT_BACKEND_URL"].strip()
-    else:
-        # 2️⃣ Otherwise use OS environment variable
-        url = os.environ.get("STREAMLIT_BACKEND_URL", "").strip()
-
-    # 3️⃣ Validate URL and reject GitHub pages
-    if url and re.match(r"^https?://", url) and "github.com" not in url:
-        return url.rstrip("/")
-    else:
-        return None
-
-# Final backend URLs
-BACKEND_BASE_URL = resolve_backend_url()
-BACKEND_URL = BACKEND_BASE_URL + "/api" if BACKEND_BASE_URL else None
+BACKEND_BASE_URL = os.environ.get("STREAMLIT_BACKEND_URL", "http://localhost:8000")
+BACKEND_URL = BACKEND_BASE_URL + "/api"
 
 
 # --- Import ALL QC functions from ALL your files ---
@@ -626,11 +597,6 @@ with f1_tab:
                 data = {'checks': active_checks} 
 
                 try:
-                    # Ensure backend is configured
-                    if BACKEND_URL is None:
-                        st.error("❌ Backend is not configured. Please set STREAMLIT_BACKEND_URL in Streamlit Secrets.")
-                        st.stop()
-
                     # 3. Call the backend endpoint
                     response = requests.post(
                         f"{BACKEND_URL}/market_check_and_process", 
