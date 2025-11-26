@@ -38,10 +38,10 @@ class EPLValidator:
     DATE_COLUMN = 'Date'
     SESSION_COMPETITION_COLUMN = 'Competition'
 
-    def __init__(self, df: pd.DataFrame, bsr_path: str, obligation_path: str = None, overnight_path: str = None, macro_path: str = None):
-        self.df = df        
+    def __init__(self, bsr_path: str, obligation_path: str = None, overnight_path: str = None, macro_path: str = None):
+        # self.df = df        
         self.bsr_path = bsr_path
-        # self.df = self._load_bsr()
+        self.df = self._load_bsr()
         # New: Store the obligation path, but don't load the full DF yet
         self.obligation_path = obligation_path
         self.full_obligation_df = None # Will store the entire obligation sheet
@@ -50,9 +50,25 @@ class EPLValidator:
         self.macro_path = macro_path
         # 🚨 NEW: Load and store the duplication rules DataFrame
         self.dup_rules_df = self._load_and_filter_macro_rules()
+
+        # ✅ FIX: Load the DataFrame immediately using the path
+        # try:
+        #     self.df = pd.read_excel(self.bsr_path)
+        # except Exception as e:
+        #     raise ValueError(f"Failed to load BSR file at {self.bsr_path}: {e}")
+
+        # Initialize other attributes
+        self.full_obligation_df = None 
+        
+        # Load duplication rules (Assuming _load_and_filter_macro_rules is defined in your class)
+        try:
+            self.dup_rules_df = self._load_and_filter_macro_rules()
+        except Exception:
+            # Handle case where macro path might not be set or valid
+            self.dup_rules_df = pd.DataFrame()
         
         # Dictionary to map market check keys to internal methods (to be implemented)
-        self.check_map = {
+        self.market_check_map = {
         "impute_lt_live_status": self._impute_lt_live_status,
         "consolidate_gillete_soccer": self._consolidate_gillette_soccer_programs,
         "check_sky_showcase_live": self._check_sky_showcase_live_status,
@@ -1280,7 +1296,11 @@ class EPLValidator:
             }
         }
 
+
+
 # ----------------------------- ⚙️ Utility Functions (kept standalone) -----------------------------
+
+
 
     def color_excel(output_path, df):
         """Applies green/red coloring based on QC_OK columns."""
