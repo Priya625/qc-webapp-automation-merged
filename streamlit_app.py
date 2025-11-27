@@ -760,24 +760,22 @@ with epl_tab:
                     #df_processed.to_excel(output_path, index=False)
 
                     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-                        df_processed.to_excel(writer, index=False, sheet_name="EPL Processed")
 
-                        # ➜ NEW: write removed <5 min programs
-                        if hasattr(validator, "short_programs_df") and validator.short_programs_df is not None:
-                            validator.short_programs_df.to_excel(
-                                writer,
-                                index=False,
-                                sheet_name="Short_Programs_<5min"
-                            )
+    
+                        df_processed.to_excel(writer, index=False, sheet_name="EPL_Processed")
 
-                        # NEW — SA Nielsen Output Sheet
-                        if hasattr(validator, "sa_nielsen_df") and validator.sa_nielsen_df is not None:
-                            validator.sa_nielsen_df.to_excel(
-                                writer,
-                                index=False,
-                                sheet_name="SA_Nielsen"
-                            )
-                    
+                        # < 5 min sheet (if available)
+                        if hasattr(validator, "short_programs_df"):
+                            sp = validator.short_programs_df
+                            if isinstance(sp, pd.DataFrame) and not sp.empty:
+                                sp.to_excel(writer, index=False, sheet_name="<5 min-Short Programs")
+
+                        # SA Nielsen sheet (if available)
+                        if hasattr(validator, "sa_nielsen_df"):
+                            sa = validator.sa_nielsen_df
+                            if isinstance(sa, pd.DataFrame) and not sa.empty:
+                                sa.to_excel(writer, index=False, sheet_name="SA_Nielsen")
+                                    
                     st.success(f"✅ EPL checks completed successfully!")
                     
                     # --- Display Summaries ---
