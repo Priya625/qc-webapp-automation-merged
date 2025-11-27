@@ -148,8 +148,8 @@ all_market_check_keys_epl = {
     "audit_channel_line_item_count" : "Channel line item count (New Tab)",
     "check_combined_archive_status" : "Flag any row with archive in Combined column",
     "suppress_duplicated_audience" : "Flag if it is a Duplicated Market and has audience ",
-    "filter_short_programs": "5 Minute Program Filter: Remove programs shorter than 5 minutes (except Austria/NZ)"
-
+    "filter_short_programs": "5 Minute Program Filter: Remove programs shorter than 5 minutes (except Austria/NZ)",
+    "SA Nielsen Inclusion Check": "South Africa Nielsen Inclusion Check"
 }
 
 with home_page_tab:
