@@ -699,7 +699,7 @@ with epl_tab:
     # --- Run Processing Button (UNTOUCHED) ---
     if st.button(" EPL Apply Selected Checks"):
         
-        active_checks = [key for key in all_market_check_keys_epl.keys() if st.session_state[key, False]]
+        active_checks = [key for key in all_market_check_keys_epl.keys() if st.session_state[key]]
         
         # Check mandatory files
         if epl_bsr_file is None:
