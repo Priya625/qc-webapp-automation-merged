@@ -1352,45 +1352,35 @@ class EPLValidator:
     
     def _sa_nielsen_inclusion_check(self):
         """
-        SA Nielsen Inclusion Check:
-        Extract rows where Market == 'South Africa',
-        remove them from the main DataFrame,
-        and store them into self.sa_nielsen_df.
+        SA Nielsen Inclusion Check (Case Sensitive):
+        Extract rows where Market exactly equals "South Africa".
+        Remove them from the main DF and store in self.sa_nielsen_df.
         """
-        REQUIRED_COL = "Market"
-        TARGET_MARKET = "SOUTH AFRICA"
+        TARGET = "South Africa"
 
-        if REQUIRED_COL not in self.df.columns:
+        if "Market" not in self.df.columns:
             return {
                 "check_key": "sa_nielsen_inclusion_check",
                 "status": "Skipped",
-                "description": f"Column '{REQUIRED_COL}' missing.",
+                "description": "Column 'Market' not found.",
                 "details": {}
             }
 
-        df = self.df.copy()
+        # Strict case-sensitive match
+        sa_mask = self.df["Market"] == TARGET
 
-        # Normalize for matching (safe, no effect on <5 min logic)
-        df["Market_norm"] = df["Market"].astype(str).str.upper().str.strip()
+        sa_rows = self.df.loc[sa_mask].copy()
+        remaining = self.df.loc[~sa_mask].copy()
 
-        # Extract SA rows
-        sa_mask = df["Market_norm"] == TARGET_MARKET
-        sa_rows = df[sa_mask].copy()
-        remaining_df = df[~sa_mask].copy()
-
-        # Remove helper col
-        sa_rows.drop(columns=["Market_norm"], inplace=True, errors="ignore")
-        remaining_df.drop(columns=["Market_norm"], inplace=True, errors="ignore")
-
-        # Save results
-        self.sa_nielsen_df = sa_rows
-        self.df = remaining_df
+        # Save new versions
+        self.sa_nielsen_df = sa_rows.reset_index(drop=True)
+        self.df = remaining.reset_index(drop=True)
 
         return {
             "check_key": "sa_nielsen_inclusion_check",
             "status": "Completed",
-            "description": f"Extracted {len(sa_rows)} South Africa rows.",
-            "details": {"rows_found": len(sa_rows)}
+            "description": f"Extracted {len(sa_rows)} rows for SA Nielsen tab.",
+            "details": {"rows_found": int(len(sa_rows))}
         }
 
 
