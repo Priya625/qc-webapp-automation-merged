@@ -80,7 +80,8 @@ class EPLValidator:
         "check_live_broadcast_uniqueness" : self._check_live_broadcast_uniqueness,
         "audit_channel_line_item_count" : self._audit_channel_line_item_count,
         "check_combined_archive_status": self._check_combined_archive_status,
-        "suppress_duplicated_audience" : self._suppress_duplicated_audience
+        "suppress_duplicated_audience" : self._suppress_duplicated_audience,
+        "filter_short_programs": self._filter_short_programs
         # Future EPL checks would be added here
     }
 
@@ -1294,6 +1295,58 @@ class EPLValidator:
                 "rows_flagged": int(rows_flagged),
                 "target_columns_checked": TARGET_AUDIENCE_COLS
             }
+        }
+    
+    def _filter_short_programs(self):
+        """
+        Removes programs where duration <5 minutes except Austria and New Zealand.
+        Stores removed rows in: self.short_programs_df
+        """
+        MIN_DURATION = 5
+        EXEMPT = ["AUSTRIA", "NEW ZEALAND"]
+
+        df = self.df.copy()
+
+        # Normalize markets
+        df["Market_norm"] = df["Market"].astype(str).str.upper()
+
+        # Parse start + end with date included
+        df["Date_only"] = pd.to_datetime(df["Date"], errors="coerce").dt.date.astype(str)
+
+        df["Start_DT"] = pd.to_datetime(
+            df["Date_only"] + " " + df["Start (UTC)"].astype(str),
+            errors="coerce"
+        )
+        df["End_DT_raw"] = pd.to_datetime(
+            df["Date_only"] + " " + df["End (UTC)"].astype(str),
+            errors="coerce"
+        )
+
+        # Handle past-midnight rollover
+        rollover = df["End_DT_raw"] < df["Start_DT"]
+        df.loc[rollover, "End_DT_raw"] += pd.Timedelta(days=1)
+
+        # Compute duration in minutes
+        df["Duration_Min"] = (df["End_DT_raw"] - df["Start_DT"]).dt.total_seconds() / 60
+
+        remove_mask = (df["Duration_Min"] < MIN_DURATION) & (~df["Market_norm"].isin(EXEMPT))
+
+        removed_df = df[remove_mask].copy()
+        keep_df = df[~remove_mask].copy()
+
+        # Clean temp cols
+        for col in ["Market_norm", "Start_DT", "End_DT_raw", "Duration_Min", "Date_only"]:
+            removed_df.drop(columns=col, inplace=True, errors="ignore")
+            keep_df.drop(columns=col, inplace=True, errors="ignore")
+
+        self.short_programs_df = removed_df
+        self.df = keep_df
+
+        return {
+            "check_key": "filter_short_programs",
+            "status": "Flagged" if len(removed_df) else "Completed",
+            "description": f"{len(removed_df)} short programs removed (<5 min)",
+            "details": {}
         }
 
 

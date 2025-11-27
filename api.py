@@ -25,12 +25,8 @@ from qc_checks import (
     completeness_check,
     overlap_duplicate_daybreak_check,
     program_category_check,
-    duration_check,
     check_event_matchday_competition,
-    market_channel_program_duration_check,
-    domestic_market_coverage_check,
     rates_and_ratings_check,
-    duplicated_markets_check,
     country_channel_id_check,
     client_lstv_ott_check,
     color_excel,
@@ -205,12 +201,8 @@ def run_qc_checks(  # <-- CHANGED from async def to def
         df = completeness_check(df)
         df = overlap_duplicate_daybreak_check(df)
         df = program_category_check(df)
-        df = duration_check(df)
         df = check_event_matchday_competition(df, df_data=df_data, rosco_path=rosco_path)
-        df = market_channel_program_duration_check(df, reference_df=df_data)
-        df = domestic_market_coverage_check(df, reference_df=df_data)
         df = rates_and_ratings_check(df)
-        df = duplicated_markets_check(df)
         df = country_channel_id_check(df)
         df = client_lstv_ott_check(df)
 
@@ -254,7 +246,8 @@ EPL_CHECK_KEYS = {
     "check_live_broadcast_uniqueness",
     "audit_channel_line_item_count",
     "check_combined_archive_status",
-    "suppress_duplicated_audience"
+    "suppress_duplicated_audience",
+    "filter_short_programs"
     } 
 
 @app.post("/api/market_check_and_process", response_model=None)
@@ -434,7 +427,6 @@ def run_general_qc_checks( # <-- CHANGED from async def to def
         df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
         df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
         df = qc_general.country_channel_id_check(df, col_map["bsr"])
-        df = qc_general.client_lstv_ott_check(df, col_map["bsr"], rules["client_check"])
 
         # Generate Output File
         output_file = f"General_QC_Result_{os.path.splitext(bsr_file.filename)[0]}.xlsx"
@@ -500,7 +492,6 @@ def run_laliga_qc_checks( # <-- CHANGED from async def to def
         df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
         df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
         df = qc_general.country_channel_id_check(df, col_map["bsr"])
-        df = qc_general.client_lstv_ott_check(df, col_map["bsr"], rules["client_check"])
         
         df = qc_general.domestic_market_check(df, project, col_map["bsr"], debug=True)
         df = qc_general.duplicated_market_check(df, macro_path, project, col_map, file_rules, debug=True)

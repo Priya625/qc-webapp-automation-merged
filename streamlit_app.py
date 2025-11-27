@@ -147,7 +147,8 @@ all_market_check_keys_epl = {
     "check_live_broadcast_uniqueness" : "Checking 1 live for based on these col 'Market', 'TV-Channel', 'Competition', 'Date'",
     "audit_channel_line_item_count" : "Channel line item count (New Tab)",
     "check_combined_archive_status" : "Flag any row with archive in Combined column",
-    "suppress_duplicated_audience" : "Flag if it is a Duplicated Market and has audience "
+    "suppress_duplicated_audience" : "Flag if it is a Duplicated Market and has audience ",
+    "filter_short_programs": "5 Minute Program Filter: Remove programs shorter than 5 minutes (except Austria/NZ)"
 
 }
 
@@ -440,7 +441,7 @@ with laliga_qc_tab:
         if not laliga_rosco_file or not laliga_bsr_file or not laliga_macro_file or not config:
             st.error("⚠️ Please upload all three files (and ensure config.json is loaded).")
         else:
-            with st.spinner("Running all 11 Laliga QC checks..."):
+            with st.spinner("Running Laliga QC checks..."):
                 try:
                     # Load config
                     col_map = config["column_mappings"]
@@ -656,13 +657,13 @@ with epl_tab:
     # --- Dedicated Upload for Manual Checks (MODIFIED) ---
     col_file1, col_file2, col_file3,col_file4 = st.columns(4)
     with col_file1:
-        f1_bsr_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="epl_market_check_file")
+        epl_bsr_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="epl_market_check_file")
     with col_file2:
-        f1_obligation_file = st.file_uploader("📄 Upload F1 Obligation File (.xlsx)", type=["xlsx"], key="epl_obligation_file")
+        epl_obligation_file = st.file_uploader("📄 Upload F1 Obligation File (.xlsx)", type=["xlsx"], key="epl_obligation_file")
     with col_file3:
-        f1_overnight_file = st.file_uploader("📈 Upload Overnight Audience File (.xlsx)", type=["xlsx"], key="epl_overnight_file")
+        epl_overnight_file = st.file_uploader("📈 Upload Overnight Audience File (.xlsx)", type=["xlsx"], key="epl_overnight_file")
     with col_file4:
-        f1_macro_file = st.file_uploader("📋 4. BSA Duplicator File (Existence Check)", type=["xlsm", "xlsx"], key="epl_macro_file")
+        epl_macro_file = st.file_uploader("📋 4. BSA Duplicator File (Existence Check)", type=["xlsm", "xlsx"], key="epl_macro_file")
     
     st.write("---")
 
@@ -686,7 +687,7 @@ with epl_tab:
         st.checkbox(all_market_check_keys_epl["audit_channel_line_item_count"], key="audit_channel_line_item_count")
         st.checkbox(all_market_check_keys_epl["check_combined_archive_status"], key="check_combined_archive_status")
         st.checkbox(all_market_check_keys_epl["suppress_duplicated_audience"], key="suppress_duplicated_audience")
-
+        st.checkbox(all_market_check_keys_epl["filter_short_programs"], key="filter_short_programs")
 
 
 
@@ -698,38 +699,38 @@ with epl_tab:
     # --- Run Processing Button (UNTOUCHED) ---
     if st.button(" EPL Apply Selected Checks"):
         
-        active_checks = [key for key in all_market_check_keys_epl.keys() if st.session_state[key]]
+        active_checks = [key for key in all_market_check_keys_epl.keys() if st.session_state[key, False]]
         
         # Check mandatory files
-        if f1_bsr_file is None:
+        if epl_bsr_file is None:
             st.error("⚠️ Please upload a BSR file before applying checks.")
-        elif "check_f1_obligations" in active_checks and f1_obligation_file is None:
+        elif "check_f1_obligations" in active_checks and epl_obligation_file is None:
             st.error("⚠️ **F1 Obligation Check Selected:** Please upload the F1 Obligation File.")
-        elif "update_audience_from_overnight" in active_checks and f1_overnight_file is None:
+        elif "update_audience_from_overnight" in active_checks and epl_overnight_file is None:
             st.error("⚠️ Audience Upscale Check Selected: Please upload the Overnight Audience File.")
-        elif "dup_channel_existence" in active_checks and f1_macro_file is None:
+        elif "dup_channel_existence" in active_checks and epl_macro_file is None:
             st.error("⚠️ Duplication Channel Existence Check Selected: Please upload the BSA Macro Duplicator File.")
         else:
             with st.spinner(f"Applying {len(active_checks)} checks..."):
                 try:
                     # --- Save files temporarily ---
-                    bsr_file_path = os.path.join(UPLOAD_FOLDER, f1_bsr_file.name)
-                    with open(bsr_file_path, "wb") as f: f.write(f1_bsr_file.getbuffer())
+                    bsr_file_path = os.path.join(UPLOAD_FOLDER, epl_bsr_file.name)
+                    with open(bsr_file_path, "wb") as f: f.write(epl_bsr_file.getbuffer())
                     
                     obligation_path = None
                     if f1_obligation_file:
-                        obligation_path = os.path.join(UPLOAD_FOLDER, f1_obligation_file.name)
-                        with open(obligation_path, "wb") as f: f.write(f1_obligation_file.getbuffer())
+                        obligation_path = os.path.join(UPLOAD_FOLDER, epl_obligation_file.name)
+                        with open(obligation_path, "wb") as f: f.write(epl_obligation_file.getbuffer())
                     
                     overnight_path = None
                     if f1_overnight_file:
-                        overnight_path = os.path.join(UPLOAD_FOLDER, f1_overnight_file.name)
-                        with open(overnight_path, "wb") as f: f.write(f1_overnight_file.getbuffer())
+                        overnight_path = os.path.join(UPLOAD_FOLDER, epl_overnight_file.name)
+                        with open(overnight_path, "wb") as f: f.write(epl_overnight_file.getbuffer())
                     
                     macro_path = None
                     if f1_macro_file:
-                        macro_path = os.path.join(UPLOAD_FOLDER, f1_macro_file.name)
-                        with open(macro_path, "wb") as f: f.write(f1_macro_file.getbuffer())
+                        macro_path = os.path.join(UPLOAD_FOLDER, epl_macro_file.name)
+                        with open(macro_path, "wb") as f: f.write(epl_macro_file.getbuffer())
                     
                     try:
                         # Use the path to load the BSR file
@@ -753,12 +754,23 @@ with epl_tab:
                     df_processed = validator.df
                     
                     # --- Generate Output File ---
-                    output_filename = f"Processed_BSR_{os.path.splitext(f1_bsr_file.name)[0]}_{int(time.time())}.xlsx"
+                    output_filename = f"Processed_BSR_{os.path.splitext(epl_bsr_file.name)[0]}_{int(time.time())}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_filename)
                     
-                    df_processed.to_excel(output_path, index=False)
+                    #df_processed.to_excel(output_path, index=False)
+
+                    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+                        df_processed.to_excel(writer, index=False, sheet_name="EPL Processed")
+
+                        # ➜ NEW: write removed <5 min programs
+                        if hasattr(validator, "short_programs_df") and validator.short_programs_df is not None:
+                            validator.short_programs_df.to_excel(
+                                writer,
+                                index=False,
+                                sheet_name="Short_Programs_<5min"
+                            )
                     
-                    st.success(f"✅ F1 checks completed successfully!")
+                    st.success(f"✅ EPL checks completed successfully!")
                     
                     # --- Display Summaries ---
                     st.subheader("Processing Summary")
@@ -783,11 +795,11 @@ with epl_tab:
                     st.markdown("---")
                     with open(output_path, "rb") as f:
                         st.download_button(
-                            label="📥 Download Processed F1 File",
+                            label="📥 Download Processed EPL File",
                             data=f,
                             file_name=output_filename,
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
                 
                 except Exception as e:
-                    st.error(f"❌ An error occurred during F1 checks: {e}")
+                    st.error(f"❌ An error occurred during EPL checks: {e}")
