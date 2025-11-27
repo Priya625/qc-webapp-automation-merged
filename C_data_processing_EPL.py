@@ -81,7 +81,8 @@ class EPLValidator:
         "audit_channel_line_item_count" : self._audit_channel_line_item_count,
         "check_combined_archive_status": self._check_combined_archive_status,
         "suppress_duplicated_audience" : self._suppress_duplicated_audience,
-        "filter_short_programs": self._filter_short_programs
+        "filter_short_programs": self._filter_short_programs,
+        "sa_nielsen_inclusion_check": self._sa_nielsen_inclusion_check
         # Future EPL checks would be added here
     }
 
@@ -1347,6 +1348,49 @@ class EPLValidator:
             "status": "Flagged" if len(removed_df) else "Completed",
             "description": f"{len(removed_df)} short programs removed (<5 min)",
             "details": {}
+        }
+    
+    def _sa_nielsen_inclusion_check(self):
+        """
+        SA Nielsen Inclusion Check:
+        Extract rows where Market == 'South Africa',
+        remove them from the main DataFrame,
+        and store them into self.sa_nielsen_df.
+        """
+        REQUIRED_COL = "Market"
+        TARGET_MARKET = "SOUTH AFRICA"
+
+        if REQUIRED_COL not in self.df.columns:
+            return {
+                "check_key": "sa_nielsen_inclusion_check",
+                "status": "Skipped",
+                "description": f"Column '{REQUIRED_COL}' missing.",
+                "details": {}
+            }
+
+        df = self.df.copy()
+
+        # Normalize for matching (safe, no effect on <5 min logic)
+        df["Market_norm"] = df["Market"].astype(str).str.upper().str.strip()
+
+        # Extract SA rows
+        sa_mask = df["Market_norm"] == TARGET_MARKET
+        sa_rows = df[sa_mask].copy()
+        remaining_df = df[~sa_mask].copy()
+
+        # Remove helper col
+        sa_rows.drop(columns=["Market_norm"], inplace=True, errors="ignore")
+        remaining_df.drop(columns=["Market_norm"], inplace=True, errors="ignore")
+
+        # Save results
+        self.sa_nielsen_df = sa_rows
+        self.df = remaining_df
+
+        return {
+            "check_key": "sa_nielsen_inclusion_check",
+            "status": "Completed",
+            "description": f"Extracted {len(sa_rows)} South Africa rows.",
+            "details": {"rows_found": len(sa_rows)}
         }
 
 

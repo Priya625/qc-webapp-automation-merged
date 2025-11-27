@@ -688,7 +688,7 @@ with epl_tab:
         st.checkbox(all_market_check_keys_epl["check_combined_archive_status"], key="check_combined_archive_status")
         st.checkbox(all_market_check_keys_epl["suppress_duplicated_audience"], key="suppress_duplicated_audience")
         st.checkbox(all_market_check_keys_epl["filter_short_programs"], key="filter_short_programs")
-
+        st.checkbox(all_market_check_keys_epl["SA Nielsen Inclusion Check"], key="sa_nielsen_inclusion_check")
 
 
         
@@ -768,6 +768,14 @@ with epl_tab:
                                 writer,
                                 index=False,
                                 sheet_name="Short_Programs_<5min"
+                            )
+
+                        # NEW — SA Nielsen Output Sheet
+                        if hasattr(validator, "sa_nielsen_df") and validator.sa_nielsen_df is not None:
+                            validator.sa_nielsen_df.to_excel(
+                                writer,
+                                index=False,
+                                sheet_name="SA_Nielsen"
                             )
                     
                     st.success(f"✅ EPL checks completed successfully!")
