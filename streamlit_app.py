@@ -688,7 +688,7 @@ with epl_tab:
         st.checkbox(all_market_check_keys_epl["check_combined_archive_status"], key="check_combined_archive_status")
         st.checkbox(all_market_check_keys_epl["suppress_duplicated_audience"], key="suppress_duplicated_audience")
         st.checkbox(all_market_check_keys_epl["filter_short_programs"], key="filter_short_programs")
-        st.checkbox(all_market_check_keys_epl["SA Nielsen Inclusion Check"], key="sa_nielsen_inclusion_check")
+        st.checkbox(all_market_check_keys_epl["sa_nielsen_inclusion_check"], key="sa_nielsen_inclusion_check")
 
 
         
