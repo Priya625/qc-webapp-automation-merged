@@ -260,33 +260,48 @@ def completeness_check(df, bsr_cols, rules):
 
 # ----------------------------- 5️⃣ Overlap / Duplicate / Day Break -----------------------------
 def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
-   
+    """
+    Final optimized & realistic Overlap + Duplicate + Daybreak check.
+    """
+
     df = df.copy()
 
-    # --------------------------- Column mapping ---------------------------
+    # ------------------------------------------------------------
+    # Column mappings
+    # ------------------------------------------------------------
     col_channel       = _find_column(df, bsr_cols['tv_channel'])
     col_channel_id    = _find_column(df, bsr_cols['channel_id'])
     col_market        = _find_column(df, bsr_cols['market'])
     col_broadcaster   = _find_column(df, bsr_cols['broadcaster'])
     col_date          = _find_column(df, bsr_cols['date'])
+    col_title         = _find_column(df, bsr_cols['program_title'])
     col_start         = _find_column(df, bsr_cols['start_time'])
     col_end           = _find_column(df, bsr_cols['end_time'])
 
-    required = [col_channel, col_channel_id, col_market,
-                col_broadcaster, col_date, col_start, col_end]
+    required = [
+        col_channel, col_channel_id, col_market, col_broadcaster,
+        col_date, col_title, col_start, col_end
+    ]
 
     if any(c is None for c in required):
-        for f in ["Overlap", "Duplicate", "Daybreak"]:
-            df[f + "_OK"] = False
-            df[f + "_Remark"] = "Missing required BSR columns"
+        df["Overlap_OK"] = False
+        df["Overlap_Remark"] = "Missing required columns"
+        df["Duplicate_OK"] = False
+        df["Duplicate_Remark"] = "Missing required columns"
+        df["Daybreak_OK"] = False
+        df["Daybreak_Remark"] = "Missing required columns"
         return df
 
-    # --------------------------- Parse datetime ---------------------------
+    # ------------------------------------------------------------
+    # Parse datetime
+    # ------------------------------------------------------------
     df["_start_dt"] = pd.to_datetime(df[col_start], errors="coerce")
     df["_end_dt"]   = pd.to_datetime(df[col_end], errors="coerce")
     df["_orig_idx"] = df.index
 
-    # --------------------------- Sort ---------------------------
+    # ------------------------------------------------------------
+    # Sort for checks
+    # ------------------------------------------------------------
     df = df.sort_values(
         by=[col_channel, col_channel_id, col_market, col_date, "_start_dt"],
         na_position="last"
@@ -294,54 +309,68 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 
     n = len(df)
 
+    # ------------------------------------------------------------
     # Output containers
-    overlap_ok   = [True]*n
-    overlap_r    = [""]*n
-    duplicate_ok = [True]*n
-    duplicate_r  = [""]*n
-    daybreak_ok  = [True]*n
-    daybreak_r   = [""]*n
+    # ------------------------------------------------------------
+    overlap_ok = [True] * n
+    overlap_r  = [""]   * n
 
-    # ======================================================================
-    # 1️⃣ DUPLICATE CHECK
-    # ======================================================================
-    dup_cols = [
-        col_channel, col_channel_id, col_market, col_broadcaster,
-        col_date, col_start, col_end
+    duplicate_ok = [True] * n
+    duplicate_r  = [""]   * n
+
+    daybreak_ok = [True] * n
+    daybreak_r  = [""]   * n
+
+    # =====================================================================
+    # 1️⃣ DUPLICATE CHECK 
+    # =====================================================================
+    dup_columns = [
+        col_channel,
+        col_channel_id,
+        col_broadcaster,
+        col_market,   
+        col_date,
+        col_start,
+        col_end
     ]
-    dup_mask = df.duplicated(subset=dup_cols, keep=False)
+
+    dup_mask = df.duplicated(subset=dup_columns, keep=False)
 
     for i in range(n):
         if dup_mask.iloc[i]:
             duplicate_ok[i] = False
-            duplicate_r[i] = "Exact UTC duplicate found (same channel/market/broadcaster/date/start/end)"
+            duplicate_r[i] = (
+                "In-market duplicate (same channel/channel ID/broadcaster/"
+                "market/date/start/end)"
+            )
 
-    # ======================================================================
-    # 2️⃣ OVERLAP CHECK
-    # ======================================================================
+    # =====================================================================
+    # 2️⃣ OVERLAP CHECK (same channel + same date + same market)
+    # =====================================================================
     for i in range(1, n):
-        prev = df.iloc[i-1]
+        prev = df.iloc[i - 1]
         curr = df.iloc[i]
 
-        if (curr[col_channel] == prev[col_channel] and
-            curr[col_date] == prev[col_date] and
-            curr[col_market] == prev[col_market]):
-
-            # Overlap only if start < previous end
+        if (
+            curr[col_channel] == prev[col_channel] and
+            curr[col_market] == prev[col_market] and
+            curr[col_date] == prev[col_date]
+        ):
+            # overlap only if start < previous end
             if curr["_start_dt"] < prev["_end_dt"]:
                 overlap_ok[i] = False
-                overlap_r[i] = "Overlap detected"
+                overlap_r[i] = "Overlap detected between programs"
 
-    # ======================================================================
-    # 3️⃣ DAYBREAK CHECK — TRUE FIXED VERSION
-    # ======================================================================
+    # =====================================================================
+    # 3️⃣ DAYBREAK CHECK 
+    # =====================================================================
     gap_tolerance = rules.get("daybreak_gap_tolerance_min", 5)
 
     for i in range(1, n):
-        prev = df.iloc[i-1]
+        prev = df.iloc[i - 1]
         curr = df.iloc[i]
 
-        # Must be same feed
+        # must be same feed chain
         if not (
             curr[col_channel]    == prev[col_channel] and
             curr[col_channel_id] == prev[col_channel_id] and
@@ -352,12 +381,11 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
         if pd.isna(prev["_end_dt"]) or pd.isna(curr["_start_dt"]):
             continue
 
-        # Midnight pattern (realistic BSR behavior)
+        #  REAL MIDNIGHT PATTERN (BSR behavior)
         if (
-            prev["_end_dt"].hour >= 23 and              # event ending late night
-            curr["_start_dt"].hour <= 1                 # next event early morning
+            prev["_end_dt"].hour >= 23 and     # late night finish
+            curr["_start_dt"].hour <= 1        # early morning start
         ):
-            # DO NOT check date shifting — BSR keeps same date
             gap = (curr["_start_dt"] - prev["_end_dt"]).total_seconds() / 60
 
             if 0 <= gap <= gap_tolerance:
@@ -365,330 +393,214 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
                 daybreak_r[i] = "Valid midnight continuation"
             else:
                 daybreak_ok[i] = False
-                daybreak_r[i] = f"Invalid daybreak gap ({gap:.1f} min > {gap_tolerance} min)"
+                daybreak_r[i] = f"Invalid continuation gap ({gap:.1f} min > {gap_tolerance} min)"
 
-    # ======================================================================
-    # Attach output
-    # ======================================================================
-    df["Overlap_OK"] = overlap_ok
-    df["Overlap_Remark"] = overlap_r
+    # =====================================================================
+    # Attach results
+    # =====================================================================
     df["Duplicate_OK"] = duplicate_ok
     df["Duplicate_Remark"] = duplicate_r
+
+    df["Overlap_OK"] = overlap_ok
+    df["Overlap_Remark"] = overlap_r
+
     df["Daybreak_OK"] = daybreak_ok
     df["Daybreak_Remark"] = daybreak_r
 
-    return df.sort_values("_orig_idx").drop(columns=["_start_dt","_end_dt","_orig_idx"])
+    # cleanup
+    df = df.sort_values("_orig_idx").drop(columns=["_start_dt", "_end_dt", "_orig_idx"])
+
+    return df
 
 
 # ----------------------------- 6️⃣ Program Category Check -----------------------------
 def program_category_check(bsr_path, df, col_map, rules, file_rules):
-    bsr_cols = col_map['bsr']
-    fix_cols = col_map['fixture']
+    """
+    FINAL Program Category Logic (as per business rules):
+    ------------------------------------------------------
+      LIVE     : First broadcast, fixture matches exactly, start within ±30 mins.
+      DELAYED  : First broadcast, fixture matches exactly, but start outside ±30.
+      REPEAT   : Not first broadcast of same event.
+      HIGHLIGHT: Duration 10–40 AND description contains highlight keywords.
+      MAGAZINE : Duration 10–40 AND description contains pre/post/studio etc.
+      BSA Rule : If source=='BSA' and type is LIVE/REPEAT => duration <=180.
 
-    # --- 1. Load Fixture Sheet ---
-    try:
-        xl = pd.ExcelFile(bsr_path)
-        fixture_keyword = file_rules.get('fixture_sheet_keyword', 'fixture')
-        fixture_sheet = next((s for s in xl.sheet_names if fixture_keyword in s.lower()), None)
+      Sheet matching columns:
+         From BSR    -> competition/event, matchday, home, away, date, start, end
+         From Fixture-> competition, matchday, home, away, date, start, end
+    """
 
-        if not fixture_sheet:
-            df["Program_Category_OK"] = False
-            df["Program_Category_Remark"] = "Fixture list sheet missing"
-            return df
+    # --------------------------- 1. Load Fixture Sheet ---------------------------
+    xl = pd.ExcelFile(bsr_path)
+    fixture_keyword = file_rules.get("fixture_sheet_keyword", "fixture")
+    fixture_sheet = next((s for s in xl.sheet_names if fixture_keyword in s.lower()), None)
 
-        df_fix = xl.parse(fixture_sheet)
-    except Exception as e:
+    if not fixture_sheet:
+        df["Program_Category_Expected"] = pd.NA
+        df["Program_Category_Actual"]   = df[col_map["bsr"]["type_of_program"]].astype(str).str.lower()
         df["Program_Category_OK"] = False
-        df["Program_Category_Remark"] = f"Error loading fixture sheet: {e}"
+        df["Program_Category_Remark"] = "Fixture sheet missing"
         return df
 
-    # --- 2. Identify Columns (BSR + Fixture) ---
-    df.columns = df.columns.map(str)
-    df_fix.columns = df_fix.columns.map(str)
+    df_fix = xl.parse(fixture_sheet)
 
-    # BSR columns
-    col_home_bsr  = _find_column(df, bsr_cols['home_team'])
-    col_away_bsr  = _find_column(df, bsr_cols['away_team'])
-    col_date_bsr  = _find_column(df, bsr_cols['date'])
-    col_progtype  = _find_column(df, bsr_cols['type_of_program'])
-    col_desc      = _find_column(df, bsr_cols['program_desc'])
-    col_source    = _find_column(df, bsr_cols['source'])
-    col_start_utc = _find_column(df, bsr_cols['start_time'])
-    col_end_utc   = _find_column(df, bsr_cols['end_time'])
-    col_duration_direct = _find_column(df, bsr_cols['duration'])
+    # ------------------------- 2. Resolve Column Names ---------------------------
+    b = col_map["bsr"]
+    f = col_map["fixture"]
 
-    # Fixture columns - ensure presence of the required columns you mentioned
-    col_comp_fix    = _find_column(df_fix, fix_cols.get('competition', 'competition'))
-    col_matchday_fix= _find_column(df_fix, fix_cols.get('matchday', 'matchday'))
-    col_phase_fix   = _find_column(df_fix, fix_cols.get('phase', 'phase'))  # Phase/Fixture/Episode Desc.
-    col_home_fix    = _find_column(df_fix, fix_cols['home_team'])
-    col_away_fix    = _find_column(df_fix, fix_cols['away_team'])
-    col_date_fix    = _find_column(df_fix, fix_cols['date'])
-    col_start_fix   = _find_column(df_fix, fix_cols['start_time'])
-    col_end_fix     = _find_column(df_fix, fix_cols.get('end_time', fix_cols.get('end', 'end_time')))
+    col_comp_bsr  = _find_column(df, b.get("competition"))
+    col_match_bsr = _find_column(df, b.get("matchday"))
+    col_home_bsr  = _find_column(df, b.get("home_team"))
+    col_away_bsr  = _find_column(df, b.get("away_team"))
+    col_date_bsr  = _find_column(df, b.get("date"))
+    col_start_bsr = _find_column(df, b.get("start_time"))
+    col_end_bsr   = _find_column(df, b.get("end_time"))
+    col_progtype  = _find_column(df, b.get("type_of_program"))
+    col_desc      = _find_column(df, b.get("program_desc"))
+    col_source    = _find_column(df, b.get("source"))
+    col_duration  = _find_column(df, b.get("duration"))
 
-    # --- 3. Parse/Prepare DateTimes & Duration ---
-    # BSR: combine BSR date with start/end if needed (handles cases where start/end are time-only or have UTC text)
-    base_date_str = df[col_date_bsr].astype(str) if col_date_bsr else pd.Series(pd.NaT, index=df.index).astype(str)
-    for c in [col_start_utc, col_end_utc]:
-        if c:
-            combined = pd.to_datetime(base_date_str + ' ' + df[c].astype(str), errors='coerce')
-            direct = pd.to_datetime(df[c], errors='coerce')
-            df[f"_dt_{c}"] = combined.combine_first(direct)
+    col_comp_fix  = _find_column(df_fix, f.get("competition"))
+    col_match_fix = _find_column(df_fix, f.get("matchday"))
+    col_home_fix  = _find_column(df_fix, f.get("home_team"))
+    col_away_fix  = _find_column(df_fix, f.get("away_team"))
+    col_date_fix  = _find_column(df_fix, f.get("date"))
+    col_start_fix = _find_column(df_fix, f.get("start_time"))
+    col_end_fix   = _find_column(df_fix, f.get("end_time"))
 
-    # Fixture parsing: try to make date/time columns proper datetimes, but tolerate plain date/time without "UTC"
-    if col_date_fix:
-        try:
-            df_fix[col_date_fix] = pd.to_datetime(df_fix[col_date_fix], errors='coerce')
-        except Exception:
-            df_fix[col_date_fix] = pd.to_datetime(df_fix[col_date_fix].astype(str), errors='coerce')
-    if col_start_fix:
-        # If start_fix is a time string, combine with date; else try direct parse
-        try:
-            df_fix['_fix_start_parsed'] = pd.to_datetime(
-                df_fix[col_date_fix].dt.strftime('%Y-%m-%d').fillna('') + ' ' + df_fix[col_start_fix].astype(str),
-                errors='coerce'
-            )
-        except Exception:
-            df_fix['_fix_start_parsed'] = pd.to_datetime(df_fix[col_start_fix], errors='coerce')
-    else:
-        df_fix['_fix_start_parsed'] = pd.NaT
+    required = [col_comp_bsr, col_match_bsr, col_home_bsr, col_away_bsr,
+                col_date_bsr, col_start_bsr, col_end_bsr]
+    if any(c is None for c in required):
+        df["Program_Category_Expected"] = pd.NA
+        df["Program_Category_Actual"]   = df[col_progtype]
+        df["Program_Category_OK"] = False
+        df["Program_Category_Remark"] = "Missing required BSR columns"
+        return df
 
-    if col_end_fix:
-        try:
-            df_fix['_fix_end_parsed'] = pd.to_datetime(
-                df_fix[col_date_fix].dt.strftime('%Y-%m-%d').fillna('') + ' ' + df_fix[col_end_fix].astype(str),
-                errors='coerce'
-            )
-        except Exception:
-            df_fix['_fix_end_parsed'] = pd.to_datetime(df_fix[col_end_fix], errors='coerce')
-    else:
-        df_fix['_fix_end_parsed'] = pd.NaT
+    # -------------------- 3. Clean Strings for Matching -------------------------
+    def norm(x):
+        if pd.isna(x): return ""
+        x = str(x).lower().strip()
+        x = x.replace(".", "").replace("fc ", "").replace("cf ", "")
+        x = x.replace("-", " ").replace("–", " ")
+        return re.sub(r"\s+", " ", x)
 
-    # Duration calculation (same as before, but keep)
-    duration_calc = pd.Series(np.nan, index=df.index)
-    if f"_dt_{col_start_utc}" in df and f"_dt_{col_end_utc}" in df:
-        duration_calc = (df[f"_dt_{col_end_utc}"] - df[f"_dt_{col_start_utc}"]).dt.total_seconds() / 60
+    df["_comp"]   = df[col_comp_bsr].map(norm)
+    df["_match"]  = df[col_match_bsr].astype(str).str.lower().str.strip()
+    df["_home"]   = df[col_home_bsr].map(norm)
+    df["_away"]   = df[col_away_bsr].map(norm)
+    df["_date"]   = pd.to_datetime(df[col_date_bsr], errors="coerce").dt.date
 
-    duration_direct_parsed = pd.Series(np.nan, index=df.index)
-    if col_duration_direct:
-        duration_direct_parsed = parse_duration_to_minutes(df[col_duration_direct])
+    df_fix["_comp"]  = df_fix[col_comp_fix].map(norm)
+    df_fix["_match"] = df_fix[col_match_fix].astype(str).str.lower().str.strip()
+    df_fix["_home"]  = df_fix[col_home_fix].map(norm)
+    df_fix["_away"]  = df_fix[col_away_fix].map(norm)
+    df_fix["_date"]  = pd.to_datetime(df_fix[col_date_fix], errors="coerce").dt.date
 
-    df['duration_min'] = duration_calc.combine_first(duration_direct_parsed)
-    df['_bsr_start_time'] = df.get(f"_dt_{col_start_utc}", pd.NaT)
+    # Parse datetime for start/end
+    df["_start"] = pd.to_datetime(df[col_date_bsr].astype(str) + " " + df[col_start_bsr].astype(str), errors="coerce")
+    df["_end"]   = pd.to_datetime(df[col_date_bsr].astype(str) + " " + df[col_end_bsr].astype(str), errors="coerce")
 
-    # --- 4. Normalized text/date fields for robust matching ---
-    def _clean_text(s):
-        return str(s).strip().lower() if pd.notna(s) else ""
+    df_fix["_start"] = pd.to_datetime(df_fix[col_date_fix].astype(str) + " " + df_fix[col_start_fix].astype(str), errors="coerce")
+    df_fix["_end"]   = pd.to_datetime(df_fix[col_date_fix].astype(str) + " " + df_fix[col_end_fix].astype(str), errors="coerce")
 
-    df['home_clean'] = df[col_home_bsr].apply(_clean_text) if col_home_bsr else ""
-    df['away_clean'] = df[col_away_bsr].apply(_clean_text) if col_away_bsr else ""
-    df['comp_clean'] = df[col_progtype].apply(lambda x: _clean_text(x)) if col_progtype else ""
-    # For fixture: competition, matchday, phase, teams
-    df_fix['home_clean'] = df_fix[col_home_fix].apply(_clean_text) if col_home_fix else ""
-    df_fix['away_clean'] = df_fix[col_away_fix].apply(_clean_text) if col_away_fix else ""
-    df_fix['comp_clean'] = df_fix[col_comp_fix].apply(_clean_text) if col_comp_fix else ""
-    df_fix['matchday_clean'] = df_fix[col_matchday_fix].apply(_clean_text) if col_matchday_fix else ""
-    df_fix['phase_clean'] = df_fix[col_phase_fix].apply(_clean_text) if col_phase_fix else ""
-    # Fixture date only
-    df_fix['_fix_date_only'] = pd.to_datetime(df_fix[col_date_fix], errors='coerce').dt.date
+    # Duration
+    df["duration_min"] = parse_duration_to_minutes(df[col_duration]) if col_duration else np.nan
 
-    # BSR date only for matching
-    df['_bsr_date_only'] = pd.to_datetime(df[col_date_bsr], errors='coerce').dt.date if col_date_bsr else pd.NaT
+    # Actual Program Type
+    df["Program_Category_Actual"] = df[col_progtype].astype(str).str.lower().str.strip()
 
-    # --- 5. Initialize results ---
+    # -------------------- 4. Create Event Key for Both Sheets -------------------
+    df["_event_key"] = df.apply(lambda r: (r["_comp"], r["_match"], r["_home"], r["_away"], r["_date"]), axis=1)
+    df_fix["_event_key"] = df_fix.apply(lambda r: (r["_comp"], r["_match"], r["_home"], r["_away"], r["_date"]), axis=1)
+
+    # Build fixture groups for lookup
+    fix_groups = df_fix.groupby("_event_key")
+
+    # -------------------- 5. Initialize Output Columns --------------------------
     df["Program_Category_Expected"] = pd.NA
-    df["Program_Category_Actual"] = df[col_progtype].astype(str).str.strip().str.lower() if col_progtype else "unknown (col missing)"
     df["Program_Category_OK"] = False
-    df["Program_Category_Remark"] = pd.NA
+    df["Program_Category_Remark"] = ""
 
-    # rules
-    highlight_keywords = [r"\b" + k for k in rules.get('highlight_keywords', [])]
-    magazine_keywords = [r"\b" + k for k in rules.get('magazine_keywords', [])]
-    match_types = set(rules.get('live_types', []))
-    magazine_types = set(rules.get('relaxed_types', []))
-    live_tolerance = rules.get('live_tolerance_min', 30)
-    bsa_max_duration = rules.get('bsa_max_duration', 180)
-    support_min = rules.get('support_duration_min', 10)
-    support_max = rules.get('support_duration_max', 40)
+    # Rules
+    live_tol = rules.get("live_tolerance_min", 30)
+    highlight_keys = [k.lower() for k in rules.get("highlight_keywords", [])]
+    magazine_keys  = [k.lower() for k in rules.get("magazine_keywords", [])]
+    support_min = rules.get("support_duration_min", 10)
+    support_max = rules.get("support_duration_max", 40)
+    bsa_max = rules.get("bsa_max_duration", 180)
 
-    # --- 6. Group by event (non-timing keys) and apply fixture matching rules ---
-    # event key uses: competition, matchday, phase, home, away, date
-    df['event_key'] = (
-        df_fix_index_placeholder if False else  # placeholder to keep style similar if needed
-        df[['home_clean', 'away_clean']].apply(lambda r: f"{r['home_clean']}||{r['away_clean']}", axis=1)
-    )
+    # -------------------- 6. Process Group-wise (Per Match Event) ----------------
+    for event_key, grp in df.groupby("_event_key"):
+        grp_sorted = grp.sort_values("_start")
+        indices = grp_sorted.index.tolist()
 
-    # But we need event key based on competition/matchday/phase/home/away/date for BSR
-    def _bsr_event_key(r):
-        comp = _clean_text(r.get(col_map['bsr'].get('competition', '')) if col_map['bsr'].get('competition') else '')
-        matchday = _clean_text(r.get(col_map['bsr'].get('matchday', '')) if col_map['bsr'].get('matchday') else '')
-        phase = _clean_text(r.get(col_map['bsr'].get('phase', '')) if col_map['bsr'].get('phase') else '')
-        home = r['home_clean']
-        away = r['away_clean']
-        date_only = r['_bsr_date_only'] if not pd.isna(r['_bsr_date_only']) else ""
-        return f"{comp}||{matchday}||{phase}||{home}||{away}||{date_only}"
-
-    # create a similar event key for fixtures
-    def _fix_event_key(r):
-        comp = r.get('comp_clean', "")
-        matchday = r.get('matchday_clean', "")
-        phase = r.get('phase_clean', "")
-        home = r.get('home_clean', "")
-        away = r.get('away_clean', "")
-        date_only = r.get('_fix_date_only', "")
-        return f"{comp}||{matchday}||{phase}||{home}||{away}||{date_only}"
-
-    # Build fixture index by event_key for fast lookup
-    df_fix['event_key'] = df_fix.apply(_fix_event_key, axis=1)
-    fix_event_groups = df_fix.groupby('event_key')
-
-    # Compute BSR event_key and group
-    df['event_key'] = df.apply(_bsr_event_key, axis=1)
-    bsr_event_groups = df.groupby('event_key')
-
-    # iterate events
-    for event_key, bsr_group in bsr_event_groups:
-        # indices in order of BSR start time (so earliest is first broadcast)
-        sorted_bsr = bsr_group.sort_values(by='_bsr_start_time')
-        bsr_indices = sorted_bsr.index.tolist()
-
-        # find fixtures for this event_key
-        if event_key in fix_event_groups.groups:
-            fix_rows = df_fix.loc[fix_event_groups.groups[event_key]]
+        # Find fixture rows for this event
+        if event_key in fix_groups.groups:
+            fix_df = df_fix.loc[fix_groups.groups[event_key]]
         else:
-            fix_rows = pd.DataFrame([])  # no fixture rows for this event
+            fix_df = pd.DataFrame()
 
-        # find any fixture that matches start AND end exactly (after parsing)
-        exact_fix_mask = pd.Series(False, index=fix_rows.index)
-        if not fix_rows.empty:
-            # use parsed fix start/end cols
-            exact_fix_mask = (~fix_rows['_fix_start_parsed'].isna()) & \
-                             (~fix_rows['_fix_end_parsed'].isna()) & \
-                             (fix_rows['_fix_start_parsed'].notna()) & \
-                             (fix_rows['_fix_end_parsed'].notna())
-
-        # For each BSR broadcast in chronological order, determine expected type
-        for i, idx in enumerate(bsr_indices):
+        for pos, idx in enumerate(indices):
             row = df.loc[idx]
-            actual_type = row["Program_Category_Actual"]
-            bsr_start = row['_bsr_start_time']
-            bsr_end = df.get(f"_dt_{col_end_utc}", pd.Series(pd.NaT, index=df.index)).loc[idx] if col_end_utc else pd.NaT
+            desc = row[col_desc].lower() if col_desc else ""
+            source = row[col_source].lower() if col_source else ""
+            dur = row["duration_min"]
 
-            # default
-            expected = pd.NA
+            # ------------ A. Highlights Override ------------
+            if not pd.isna(dur) and support_min <= dur <= support_max:
+                if any(k in desc for k in highlight_keys):
+                    df.at[idx,"Program_Category_Expected"]="highlights"
+                    df.at[idx,"Program_Category_OK"] = row["Program_Category_Actual"]=="highlights"
+                    df.at[idx,"Program_Category_Remark"]="Highlights rule matched"
+                    continue
 
-            # if no fixture rows found -> can't match
-            if fix_rows.empty:
-                expected = pd.NA
-                df.at[idx, "Program_Category_Expected"] = expected
-                df.at[idx, "Program_Category_Remark"] = "No fixture entry for this event"
+                if any(k in desc for k in magazine_keys):
+                    df.at[idx,"Program_Category_Expected"]="magazine"
+                    df.at[idx,"Program_Category_OK"] = row["Program_Category_Actual"] in ["magazine","support","studio"]
+                    df.at[idx,"Program_Category_Remark"]="Magazine rule matched"
+                    continue
+
+            # ------------ B. Fixture Handling ------------
+            if fix_df.empty:
+                df.at[idx,"Program_Category_Expected"]=pd.NA
+                df.at[idx,"Program_Category_OK"]=False
+                df.at[idx,"Program_Category_Remark"]="No matching fixture found"
                 continue
 
-            # check if any fixture has both start and end parsed and equals BSR start/end (exact)
-            exact_matches = []
-            for fidx, frow in fix_rows.iterrows():
-                fix_start = frow.get('_fix_start_parsed', pd.NaT)
-                fix_end = frow.get('_fix_end_parsed', pd.NaT)
+            # Pick fixture row with closest start time
+            bsr_start = row["_start"]
+            best_diff=None
+            for fidx,frow in fix_df.iterrows():
+                if pd.isna(frow["_start"]) or pd.isna(bsr_start): continue
+                diff=abs((bsr_start-frow["_start"]).total_seconds()/60)
+                if best_diff is None or diff<best_diff:
+                    best_diff=diff
 
-                # If both parsed and BSR also parsed, compare
-                if pd.notna(fix_start) and pd.notna(fix_end) and pd.notna(bsr_start) and pd.notna(bsr_end):
-                    # exactness: equal datetimes (to the second) OR within live_tolerance for start decision
-                    if fix_start == bsr_start and fix_end == bsr_end:
-                        exact_matches.append((fidx, frow))
-                # if fixture doesn't contain parsed times, we cannot treat as 'timing exact' here; it's non-timing match
-            # If exact fixture timing present:
-            if exact_matches:
-                # For exact match, use start_diff to decide live vs delayed
-                # Use the earliest BSR broadcast (i == 0) as the one to be considered live/delayed; others are repeats
-                if i == 0:
-                    fix_start = exact_matches[0][1]['_fix_start_parsed']
-                    start_diff_min = (bsr_start - fix_start).total_seconds() / 60 if pd.notna(bsr_start) and pd.notna(fix_start) else np.nan
-                    if pd.notna(start_diff_min) and abs(start_diff_min) <= live_tolerance:
-                        expected = 'live'
-                    else:
-                        expected = 'delayed'
+            # ------------ C. Live / Delayed / Repeat ------------
+            if pos==0:   # first broadcast
+                if best_diff is not None and best_diff <= live_tol:
+                    expected="live"
+                    remark=f"Within ±{live_tol} min -> live"
                 else:
-                    expected = 'repeat'
-
+                    expected="delayed"
+                    remark=f"Outside ±{live_tol} min -> delayed"
             else:
-                # No exact timing match — fixture exists for non-timing columns but timings differ / missing
-                # If this is the first broadcast for this event in the worksheet -> delayed
-                # Else -> repeat
-                if i == 0:
-                    expected = 'delayed'
-                else:
-                    expected = 'repeat'
+                expected="repeat"
+                remark=f"{pos+1}th broadcast -> repeat"
 
-            df.at[idx, "Program_Category_Expected"] = expected
+            df.at[idx,"Program_Category_Expected"]=expected
+            df.at[idx,"Program_Category_OK"] = (row["Program_Category_Actual"]==expected)
+            df.at[idx,"Program_Category_Remark"]=remark
 
-    # --- 7. Apply Verification Logic per row (highlights/magazine/matches etc.) ---
-    for idx, row in df.iterrows():
-        actual_type = row["Program_Category_Actual"]
-        expected_type = row["Program_Category_Expected"]
-        duration = row["duration_min"]
-        desc = str(row.get(col_desc, "")).strip().lower() if col_desc else ""
-        source = str(row.get(col_source, "")).strip().lower() if col_source else ""
+            # ------------ D. BSA Rule ------------
+            if "bsa" in source and expected in ["live","repeat"]:
+                if pd.isna(dur) or dur > bsa_max:
+                    df.at[idx,"Program_Category_OK"]=False
+                    df.at[idx,"Program_Category_Remark"]+=" | BSA duration invalid"
 
-        ok = False
-        remark = ""
-
-        # --- Logic for Highlights and Magazines (using config rules) ---
-        if actual_type in magazine_types:
-            df.at[idx, "Program_Category_Expected"] = actual_type
-            if pd.isna(duration):
-                ok = False
-                remark = f"Invalid duration (NaN or unreadable) for {actual_type}"
-            elif support_min <= duration <= support_max:
-                ok = True
-                remark = "OK"
-                if actual_type == 'highlights' and not any(re.search(k, desc) for k in highlight_keywords):
-                    remark = "OK (Duration valid, but keywords missing)"
-                elif actual_type != 'highlights' and not any(re.search(k, desc) for k in magazine_keywords):
-                    remark = "OK (Duration valid, but keywords missing)"
-            else:
-                ok = False
-                remark = f"Invalid duration ({duration:.2f} min) for {actual_type} (Rule: {support_min}-{support_max} min)"
-
-        # --- Logic for Matches ---
-        elif actual_type in match_types:
-            if pd.isna(expected_type):
-                ok = False
-                remark = "No matching fixture found"
-                df.at[idx, "Program_Category_Expected"] = "unknown"
-            elif actual_type == expected_type:
-                ok = True
-                remark = "OK"
-            else:
-                ok = False
-                remark = f"Expected '{expected_type}', found '{actual_type}'"
-
-        # --- Logic for other types ---
-        else:
-            ok = False
-            remark = f"Invalid Actual Type: '{actual_type}'"
-            if pd.isna(expected_type):
-                df.at[idx, "Program_Category_Expected"] = "unknown"
-
-        # --- BSA Duration Rule ---
-        if ok and "bsa" in source and actual_type in ['live', 'repeat']:
-            if pd.notna(duration) and duration > bsa_max_duration:
-                ok = False
-                remark = f"BSA {actual_type.title()} > {bsa_max_duration} mins (Invalid)"
-            elif pd.isna(duration):
-                ok = False
-                remark = f"BSA {actual_type.title()} has invalid duration (NaN)"
-
-        df.at[idx, "Program_Category_OK"] = ok
-        df.at[idx, "Program_Category_Remark"] = remark
-
-    # --- 8. Cleanup helper cols ---
-    drop_cols = [
-        'duration_min', 'home_clean', 'away_clean', '_bsr_start_time',
-        f"_dt_{col_start_utc}", f"_dt_{col_end_utc}",
-        '_fix_start_parsed', '_fix_end_parsed', '_fix_date_only', 'event_key', '_bsr_date_only'
-    ]
-    df = df.drop(columns=[c for c in drop_cols if c in df.columns], errors='ignore')
+    # Cleanup helper columns
+    df.drop(columns=[c for c in ["_comp","_match","_home","_away","_date","_start","_end","_event_key"] if c in df.columns], inplace=True)
 
     return df
 
