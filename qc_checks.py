@@ -913,32 +913,98 @@ def market_channel_consistency_check(df_bsr, rosco_path, col_map, file_rules):
 
 # -----------------------------------------------------------
 # 10️⃣ Domestic Market Coverage Check
-def domestic_market_coverage_check(df_worksheet, reference_df=None, debug_rows=10):
+def domestic_market_coverage_check(
+        df_worksheet,
+        reference_df=None,
+        monitoring_start_date=None,
+        debug=False
+    ):
+    """
+    Domestic Market Coverage Check (with monitoring period support)
+
+    ✔ Uses monitoring_start_date from ROSCO
+    ✔ Ignores all broadcasts before monitoring period
+    ✔ Validates domestic coverage ONLY for monitored dates
+    ✔ Applies competition → domestic market mapping
+    ✔ Live / Delayed / Repeat do NOT matter for this check (as requested)
+    """
+
     df = df_worksheet.copy()
+
     df["Domestic_Market_Coverage_OK"] = True
     df["Domestic_Market_Remark"] = ""
 
+    # ----------------------------------------------------------
+    # 1. Domestic Mapping by Competition
+    # ----------------------------------------------------------
     DOMESTIC_MAP = {
-        "bundesliga": ["germany", "deutschland"],
         "premier league": ["united kingdom", "england"],
         "la liga": ["spain"],
+        "bundesliga": ["germany", "deutschland"],
         "serie a": ["italy"],
-        "ligue 1": ["france"],
+        "ligue 1": ["france"]
     }
 
-    for idx, row in df.iterrows():
-        comp = str(row.get("Competition", "")).lower()
-        market = str(row.get("Market", "")).lower()
-        progtype = str(row.get("Type of Program", "")).lower()
+    # ----------------------------------------------------------
+    # 2. Normalize monitoring start date
+    # ----------------------------------------------------------
+    if monitoring_start_date is not None:
+        try:
+            monitoring_start = pd.to_datetime(monitoring_start_date).date()
+        except:
+            monitoring_start = None
+    else:
+        monitoring_start = None  # fallback → old behaviour
 
+    # ----------------------------------------------------------
+    # 3. Loop through BSR rows
+    # ----------------------------------------------------------
+    for idx, row in df.iterrows():
+
+        comp = str(row.get("Competition", "")).strip().lower()
+        market = str(row.get("Market", "")).strip().lower()
+        date_raw = row.get("Date(UTC/GMT)") or row.get("Date") or ""
+        prog_type = str(row.get("Type of Program", "")).strip().lower()
+
+        # parse BSR date
+        try:
+            row_date = pd.to_datetime(date_raw).date()
+        except:
+            row_date = None
+
+        # ------------------------------------------------------
+        # 3A. Skip rows before monitoring period
+        # ------------------------------------------------------
+        if monitoring_start and row_date and row_date < monitoring_start:
+            continue  # ignore rows before MD07/MD08 period
+
+        # ------------------------------------------------------
+        # 3B. Identify domestic markets for this competition
+        # ------------------------------------------------------
         domestic_markets = []
-        for key, vals in DOMESTIC_MAP.items():
-            if key in comp:
-                domestic_markets = vals
+        for comp_kw, markets in DOMESTIC_MAP.items():
+            if comp_kw in comp:
+                domestic_markets = markets
                 break
-        if domestic_markets and any(k in progtype for k in ["live", "broadcast", "direct"]) and market not in domestic_markets:
+
+        # If competition not found in domestic map → skip (not applicable)
+        if not domestic_markets:
+            continue
+
+        # ------------------------------------------------------
+        # 3C. Check if the broadcast is in the domestic coverage market
+        # No need to check live/delayed/repeat → applies to all
+        # ------------------------------------------------------
+        market_ok = any(dm in market for dm in domestic_markets)
+
+        if not market_ok:
             df.at[idx, "Domestic_Market_Coverage_OK"] = False
-            df.at[idx, "Domestic_Market_Remark"] = f"Missing domestic live coverage for {market}"
+            df.at[idx, "Domestic_Market_Remark"] = (
+                f"Missing domestic coverage. Expected one of: {domestic_markets}"
+            )
+        else:
+            df.at[idx, "Domestic_Market_Remark"] = "OK"
+
     return df
 
 # -----------------------------------------------------------
