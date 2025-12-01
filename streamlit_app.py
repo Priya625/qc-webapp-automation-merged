@@ -15,7 +15,7 @@ BACKEND_URL = BACKEND_BASE_URL + "/api"
 
 # Your colleague's original F1/QC functions
 try:
-    from qc_checks import (
+    from qc_checks_1 import (
         detect_period_from_rosco as rosco_detect_orig, # Alias to avoid conflict
         load_bsr as load_bsr_orig,
         period_check as period_check_orig,
