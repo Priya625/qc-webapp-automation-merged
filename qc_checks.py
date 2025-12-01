@@ -1019,6 +1019,9 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
     league_keyword = project.get('league_keyword', 'F24 Spain')
     bsr_cols = col_map['bsr']
     macro_cols = col_map['macro']
+    
+    # 🎯 FIX 1: Initialize in_league mask to ensure it exists in case of early column error
+    in_league = pd.Series([False] * len(df_bsr), index=df_bsr.index) 
 
     if not macro_path or not os.path.exists(macro_path):
         df_bsr[result_col] = False
@@ -1069,10 +1072,12 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
              return df_bsr
         
         # --- Filter BSR for selected league (competition/event) ---
+        # 🎯 FIX 2: Reassign in_league if successful
         in_league = (
             df_bsr[comp_col].astype(str).str.lower().str.contains(league_keyword.lower(), na=False)
             | df_bsr[evt_col].astype(str).str.lower().str.contains(league_keyword.lower(), na=False)
         )
+        
         # Apply NA/Not Applicable to rows outside the current league/project
         df_bsr.loc[~in_league, result_col] = pd.NA
         df_bsr.loc[~in_league, remark_col] = "Not Applicable (Outside Project Scope)"
@@ -1123,6 +1128,7 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
         return df_bsr
 
     except Exception as e:
+        # Use the already initialized or successfully created 'in_league' mask
         df_bsr.loc[in_league, result_col] = False
         df_bsr.loc[in_league, remark_col] = f"Error in Duplication check logic: {str(e)}"
         return df_bsr
@@ -1309,10 +1315,10 @@ def generate_summary_sheet(output_path, df): # Removed file_rules argument
         current_total = valid_rows.sum()
         
         # If the column is boolean (after normalization), we can sum directly
-        if df[col].dtype == bool:
+        if df[col].dtype == 'boolean': # Check for Pandas nullable Boolean dtype
             passed = int(df.loc[valid_rows, col].sum())
         else:
-            # Fallback for unexpected non-boolean, non-NA values
+            # Fallback for unexpected non-boolean, non-NA values (shouldn't happen after normalize)
             passed = int((df.loc[valid_rows, col] == True).sum())
             
         failed = current_total - passed
@@ -1350,13 +1356,13 @@ def normalize_ok_columns(df):
                 # Handles existing booleans
                 if isinstance(x, bool): return x
                 # Handles Not Applicable (pd.NA or numpy object)
-                if pd.isna(x) or str(x).lower() == "nan": return pd.NA
+                if pd.isna(x) or str(x).lower() == "nan" or x is None: return pd.NA
                 s = str(x).strip().lower()
                 # Casts strings/ints to bool
                 if s in ("true", "t", "1", "yes", "y", "ok"): return True
                 if s in ("false", "f", "0", "no", "n", ""): return False
                 return pd.NA # Treat ambiguous values as NA
 
-            # Apply conversion. If column contains NA, dtype becomes 'boolean' (Pandas nullable Boolean)
+            # Apply conversion. dtype becomes 'boolean' (Pandas nullable Boolean)
             df[col] = df[col].apply(to_bool).astype('boolean')
     return df
