@@ -210,7 +210,6 @@ def run_qc_checks(  # <-- CHANGED from async def to def
         output_file = f"QC_Result_{os.path.splitext(bsr_file.filename)[0]}.xlsx"
         output_path = os.path.join(OUTPUT_FOLDER, output_file)
 
-        df = qc_general.normalize_ok_columns(df)
         df.to_excel(output_path, index=False)
         color_excel(output_path, df)
         generate_summary_sheet(output_path, df)
@@ -434,10 +433,10 @@ def run_general_qc_checks( # <-- CHANGED from async def to def
         output_path = os.path.join(OUTPUT_FOLDER, output_file)
 
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-            df = qc_general.normalize_ok_columns(df)
-            df.to_excel(output_path, index=False)
-            color_excel(output_path, df)
-            generate_summary_sheet(output_path, df)
+            df.to_excel(writer, index=False, sheet_name="QC Results")
+
+        qc_general.color_excel(output_path, df)
+        qc_general.generate_summary_sheet(output_path, df, file_rules)
 
         return FileResponse(
             path=output_path,
@@ -502,10 +501,10 @@ def run_laliga_qc_checks( # <-- CHANGED from async def to def
         output_path = os.path.join(OUTPUT_FOLDER, output_file)
 
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-            df = qc_general.normalize_ok_columns(df)
-            df.to_excel(output_path, index=False)
-            color_excel(output_path, df)
-            generate_summary_sheet(output_path, df)
+            df.to_excel(writer, index=False, sheet_name="Laliga QC Results")
+
+        qc_general.color_excel(output_path, df)
+        qc_general.generate_summary_sheet(output_path, df, file_rules)
 
         return FileResponse(
             path=output_path,
