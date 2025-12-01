@@ -1,22 +1,29 @@
-# streamlit_app.py (corrected)
 import streamlit as st
 import pandas as pd
+import requests
 import os
 import time
+import shutil
 import json
 from typing import Optional, List
 
 BACKEND_BASE_URL = os.environ.get("STREAMLIT_BACKEND_URL", "http://localhost:8000")
 BACKEND_URL = BACKEND_BASE_URL + "/api"
 
-# --- Import QC modules ---
+
+# --- Import ALL QC functions from ALL your files ---
+
+# Your 11-check QC functions
 try:
     import qc_checks as qc_general
+
     from C_data_processing_f1 import BSRValidator
     from C_data_processing_EPL import EPLValidator
+    
 except ImportError as e:
-    st.error(f"Failed to import QC modules: {e}")
+    st.error(f"Failed to import your QC file (qc_checks.py): {e}")
     st.stop()
+
 
 # -------------------- ⚙️ Folder setup --------------------
 BASE_DIR = os.getcwd()
@@ -26,11 +33,13 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 # -------------------- 🧠 Config Loader --------------------
+# Helper function to load the config.json file
 @st.cache_data
 def load_config():
     try:
         with open("config.json", "r", encoding="utf-8") as f:
-            return json.load(f)
+            config = json.load(f)
+        return config
     except Exception as e:
         st.error(f"FATAL ERROR: Could not load config.json. {e}")
         return None
@@ -39,33 +48,33 @@ config = load_config()
 if config is None:
     st.stop()
 
-# convenience
-file_rules = config.get("file_rules", {})
-col_map_all = config.get("column_mappings", {})
-qc_rules = config.get("qc_rules", {})
-project_rules = config.get("project_rules", {})
-
 # -------------------- 🌐 Streamlit UI --------------------
 LOGO_PATH_4 = "images/Nielsen_Sports_logo.svg"
+# C:/Users/BHRAJG2501/Desktop/Nielsen_Sports_logo.svg
+
+# -------------------- 🌐 Streamlit UI --------------------
 st.set_page_config(page_title="NIELSEN QC Automation Portal", layout="wide")
+# st.title("  Nielsen Sports ")
 
 try:
     if os.path.exists(LOGO_PATH_4):
-        st.image(LOGO_PATH_4, width=150)
+        st.image(LOGO_PATH_4, width=150) # Adjust width as needed
     else:
-        st.header(" ")
+        st.header("pic  ") # Fallback header
 except Exception:
-    st.header(" ")
+    st.header("pic")
 
-# Tabs
-home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab, epl_tab = st.tabs([
-    " Home Page",
-    " Main QC Automation",
-    " Laliga Specific QC",
+
+# --- Use Tabs for Clear Separation (MODIFIED) ---
+home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab , epl_tab= st.tabs([
+    " Home Page", 
+    " Main QC Automation", 
+    " Laliga Specific QC", 
     " F1 Market Specific Checks",
     " EPL Specific Checks"
 ])
 
+# --- Define all market check keys globally for management ---
 # --- Market check keys (same as your config)
 all_market_check_keys = {
     "check_latam_espn": "LATAM ESPN Channels: Ecuador and Venezuela missing",
@@ -117,10 +126,204 @@ all_market_check_keys_epl = {
     "sa_nielsen_inclusion_check": "South Africa Nielsen Inclusion Check"
 }
 
-# ---------- HOME PAGE ----------
 with home_page_tab:
-    st.markdown("<div style='text-align:center; padding: 20px 0;'><h1>Nielsen Automation Portal</h1></div>", unsafe_allow_html=True)
-    st.markdown("Central hub for data integrity, transformation, and market modelling for Sports BSR data.")
+    # --- Custom CSS for Styling ---
+    st.markdown(
+        """
+        <style>
+            /* Ensure the overall background color is applied */
+            .stApp {
+                background-color:  #DCD2FF; 
+            }
+
+            .stApp > header {
+                text-align: center;
+            }
+
+            .stTabs [data-baseweb="tab-list"] {
+                justify-content: center;
+                gap: 50px; /* INCREASED GAP for more space between tabs */
+            }
+            
+            
+            /* Main Header Styling */
+            .header-title {
+                color: #0049BE; /* Vibrant Corporate Blue */
+                font-size: 3.5em;
+                font-weight: 900;
+                text-align: center;
+                padding-top: 80px; /* <-- INCREASED TOP SPACE */
+            }
+            .subtitle {
+                color:  #259600; 
+                font-size: 1.3em;
+                text-align: center;
+                margin-bottom: 8em; /* <-- INCREASED BOTTOM SPACE */
+            }
+            
+            /* Navigation Section (Hero Container) */
+            .nav-container {
+                background-color: #FFFFFF; /* White background for the action area */
+                padding: 40px 50px;
+                border-radius: 15px;
+                box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15); /* Stronger shadow */
+                margin-bottom: 30px;
+                text-align: center;
+            }
+            .nav-container h3 {
+                color: #0047AB;
+                font-size: 1.8em;
+                margin-bottom: 0.5em;
+            }
+            .nav-item-list {
+                list-style-type: none; 
+                padding: -100;
+                display: flex; /* Flex layout for horizontal tabs/buttons */
+                justify-content: space-around;
+                margin-top: 20px;
+            }
+            .nav-item {
+                flex: 1;
+                margin: 0 10px;
+                padding: 15px 20px;
+                border: 2px solid #4D577D;
+                border-radius: 8px;
+                transition: transform 0.2s, border-color 0.2s;
+                text-align: center;
+                cursor: pointer;
+            }
+            .nav-item:hover {
+                transform: translateY(-3px);
+                border-color: #B30095; /* Blue hover accent */
+            }
+
+            /* Capability Cards Styling (3-column layout) */
+            .metric-card {
+                background-color: #F7F7F9;
+                border-bottom: 4px solid var(--accent-color); /* Bottom border accent */
+                border-radius: 8px;
+                padding: 20px 20px;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); 
+                height: 100%;
+                transition: box-shadow 0.3s;
+            }
+            .metric-card:hover {
+                box-shadow: 0 6px 15px rgba(0, 0, 0, 0.15); 
+            }
+            .metric-card h3 {
+                color: #1A5276; 
+                font-size: 1.2em;
+                font-weight: 700;
+                margin-bottom: 0.5em;
+            }
+            .metric-card p {
+                font-size: 0.9em;
+                color: #555;
+            }
+            .stHeader {
+                background-color: #E4F0F7; /* Ensures Streamlit headers match background */
+            }
+            /* Targets the entire file uploader container for subtle background changes */
+                div[data-testid="stFileUploader"] {
+                    background-color: #EAE4FF; /* Light Lavender Background */
+                    padding: 10px;
+                    border-radius: 10px;
+                }
+                /* Targets the actual upload button/text area */
+                div[data-testid="stFileUploaderDropzone"] {
+                    border: 2px dashed #0049BE; /* Custom Border Color */
+                }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # --- Header Section (Centered) ---
+    st.markdown("<div class='header-title'> Nielsen  Automation Portal</div>", unsafe_allow_html=True)
+    st.markdown("<p class='subtitle'>The central hub for data integrity, transformation, and complex market modeling for Sports BSR data.</p>", unsafe_allow_html=True)
+    
+    # --- 1. Navigation Guide (Central Hero Section) ---
+    # st.markdown("<div class='nav-container'>", unsafe_allow_html=True)
+    st.markdown("<h3>Modules</h3>", unsafe_allow_html=True)
+    # st.markdown("<p style='color: #009DA8;'>Select a tab above  to access core functionality.</p>", unsafe_allow_html=True)
+    
+    # NOTE: Since we cannot programmatically link to Streamlit tabs via HTML/CSS, 
+    # this list is for display only, guiding the user to the top tabs.
+    st.markdown(
+        """
+        <ul class='nav-item-list'>
+            <li class='nav-item'>
+                <strong>Main QC Automation</strong>
+            </li>
+            <li class='nav-item'>
+                <strong>LaLiga Specific QC</strong>
+            </li>
+            <li class='nav-item'>
+                <strong>F1 Market Specific Checks</strong>
+            </li>
+        </ul>
+        """, unsafe_allow_html=True
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.markdown("<h3 style='color: #1A5276; text-align: center; margin-top: 30px; margin-bottom: 25px;'>Key System Capabilities</h3>", unsafe_allow_html=True)
+
+    # --- 2. Core Capabilities Cards (STAGGERED GRID LAYOUT) ---
+    
+    # --- Row 1 ---
+    cap_row1_col1, cap_row1_col2 = st.columns(2) 
+    
+    # Card 1: Traceability & Auditing
+    with cap_row1_col1:
+        st.markdown(
+            """
+            <div class='metric-card' style='--accent-color:  #FF5AB4;'>
+                <h3>Full Data Traceability</h3>
+                <p>Ensures 100% auditability for every change—from initial loading to final weighted output—confirming pipeline integrity at every step.</p>
+            </div>
+            """, unsafe_allow_html=True
+        )
+
+    # Card 2: Upscaling & Reconciliation
+    with cap_row1_col2:
+        st.markdown(
+            """
+            <div class='metric-card' style='--accent-color: #D13CBD;'>
+                <h3>Audience Upscale & Reconciliation</h3>
+                <p>Automatically reconciles BSR audience estimates by overriding estimates with higher, verified maximum figures from Overnight Quick Reports.</p>
+            </div>
+            """, unsafe_allow_html=True
+        )
+            
+    # --- Row 2 ---
+    st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
+    cap_row2_col1, cap_row2_col2 = st.columns(2) 
+
+    # Card 3: Complex Market Modeling
+    with cap_row2_col1:
+        st.markdown(
+            """
+            <div class='metric-card' style='--accent-color: #FFC800;'>
+                <h3>Complex Market Modeling</h3>
+                <p>Applies conditional weighted duplication rules and validates channel existence essential for comprehensive pan-regional data models.</p>
+            </div>
+            """, unsafe_allow_html=True
+        )
+    
+    # Card 4: F1 Duplication Audit
+    with cap_row2_col2:
+        st.markdown(
+            """
+            <div class='metric-card' style='--accent-color: #8CE650;'>
+                <h3>F1 Duplication Audit</h3>
+                <p>Validates the completeness of all duplication rules by checking if required target channels exist in the destination market's current inventory.</p>
+            </div>
+            """, unsafe_allow_html=True
+        )
+
+
+    st.markdown("<div style='margin-bottom: 50px;'></div>", unsafe_allow_html=True)
+
 
 # -----------------------------------------------------------
 #        ✅ MAIN QC AUTOMATION TAB
