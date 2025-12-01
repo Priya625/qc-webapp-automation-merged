@@ -57,7 +57,7 @@
       "away_team": ["Away Team", "Away"],
       "date": ["Date"],
       "start_time": ["Start Time", "Start"],
-      "event": ["Event", "Competition"],
+      "competition": ["Competition"],
       "match_day": ["Matchday"]
     },
     "macro": {
