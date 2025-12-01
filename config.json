@@ -35,6 +35,7 @@
       "channel_id": ["Channel ID", "ChannelID", "Channel Id"],
       "market": ["Market"],
       "market_id": ["Market ID"],
+      "broadcaster": ["Broadcaster", "BROADCASTER"],
       "type_of_program": ["Type of Program", "Type of programme", "Type of program"],
       "match_day": ["Matchday", "Match Day", "Matchday "],
       "home_team": ["Home Team", "HomeTeam", "Home"],
