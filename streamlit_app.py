@@ -39,9 +39,9 @@ except ImportError as e:
 
 # Your 11-check QC functions
 try:
-    import qc_checks_1 as qc_general
+    import qc_checks as qc_general
 except ImportError as e:
-    st.error(f"Failed to import your QC file (qc_checks_1.py): {e}")
+    st.error(f"Failed to import your QC file (qc_checks.py): {e}")
     st.stop()
 
 
