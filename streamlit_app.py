@@ -15,7 +15,7 @@ BACKEND_URL = BACKEND_BASE_URL + "/api"
 
 # Your colleague's original F1/QC functions
 try:
-    from qc_checks_1 import (
+    from qc_checks import (
         detect_period_from_rosco as rosco_detect_orig, # Alias to avoid conflict
         load_bsr as load_bsr_orig,
         period_check as period_check_orig,
@@ -400,6 +400,8 @@ with main_qc_tab:
                     # --- Generate Output File ---
                     output_file = f"General_QC_Result_{os.path.splitext(main_bsr_file.name)[0]}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_file)
+                    
+                    df = qc_general.normalize_ok_columns(df)
 
                     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
                         df.to_excel(writer, index=False, sheet_name="QC Results")
@@ -478,7 +480,7 @@ with laliga_qc_tab:
                     # --- Generate Output File ---
                     output_file = f"Laliga_QC_Result_{os.path.splitext(laliga_bsr_file.name)[0]}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_file)
-
+                    df = qc_general.normalize_ok_columns(df)
                     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
                         df.to_excel(writer, index=False, sheet_name="Laliga QC Results")
 
@@ -758,7 +760,7 @@ with epl_tab:
                     output_path = os.path.join(OUTPUT_FOLDER, output_filename)
                     
                     #df_processed.to_excel(output_path, index=False)
-
+                    df = qc_general
                     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
 
     

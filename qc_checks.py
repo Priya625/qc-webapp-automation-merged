@@ -1298,19 +1298,41 @@ def color_excel(output_path, df):
     wb.save(output_path)
 # -----------------------------------------------------------
 # Summary Sheet
-def generate_summary_sheet(output_path, df):
+def generate_summary_sheet(output_path, df, file_rules=None):
+    from openpyxl import load_workbook
+    from openpyxl.utils.dataframe import dataframe_to_rows
+
+    df = normalize_ok_columns(df)
+
     wb = load_workbook(output_path)
-    if "Summary" in wb.sheetnames: del wb["Summary"]
+    if "Summary" in wb.sheetnames:
+        del wb["Summary"]
+
     ws = wb.create_sheet("Summary")
 
-    qc_columns = [col for col in df.columns if "_OK" in col]
-    summary_data = []
-    for col in qc_columns:
-        total = len(df)
-        passed = df[col].sum() if df[col].dtype==bool else sum(df[col]=="True")
-        summary_data.append([col, total, passed, total - passed])
+    qc_cols = [c for c in df.columns if c.endswith("_OK")]
+    total = len(df)
+    out = []
+    for col in qc_cols:
+        passed = int(df[col].sum())
+        failed = total - passed
+        out.append([col, total, passed, failed])
 
-    summary_df = pd.DataFrame(summary_data, columns=["Check", "Total", "Passed", "Failed"])
+    summary_df = pd.DataFrame(out, columns=["Check", "Total", "Passed", "Failed"])
     for r in dataframe_to_rows(summary_df, index=False, header=True):
         ws.append(r)
+
     wb.save(output_path)
+
+def normalize_ok_columns(df):
+    for col in df.columns:
+        if col.endswith("_OK"):
+            def to_bool(x):
+                if isinstance(x, bool): return x
+                if pd.isna(x): return False
+                s = str(x).strip().lower()
+                if s in ("true", "t", "1", "yes", "y"): return True
+                if s in ("false", "f", "0", "no", "n", ""): return False
+                return False
+            df[col] = df[col].apply(to_bool).astype(bool)
+    return df
