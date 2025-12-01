@@ -13,34 +13,13 @@ BACKEND_URL = BACKEND_BASE_URL + "/api"
 
 # --- Import ALL QC functions from ALL your files ---
 
-# Your colleague's original F1/QC functions
-try:
-    from qc_checks import (
-        detect_period_from_rosco as rosco_detect_orig, # Alias to avoid conflict
-        load_bsr as load_bsr_orig,
-        period_check as period_check_orig,
-        completeness_check as completeness_check_orig,
-        overlap_duplicate_daybreak_check as overlap_orig,
-        program_category_check as program_cat_orig,
-        check_event_matchday_competition as event_matchday_orig,
-        rates_and_ratings_check as rates_orig,
-        country_channel_id_check as country_id_orig,
-        color_excel as color_excel_orig,
-        generate_summary_sheet as summary_orig,
-        # REMOVED: normalize_ok_columns (access via qc_general instead)
-    )
-
-    from C_data_processing_f1 import BSRValidator
-    from C_data_processing_EPL import EPLValidator
-
-except ImportError as e:
-        st.error(f"Failed to import colleague's files (qc_checks.py, C_data_processing_f1.py): {e}")
-        st.stop()
-
-
 # Your 11-check QC functions
 try:
     import qc_checks as qc_general
+
+    from C_data_processing_f1 import BSRValidator
+    from C_data_processing_EPL import EPLValidator
+    
 except ImportError as e:
     st.error(f"Failed to import your QC file (qc_checks.py): {e}")
     st.stop()
