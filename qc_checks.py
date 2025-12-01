@@ -272,10 +272,8 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
     col_channel       = _find_column(df, bsr_cols.get('tv_channel'))
     col_channel_id    = _find_column(df, bsr_cols.get('channel_id'))
     col_market        = _find_column(df, bsr_cols.get('market'))
-    
-    # 🎯 FIX: Use .get() for safe access in case 'broadcaster' is missing from config.json
+    # FIX: Use .get() for safe access to 'broadcaster' key
     col_broadcaster   = _find_column(df, bsr_cols.get('broadcaster')) 
-    
     col_date          = _find_column(df, bsr_cols.get('date'))
     col_title         = _find_column(df, bsr_cols.get('program_title'))
     col_start         = _find_column(df, bsr_cols.get('start_time'))
@@ -608,10 +606,16 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     return df
 
 # 8️⃣ Event / Matchday / Competition Check
-def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules, debug_rows=20): # Modified signature
+def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules, debug_rows=20): 
     """
     Validate Event / Competition / Matchday / Match combinations.
-    (Simplified: Uses BSR file itself for reference loading as before, ignoring explicit df_data parameter)
+
+    Inputs:
+      - df_worksheet : DataFrame of the main worksheet (the BSR "Worksheet")
+      - bsr_path : Path to BSR file (used to load fixture data)
+      - col_map : Column mappings from config.json
+      - file_rules : File rules from config.json
+      - debug_rows: how many rows to print for debug output
     """
 
     # --- Helper: normalize text ---
@@ -623,17 +627,14 @@ def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules
     def norm_lower(x):
         return norm(x).lower()
 
-    # --- Get reference competitions / allowed values ---
+    # --- Get reference competitions / allowed values from fixture sheet/config defaults ---
     reference_comps = set()
-    reference_matchday_counts = {}
-
     df_data = None
-    rosco_path = bsr_path # Use BSR path to find fixture sheet as per program_category_check logic above
-
-    if rosco_path is not None:
-        # attempt to load the 'fixture' sheet from BSR file, if available
+    
+    # attempt to load the 'fixture' sheet from BSR file, if available
+    if bsr_path is not None:
         try:
-            xls = pd.ExcelFile(rosco_path, sheet_name=None)
+            xls = pd.ExcelFile(bsr_path, sheet_name=None)
             fixture_keyword = file_rules.get("fixture_sheet_keyword", "fixture")
             fixture_sheet = next((s for s in xls.keys() if fixture_keyword in s.lower()), None)
             
@@ -647,7 +648,7 @@ def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules
                         df_data = xls[p]
                         break
         except Exception:
-            df_data = None
+            pass
     
     # If df_data is available, extract competition names
     if isinstance(df_data, pd.DataFrame):
@@ -666,7 +667,6 @@ def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules
             "premier league", "epl", "la liga", "serie a", "champions league"
         ])
 
-    # Precompute a lowercase set for quick lookup
     reference_comps_lower = set(x.lower() for x in reference_comps)
 
     # --- Prepare output columns ---
@@ -688,7 +688,7 @@ def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules
     def get_val(row, col_name, default=""):
         return norm(row.get(col_name)) if col_name else default
 
-    # We'll build grouping counts to verify number of matches per (Competition, Matchday)
+    # We'll build grouping counts (optional check)
     grouped_counts = {}
 
     # iterate rows
@@ -753,18 +753,17 @@ def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules
         df.at[idx, "Event_Matchday_Competition_OK"] = ok
         df.at[idx, "Event_Matchday_Competition_Remark"] = "; ".join(remarks) if remarks else "OK"
 
-    # Note: Step 5 (comparing grouped_counts to reference_matchday_counts) is skipped as reference_matchday_counts is often empty.
-
     # --- Debug prints (first few rows) ---
     print("=== Event/Matchday/Competition QC summary (first rows) ===")
     for idx in range(min(debug_rows, len(df))):
         r = df.iloc[idx]
-        print(f"[Row {idx}] Competition='{r.get(col_comp, '')}' | Event='{r.get(col_evt, '')}' | Matchday='{r.get(col_mday, '')}' | "
-              f"Home='{r.get(col_home, '')}' Away='{r.get(col_away, '')}' | "
+        print(f"[Row {idx}] Competition='{get_val(r, col_comp)}' | Event='{get_val(r, col_evt)}' | Matchday='{get_val(r, col_mday)}' | "
+              f"Home='{get_val(r, col_home)}' Away='{get_val(r, col_away)}' | "
               f"OK={r['Event_Matchday_Competition_OK']} | Remark={r['Event_Matchday_Competition_Remark']}")
     print("=== End summary ===\n")
 
     return df
+
 
 #-------------- 9️⃣ Market / Channel /  Consistency Check -----------------
 
@@ -854,9 +853,9 @@ def market_channel_consistency_check(df_bsr, rosco_path, col_map, file_rules):
 
 # -----------------------------------------------------------
 # 10️⃣ Domestic Market Coverage Check
-def domestic_market_check( # Renamed from domestic_market_coverage_check
+def domestic_market_check(
         df_worksheet,
-        bsr_cols, # Added BSR columns mapping
+        bsr_cols,
         monitoring_start_date=None,
         debug=False
     ):
@@ -1081,7 +1080,6 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
         df_league = df_bsr[in_league].copy()
 
         if df_league.empty:
-            # All rows flagged above, nothing more to do
             return df_bsr
 
         # --- Core Duplication Logic ---
@@ -1122,8 +1120,6 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
             df_bsr.loc[orig_rows_mask | dup_rows_mask, result_col] = status
             df_bsr.loc[orig_rows_mask | dup_rows_mask, remark_col] = remark
             
-            # If orig_rows_mask | dup_rows_mask is True for any row, the initial "Not Applicable" for in_league rows is overwritten.
-
         return df_bsr
 
     except Exception as e:
@@ -1190,7 +1186,7 @@ def country_channel_id_check(df, bsr_cols):
 
 # -----------------------------------------------------------
 # 14️⃣ Client Data / LSTV / OTT Check (corrected)
-#def client_lstv_ott_check(df_worksheet): # Removed unused project_config
+#def client_lstv_ott_check(df_worksheet):
     """
     Checks:
       - Market and Channel ID consistency
@@ -1208,7 +1204,7 @@ def country_channel_id_check(df, bsr_cols):
     # --- 1️⃣ Market / Channel ID consistency ---
     col_ch_id = "Channel ID"
     col_mkt_id = "Market ID"
-    
+
     if col_mkt_id in df.columns and col_ch_id in df.columns:
         # Identify Channel IDs belonging to multiple Market IDs
         multi_market = df.groupby(col_ch_id)[col_mkt_id].nunique()
@@ -1283,9 +1279,9 @@ def color_excel(output_path, df):
                 cell = ws.cell(row=row, column=col_idx)
                 val = cell.value
                 # Check for explicit boolean types which are now enforced by normalize_ok_columns
-                if val in [True]:
+                if val is True:
                     cell.fill = GREEN_FILL
-                elif val in [False]:
+                elif val is False:
                     cell.fill = RED_FILL
 
     wb.save(output_path)
@@ -1294,9 +1290,7 @@ def color_excel(output_path, df):
 def generate_summary_sheet(output_path, df): # Removed file_rules argument
     from openpyxl import load_workbook
     from openpyxl.utils.dataframe import dataframe_to_rows
-
-    # No need to normalize here, it should be done just before saving to Excel
-    # df = normalize_ok_columns(df) 
+    from openpyxl.styles import Font, Alignment
 
     wb = load_workbook(output_path)
     if "Summary" in wb.sheetnames:
@@ -1307,15 +1301,45 @@ def generate_summary_sheet(output_path, df): # Removed file_rules argument
     qc_cols = [c for c in df.columns if c.endswith("_OK")]
     total = len(df)
     out = []
+    
+    # Exclude rows where the check status is pd.NA (Not Applicable)
     for col in qc_cols:
-        # Since normalize_ok_columns converts everything to bool, we can reliably sum
-        passed = int(df[col].sum())
-        failed = total - passed
-        out.append([col, total, passed, failed])
+        # Use boolean mask to count True/False only where not NA
+        valid_rows = df[col].notna() 
+        current_total = valid_rows.sum()
+        
+        # If the column is boolean (after normalization), we can sum directly
+        if df[col].dtype == bool:
+            passed = int(df.loc[valid_rows, col].sum())
+        else:
+            # Fallback for unexpected non-boolean, non-NA values
+            passed = int((df.loc[valid_rows, col] == True).sum())
+            
+        failed = current_total - passed
+        
+        out.append([col, current_total, passed, failed])
 
-    summary_df = pd.DataFrame(out, columns=["Check", "Total", "Passed", "Failed"])
-    for r in dataframe_to_rows(summary_df, index=False, header=True):
+    summary_df = pd.DataFrame(out, columns=["Check", "Total Counted", "Passed", "Failed"])
+    
+    # Write DataFrame to worksheet
+    for r_idx, r in enumerate(dataframe_to_rows(summary_df, index=False, header=True)):
         ws.append(r)
+        
+        # Apply formatting to header row (row 1)
+        if r_idx == 0:
+            header_font = Font(bold=True)
+            for cell in ws[1]:
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal='center')
+
+    # Apply center alignment to data rows
+    for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=2):
+        for cell in row:
+            cell.alignment = Alignment(horizontal='center')
+
+    # Adjust column widths
+    for col in 'ABCD':
+        ws.column_dimensions[col].width = 25
 
     wb.save(output_path)
 
@@ -1323,13 +1347,16 @@ def normalize_ok_columns(df):
     for col in df.columns:
         if col.endswith("_OK"):
             def to_bool(x):
+                # Handles existing booleans
                 if isinstance(x, bool): return x
-                if pd.isna(x): return False
+                # Handles Not Applicable (pd.NA or numpy object)
+                if pd.isna(x) or str(x).lower() == "nan": return pd.NA
                 s = str(x).strip().lower()
+                # Casts strings/ints to bool
                 if s in ("true", "t", "1", "yes", "y", "ok"): return True
                 if s in ("false", "f", "0", "no", "n", ""): return False
-                # Handles pd.NA from Duplicated_Markets_Check_OK
-                if s == "nan" or x is pd.NA: return False 
-                return False
-            df[col] = df[col].apply(to_bool).astype(bool)
+                return pd.NA # Treat ambiguous values as NA
+
+            # Apply conversion. If column contains NA, dtype becomes 'boolean' (Pandas nullable Boolean)
+            df[col] = df[col].apply(to_bool).astype('boolean')
     return df

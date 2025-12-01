@@ -27,7 +27,7 @@ try:
         country_channel_id_check as country_id_orig,
         color_excel as color_excel_orig,
         generate_summary_sheet as summary_orig,
-        normalize_ok_columns # Import the normalizer from the common file
+        # REMOVED: normalize_ok_columns (access via qc_general instead)
     )
 
     from C_data_processing_f1 import BSRValidator
@@ -40,7 +40,7 @@ except ImportError as e:
 
 # Your 11-check QC functions
 try:
-    import qc_checks as qc_general # Renamed to qc_checks as per your request
+    import qc_checks as qc_general
 except ImportError as e:
     st.error(f"Failed to import your QC file (qc_checks.py): {e}")
     st.stop()
@@ -402,13 +402,14 @@ with main_qc_tab:
                     output_file = f"General_QC_Result_{os.path.splitext(main_bsr_file.name)[0]}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_file)
                     
+                    # Ensure boolean columns are normalized for summary sheet
                     df = qc_general.normalize_ok_columns(df)
 
                     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
                         df.to_excel(writer, index=False, sheet_name="QC Results")
 
                     qc_general.color_excel(output_path, df)
-                    # Corrected: generate_summary_sheet in qc_checks.py doesn't take file_rules
+                    # Corrected the function call to match qc_checks.py's signature
                     qc_general.generate_summary_sheet(output_path, df) 
                     
                     st.success(" General QC completed successfully!")
@@ -475,8 +476,7 @@ with laliga_qc_tab:
                     df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
                     df = qc_general.country_channel_id_check(df, col_map["bsr"])
                     
-                    # Run the 2 Laliga-Specific Checks
-                    # domestic_market_check needs the BSR columns specified by project rules, assuming those are in col_map["bsr"] for now
+                    # Run the 2 Laliga-Specific Checks (Updated domestic_market_check to match new signature)
                     df = qc_general.domestic_market_check(df, col_map["bsr"], project.get("monitoring_start_date"), debug=True)
                     df = qc_general.duplicated_market_check(df, macro_path, project, col_map, file_rules, debug=True)
 
@@ -484,14 +484,14 @@ with laliga_qc_tab:
                     output_file = f"Laliga_QC_Result_{os.path.splitext(laliga_bsr_file.name)[0]}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_file)
                     
-                    # 🎯 FIX: Call normalize_ok_columns here to ensure boolean status for summary sheet
-                    df = qc_general.normalize_ok_columns(df) 
+                    # 🎯 FIX: Call normalize_ok_columns to ensure boolean status for coloring and summary
+                    df = qc_general.normalize_ok_columns(df)
                     
                     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
                         df.to_excel(writer, index=False, sheet_name="Laliga QC Results")
 
                     qc_general.color_excel(output_path, df)
-                    # 🎯 FIX: Corrected the argument list to match qc_checks.py signature (remove file_rules)
+                    # 🎯 FIX: Corrected the argument list to match qc_checks.py signature
                     qc_general.generate_summary_sheet(output_path, df) 
                     
                     st.success("✅ Laliga QC completed successfully!")
@@ -768,7 +768,7 @@ with epl_tab:
                     
                     #df_processed.to_excel(output_path, index=False)
                     
-                    # Using local normalize_ok_columns (must be imported or defined in qc_general)
+                    # Ensure columns are normalized for saving
                     df_processed = qc_general.normalize_ok_columns(df_processed)
 
                     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
