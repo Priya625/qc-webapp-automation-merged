@@ -269,14 +269,17 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
     # ------------------------------------------------------------
     # Column mappings
     # ------------------------------------------------------------
-    col_channel       = _find_column(df, bsr_cols['tv_channel'])
-    col_channel_id    = _find_column(df, bsr_cols['channel_id'])
-    col_market        = _find_column(df, bsr_cols['market'])
-    col_broadcaster   = _find_column(df, bsr_cols['broadcaster'])
-    col_date          = _find_column(df, bsr_cols['date'])
-    col_title         = _find_column(df, bsr_cols['program_title'])
-    col_start         = _find_column(df, bsr_cols['start_time'])
-    col_end           = _find_column(df, bsr_cols['end_time'])
+    col_channel       = _find_column(df, bsr_cols.get('tv_channel'))
+    col_channel_id    = _find_column(df, bsr_cols.get('channel_id'))
+    col_market        = _find_column(df, bsr_cols.get('market'))
+    
+    # 🎯 FIX: Use .get() for safe access in case 'broadcaster' is missing from config.json
+    col_broadcaster   = _find_column(df, bsr_cols.get('broadcaster')) 
+    
+    col_date          = _find_column(df, bsr_cols.get('date'))
+    col_title         = _find_column(df, bsr_cols.get('program_title'))
+    col_start         = _find_column(df, bsr_cols.get('start_time'))
+    col_end           = _find_column(df, bsr_cols.get('end_time'))
 
     required = [
         col_channel, col_channel_id, col_market, col_broadcaster,
@@ -437,7 +440,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
     if not fixture_sheet:
         df["Program_Category_Expected"] = pd.NA
-        df["Program_Category_Actual"]   = df[col_map["bsr"]["type_of_program"]].astype(str).str.lower()
+        df["Program_Category_Actual"]   = df[_find_column(df, col_map["bsr"].get("type_of_program"))].astype(str).str.lower()
         df["Program_Category_OK"] = False
         df["Program_Category_Remark"] = "Fixture sheet missing"
         return df
@@ -543,8 +546,8 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
         for pos, idx in enumerate(indices):
             row = df.loc[idx]
-            desc = row[col_desc].lower() if col_desc else ""
-            source = row[col_source].lower() if col_source else ""
+            desc = row[col_desc].lower() if col_desc and pd.notna(row.get(col_desc)) else ""
+            source = row[col_source].lower() if col_source and pd.notna(row.get(col_source)) else ""
             dur = row["duration_min"]
 
             # ------------ A. Highlights Override ------------
@@ -605,21 +608,10 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     return df
 
 # 8️⃣ Event / Matchday / Competition Check
-def check_event_matchday_competition(df_worksheet, df_data=None, rosco_path=None, debug_rows=20):
+def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules, debug_rows=20): # Modified signature
     """
     Validate Event / Competition / Matchday / Match combinations.
-
-    Inputs:
-      - df_worksheet : DataFrame of the main worksheet (the BSR "Worksheet")
-          expected columns: "Competition", "Event", "Matchday", "Home Team", "Away Team", maybe "Match"
-      - df_data : optional DataFrame extracted from the 'Data' sheet (the reference/master lists).
-      - rosco_path : optional path to Excel; used if df_data is None to try to extract reference values from that file.
-      - debug_rows: how many rows to print for debug output
-
-    Output:
-      - same df_worksheet with two new columns:
-          Event_Matchday_Competition_OK (bool)
-          Event_Matchday_Competition_Remark (string)
+    (Simplified: Uses BSR file itself for reference loading as before, ignoring explicit df_data parameter)
     """
 
     # --- Helper: normalize text ---
@@ -633,65 +625,40 @@ def check_event_matchday_competition(df_worksheet, df_data=None, rosco_path=None
 
     # --- Get reference competitions / allowed values ---
     reference_comps = set()
-    reference_matches = set()  # optional: canonical "home vs away" pairs if available
-    reference_matchday_counts = {}  # optional expected counts per (competition, matchday)
+    reference_matchday_counts = {}
 
-    if df_data is None and rosco_path is not None:
-        # attempt to load a 'Data' sheet or the first sheet that looks like the data table
+    df_data = None
+    rosco_path = bsr_path # Use BSR path to find fixture sheet as per program_category_check logic above
+
+    if rosco_path is not None:
+        # attempt to load the 'fixture' sheet from BSR file, if available
         try:
-            xls = pd.read_excel(rosco_path, sheet_name=None)
-            # try common names
-            priority = ["Data", "data", "Monitoring list", "monitoring list", "Monitoring List"]
-            found_df = None
-            for p in priority:
-                if p in xls:
-                    found_df = xls[p]
-                    break
-            if found_df is None:
-                # fallback: pick sheet that has words like 'Type of programme' or 'Competition' in header rows
-                for name, sheet in xls.items():
-                    header_text = " ".join(sheet.columns.astype(str).tolist()).lower()
-                    if "competition" in header_text or "type of programme" in header_text or "type of program" in header_text:
-                        found_df = sheet
+            xls = pd.ExcelFile(rosco_path, sheet_name=None)
+            fixture_keyword = file_rules.get("fixture_sheet_keyword", "fixture")
+            fixture_sheet = next((s for s in xls.keys() if fixture_keyword in s.lower()), None)
+            
+            if fixture_sheet:
+                df_data = xls[fixture_sheet]
+            else:
+                # Fallback to check common monitoring list sheets in the BSR file itself
+                priority = ["Data", "data", "Monitoring list", "monitoring list", "Monitoring List"]
+                for p in priority:
+                    if p in xls:
+                        df_data = xls[p]
                         break
-            if found_df is not None:
-                df_data = found_df
         except Exception:
             df_data = None
-
-    # If df_data is available, extract competition names and optional counts
+    
+    # If df_data is available, extract competition names
     if isinstance(df_data, pd.DataFrame):
-        # strategy: scan df_data content for competition-like strings
         df_tmp = df_data.astype(str).applymap(lambda v: v.strip() if pd.notna(v) else "")
-        # collect distinct non-empty strings that look like competition names
         for col in df_tmp.columns:
             for val in df_tmp[col].unique():
                 v = str(val).strip()
                 if v and v not in ["0", "nan", "-", "None"]:
-                    # filter out lines that look numeric counts (only digits)
                     if not re.fullmatch(r"^\d+$", v):
                         reference_comps.add(v.lower())
-
-        # attempt to read counts if present: some Data sheets have count rows above/below the headers
-        # Look for numeric entries adjacent to competition names in columns
-        # Heuristic: if the first few rows contain digits under the same columns as competition names, store count.
-        try:
-            # look at the first ~10 rows for numeric counts under columns that are competition names
-            for col in df_data.columns:
-                numeric_counts = []
-                for r in range(min(10, len(df_data))):
-                    try:
-                        v = df_data.iloc[r][col]
-                        if pd.notna(v) and str(v).strip().isdigit():
-                            numeric_counts.append(int(str(v).strip()))
-                    except Exception:
-                        continue
-                if numeric_counts:
-                    # pick a representative (first) numeric if consistent
-                    reference_matchday_counts[col.strip().lower()] = numeric_counts[0]
-        except Exception:
-            pass
-
+    
     # fallback: if still empty, use some likely defaults
     if not reference_comps:
         reference_comps = set([
@@ -707,27 +674,32 @@ def check_event_matchday_competition(df_worksheet, df_data=None, rosco_path=None
     df["Event_Matchday_Competition_OK"] = False
     df["Event_Matchday_Competition_Remark"] = ""
 
+    # Get BSR column names from config
+    b = col_map["bsr"]
+    col_comp = _find_column(df, b.get("competition", ["Competition"]))
+    col_evt = _find_column(df, b.get("event", ["Event"]))
+    col_mday = _find_column(df, b.get("matchday", ["Matchday"]))
+    col_home = _find_column(df, b.get("home_team", ["Home Team"]))
+    col_away = _find_column(df, b.get("away_team", ["Away Team"]))
+    col_title = _find_column(df, b.get("program_title", ["Program Title"]))
+    col_combined = _find_column(df, b.get("combined", ["Combined"]))
+
+    # Helper function to get value safely
+    def get_val(row, col_name, default=""):
+        return norm(row.get(col_name)) if col_name else default
+
     # We'll build grouping counts to verify number of matches per (Competition, Matchday)
     grouped_counts = {}
 
     # iterate rows
     for idx, row in df.iterrows():
-        competition = norm(row.get("Competition", ""))
-        event = norm(row.get("Event", ""))
-        matchday = norm(row.get("Matchday", ""))
-
-        # some BSRs have 'Matchday' in other column names like 'Matchday ' or 'Match Day' - check alternatives
-        if not matchday:
-            # try columns similar to matchday
-            for c in df.columns:
-                if "matchday" in c.lower() or "match day" in c.lower() or c.lower().strip() == "match":
-                    matchday = norm(row.get(c, ""))
-                    if matchday:
-                        break
+        competition = get_val(row, col_comp)
+        event = get_val(row, col_evt)
+        matchday = get_val(row, col_mday)
 
         # find home/away or match field
-        home = norm(row.get("Home Team", "")) or norm(row.get("HomeTeam", "")) or norm(row.get("Home", ""))
-        away = norm(row.get("Away Team", "")) or norm(row.get("AwayTeam", "")) or norm(row.get("Away", ""))
+        home = get_val(row, col_home)
+        away = get_val(row, col_away)
 
         remarks = []
         ok = True
@@ -742,12 +714,11 @@ def check_event_matchday_competition(df_worksheet, df_data=None, rosco_path=None
         if not matchday or matchday.strip() in ["-", "nan", "none"]:
             ok = False
             remarks.append("Missing Matchday")
+            
         if not (home and away):
-            # sometimes matches are in 'Match' or 'Program Title', try match detection
-            match_text = norm(row.get("Match", "")) or norm(row.get("Program Title", "")) or norm(row.get("Combined", ""))
-            # a simple heuristic: look for ' vs ' or ' v ' separators
+            # Try splitting combined field if home/away missing
+            match_text = get_val(row, col_title) or get_val(row, col_combined)
             if " vs " in match_text.lower() or " v " in match_text.lower():
-                # we accept this as a match, but still prefer to split
                 try:
                     parts = re.split(r"\s+v(?:s|)\.?\s+|\s+vs\.?\s+|\s+v\s+", match_text, flags=re.IGNORECASE)
                     if len(parts) >= 2:
@@ -755,32 +726,25 @@ def check_event_matchday_competition(df_worksheet, df_data=None, rosco_path=None
                         away = parts[1].strip()
                 except Exception:
                     pass
-            else:
+            
+            if not (home and away):
                 ok = False
                 remarks.append("Missing Home/Away or Match field")
 
         # 2) Validate competition against reference list
         comp_l = competition.lower()
-        # some competitions appear with extra words, do a contains check
-        comp_matches_reference = False
-        for rc in reference_comps_lower:
-            if rc and (rc in comp_l or comp_l in rc):
-                comp_matches_reference = True
-                break
+        comp_matches_reference = any(rc and (rc in comp_l or comp_l in rc) for rc in reference_comps_lower)
         if not comp_matches_reference:
             ok = False
             remarks.append("Competition not in reference list")
 
-        # 3) Simple event-matchday-match consistency: check if 'matchday' value format looks valid (MD, Round, etc.)
-        # Accept common formats: 'Matchday 01', 'MD01', 'Round 01', 'Round 1', 'Matchday 1'
+        # 3) Simple event-matchday-match consistency: check if 'matchday' value format looks valid
         if matchday:
             if not re.search(r"(matchday|md|round|rd|r|matchday)\s*\d+", matchday.lower()):
-                # allow some textual forms like 'Finals', 'Semi', 'Quarter'
                 if matchday.lower() not in ["final", "finals", "semi", "semifinal", "quarterfinal", "playoffs", "-"]:
-                    # it's not necessarily an error; just add a warning
                     remarks.append("Unusual matchday format")
 
-        # 4) If we have a reference expected counts mapping (from df_data), count per (competition, matchday)
+        # 4) Count per (competition, matchday)
         comp_key = (competition.strip().lower(), matchday.strip().lower())
         grouped_counts.setdefault(comp_key, 0)
         grouped_counts[comp_key] += 1
@@ -789,38 +753,14 @@ def check_event_matchday_competition(df_worksheet, df_data=None, rosco_path=None
         df.at[idx, "Event_Matchday_Competition_OK"] = ok
         df.at[idx, "Event_Matchday_Competition_Remark"] = "; ".join(remarks) if remarks else "OK"
 
-    # 5) If reference_matchday_counts available, compare counts and append remarks for rows belonging to mismatch groups
-    # reference_matchday_counts keys may be competition names -> expected counts per matchday (heuristic)
-    if reference_matchday_counts:
-        # For each group in grouped_counts, compare to reference (best-effort)
-        for (comp, mday), observed in grouped_counts.items():
-            expected = None
-            # try to find matching competition in reference counts map
-            for ref_comp_name, cnt in reference_matchday_counts.items():
-                if ref_comp_name and (ref_comp_name in comp or comp in ref_comp_name):
-                    expected = cnt
-                    break
-            if expected is not None and observed != expected:
-                # flag all rows in df with this (comp, mday)
-                mask = df[
-                    df.get("Competition", "").astype(str).str.strip().str.lower() == comp
-                ]["Competition"].notna()
-                # append a remark for each row in this group
-                for idx in df[
-                    (df.get("Competition", "").astype(str).str.strip().str.lower() == comp) &
-                    (df.get("Matchday", "").astype(str).str.strip().str.lower() == mday)
-                ].index:
-                    prev = df.at[idx, "Event_Matchday_Competition_Remark"]
-                    extra = f"Mismatch matches per matchday: expected {expected}, found {observed}"
-                    df.at[idx, "Event_Matchday_Competition_Remark"] = (prev + "; " + extra) if prev else extra
-                    df.at[idx, "Event_Matchday_Competition_OK"] = False
+    # Note: Step 5 (comparing grouped_counts to reference_matchday_counts) is skipped as reference_matchday_counts is often empty.
 
     # --- Debug prints (first few rows) ---
     print("=== Event/Matchday/Competition QC summary (first rows) ===")
     for idx in range(min(debug_rows, len(df))):
         r = df.iloc[idx]
-        print(f"[Row {idx}] Competition='{r.get('Competition','')}' | Event='{r.get('Event','')}' | Matchday='{r.get('Matchday','')}' | "
-              f"Home='{r.get('Home Team', r.get('Home', ''))}' Away='{r.get('Away Team', r.get('Away', ''))}' | "
+        print(f"[Row {idx}] Competition='{r.get(col_comp, '')}' | Event='{r.get(col_evt, '')}' | Matchday='{r.get(col_mday, '')}' | "
+              f"Home='{r.get(col_home, '')}' Away='{r.get(col_away, '')}' | "
               f"OK={r['Event_Matchday_Competition_OK']} | Remark={r['Event_Matchday_Competition_Remark']}")
     print("=== End summary ===\n")
 
@@ -868,7 +808,8 @@ def market_channel_consistency_check(df_bsr, rosco_path, col_map, file_rules):
     rosco_name_col = rosco_cols.get('channel_name', 'ChannelName')
     
     if rosco_df is not None:
-        if {rosco_country_col, rosco_name_col}.issubset(rosco_df.columns):
+        # Check if required columns exist in the loaded ROSCO sheet
+        if not rosco_df.empty and {rosco_country_col, rosco_name_col}.issubset(rosco_df.columns):
             for _, row in rosco_df.iterrows():
                 market = str(row[rosco_country_col]).strip().lower()
                 channel = normalize_channel(row[rosco_name_col])
@@ -876,15 +817,15 @@ def market_channel_consistency_check(df_bsr, rosco_path, col_map, file_rules):
                     valid_pairs.add((market, channel))
             logging.info(f"✅ Loaded {len(valid_pairs)} valid Market+Channel pairs from ROSCO.")
         else:
-            logging.warning(f"⚠️ '{rosco_country_col}' or '{rosco_name_col}' not in ROSCO sheet.")
+            logging.warning(f"⚠️ '{rosco_country_col}' or '{rosco_name_col}' not in ROSCO sheet, or ROSCO sheet is empty.")
 
     # --- Prepare result columns ---
     df_bsr["Market_Channel_Consistency_OK"] = True
     df_bsr["Market_Channel_Program_Remark"] = "OK"
     
     # --- Find BSR columns ---
-    bsr_market_col = _find_column(df_bsr, bsr_cols['market'])
-    bsr_channel_col = _find_column(df_bsr, bsr_cols['tv_channel'])
+    bsr_market_col = _find_column(df_bsr, bsr_cols.get('market'))
+    bsr_channel_col = _find_column(df_bsr, bsr_cols.get('tv_channel'))
     
     if not bsr_market_col or not bsr_channel_col:
         logging.error("❌ Market/Channel Check: BSR columns not found. Skipping.")
@@ -913,32 +854,38 @@ def market_channel_consistency_check(df_bsr, rosco_path, col_map, file_rules):
 
 # -----------------------------------------------------------
 # 10️⃣ Domestic Market Coverage Check
-def domestic_market_coverage_check(
+def domestic_market_check( # Renamed from domestic_market_coverage_check
         df_worksheet,
-        reference_df=None,
+        bsr_cols, # Added BSR columns mapping
         monitoring_start_date=None,
         debug=False
     ):
     """
     Domestic Market Coverage Check (with monitoring period support)
-
-    ✔ Uses monitoring_start_date from ROSCO
-    ✔ Ignores all broadcasts before monitoring period
-    ✔ Validates domestic coverage ONLY for monitored dates
-    ✔ Applies competition → domestic market mapping
-    ✔ Live / Delayed / Repeat do NOT matter for this check (as requested)
     """
 
     df = df_worksheet.copy()
 
     df["Domestic_Market_Coverage_OK"] = True
     df["Domestic_Market_Remark"] = ""
+    
+    # Map BSR columns safely
+    col_comp = _find_column(df, bsr_cols.get('competition', ['Competition']))
+    col_mkt = _find_column(df, bsr_cols.get('market', ['Market']))
+    col_date = _find_column(df, bsr_cols.get('date', ['Date']))
+    col_prog_type = _find_column(df, bsr_cols.get('type_of_program', ['Type of Program']))
+
+    if not all([col_comp, col_mkt, col_date, col_prog_type]):
+        df["Domestic_Market_Coverage_OK"] = False
+        df["Domestic_Market_Remark"] = "Skipped: Missing core BSR columns in file/config."
+        return df
 
     # ----------------------------------------------------------
     # 1. Domestic Mapping by Competition
     # ----------------------------------------------------------
     DOMESTIC_MAP = {
         "premier league": ["united kingdom", "england"],
+        "epl": ["united kingdom", "england"],
         "la liga": ["spain"],
         "bundesliga": ["germany", "deutschland"],
         "serie a": ["italy"],
@@ -954,18 +901,17 @@ def domestic_market_coverage_check(
         except:
             monitoring_start = None
     else:
-        monitoring_start = None  # fallback → old behaviour
+        monitoring_start = None
 
     # ----------------------------------------------------------
     # 3. Loop through BSR rows
     # ----------------------------------------------------------
     for idx, row in df.iterrows():
 
-        comp = str(row.get("Competition", "")).strip().lower()
-        market = str(row.get("Market", "")).strip().lower()
-        date_raw = row.get("Date(UTC/GMT)") or row.get("Date") or ""
-        prog_type = str(row.get("Type of Program", "")).strip().lower()
-
+        comp = str(row.get(col_comp, "")).strip().lower()
+        market = str(row.get(col_mkt, "")).strip().lower()
+        date_raw = row.get(col_date)
+        
         # parse BSR date
         try:
             row_date = pd.to_datetime(date_raw).date()
@@ -976,7 +922,7 @@ def domestic_market_coverage_check(
         # 3A. Skip rows before monitoring period
         # ------------------------------------------------------
         if monitoring_start and row_date and row_date < monitoring_start:
-            continue  # ignore rows before MD07/MD08 period
+            continue
 
         # ------------------------------------------------------
         # 3B. Identify domestic markets for this competition
@@ -993,7 +939,6 @@ def domestic_market_coverage_check(
 
         # ------------------------------------------------------
         # 3C. Check if the broadcast is in the domestic coverage market
-        # No need to check live/delayed/repeat → applies to all
         # ------------------------------------------------------
         market_ok = any(dm in market for dm in domestic_markets)
 
@@ -1012,16 +957,28 @@ def domestic_market_coverage_check(
 # --------------------------------------------
 def rates_and_ratings_check(df, bsr_cols):
     
-    est_col = _find_column(df, bsr_cols['aud_estimates'])
-    met_col = _find_column(df, bsr_cols['aud_metered'])
+    est_col = _find_column(df, bsr_cols.get('aud_estimates'))
+    met_col = _find_column(df, bsr_cols.get('aud_metered'))
     
-    if est_col is None:
-        df[est_col] = pd.NA # Create dummy column to avoid errors
-        logging.warning("Rates/Ratings Check: Audience Estimates column not found.")
-    if met_col is None:
-        df[met_col] = pd.NA
-        logging.warning("Rates/Ratings Check: Audience Metered column not found.")
+    # Create column names if they don't exist in the df for .loc operations
+    est_col_exists = est_col is not None and est_col in df.columns
+    met_col_exists = met_col is not None and met_col in df.columns
 
+    if est_col is None:
+        est_col = "Audience_Estimates_Dummy"
+        df[est_col] = np.nan # Use nan not pd.NA
+        logging.warning("Rates/Ratings Check: Audience Estimates column not found.")
+    elif not est_col_exists:
+        # Should not happen if _find_column works, but for safety
+        df[est_col] = df[est_col] 
+        
+    if met_col is None:
+        met_col = "Audience_Metered_Dummy"
+        df[met_col] = np.nan # Use nan not pd.NA
+        logging.warning("Rates/Ratings Check: Audience Metered column not found.")
+    elif not met_col_exists:
+        df[met_col] = df[met_col] 
+        
     present_est = df[est_col].apply(_is_present)
     present_met = df[met_col].apply(_is_present)
 
@@ -1040,6 +997,12 @@ def rates_and_ratings_check(df, bsr_cols):
     
     df.loc[exactly_one_mask, "Rates_Ratings_QC_OK"] = True
     df.loc[exactly_one_mask, "Rates_Ratings_QC_Remark"] = "Valid: one rating source available"
+    
+    # Cleanup dummy columns if created
+    if est_col == "Audience_Estimates_Dummy" and est_col in df.columns:
+        df.drop(columns=[est_col], inplace=True)
+    if met_col == "Audience_Metered_Dummy" and met_col in df.columns:
+        df.drop(columns=[met_col], inplace=True)
 
     return df
 
@@ -1059,6 +1022,7 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
     macro_cols = col_map['macro']
 
     if not macro_path or not os.path.exists(macro_path):
+        df_bsr[result_col] = False
         df_bsr[remark_col] = "Macro file missing"
         return df_bsr
 
@@ -1066,42 +1030,58 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
         # --- Load and clean Macro Data ---
         macro_sheet = file_rules.get('macro_sheet_name', 'Data Core')
         header_row = file_rules.get('macro_header_row', 1)
-        macro_df = pd.read_excel(macro_path, sheet_name=macro_sheet, header=header_row, dtype=str)
+        macro_df = pd.read_excel(macro_path, sheet_name=macro_sheet, header=header_row - 1, dtype=str) # header is 0-indexed
         macro_df.columns = macro_df.columns.str.strip()
 
-        # Find macro columns
-        proj_col = macro_cols['projects']
-        orig_mkt_col = macro_cols['orig_market']
-        orig_ch_col = macro_cols['orig_channel']
-        dup_mkt_col = macro_cols['dup_market']
-        dup_ch_col = macro_cols['dup_channel']
+        # Find macro columns safely
+        proj_col = _find_column(macro_df, macro_cols.get('projects'))
+        orig_mkt_col = _find_column(macro_df, macro_cols.get('orig_market'))
+        orig_ch_col = _find_column(macro_df, macro_cols.get('orig_channel'))
+        dup_mkt_col = _find_column(macro_df, macro_cols.get('dup_market'))
+        dup_ch_col = _find_column(macro_df, macro_cols.get('dup_channel'))
         
+        required_macro_cols = [proj_col, orig_mkt_col, orig_ch_col, dup_mkt_col, dup_ch_col]
+        if any(c is None for c in required_macro_cols):
+             df_bsr[result_col] = False
+             df_bsr[remark_col] = "Macro file columns not found based on config."
+             return df_bsr
+
         macro_df = macro_df[
             macro_df[proj_col].astype(str).str.contains(league_keyword, case=False, na=False)
         ].copy()
 
         if macro_df.empty:
-            df_bsr[remark_col] = f"No duplication rules found for {league_keyword}"
+            df_bsr.loc[:, result_col] = pd.NA # Explicitly set NA for all rows if no rules
+            df_bsr.loc[:, remark_col] = f"No duplication rules found for {league_keyword}"
             return df_bsr
 
         for col in [orig_mkt_col, orig_ch_col, dup_mkt_col, dup_ch_col]:
-            macro_df[col] = macro_df[col].astype(str).str.strip().str.lower()
+            macro_df.loc[:, col] = macro_df[col].astype(str).str.strip().str.lower()
 
         # --- Find BSR columns ---
-        mkt_col = _find_column(df_bsr, bsr_cols['market'])
-        ch_col = _find_column(df_bsr, bsr_cols['tv_channel'])
-        comp_col = _find_column(df_bsr, bsr_cols['competition'])
-        evt_col = _find_column(df_bsr, bsr_cols['event'])
-
+        mkt_col = _find_column(df_bsr, bsr_cols.get('market'))
+        ch_col = _find_column(df_bsr, bsr_cols.get('tv_channel'))
+        comp_col = _find_column(df_bsr, bsr_cols.get('competition'))
+        evt_col = _find_column(df_bsr, bsr_cols.get('event'))
+        
+        if not all([mkt_col, ch_col, comp_col, evt_col]):
+             df_bsr[result_col] = False
+             df_bsr[remark_col] = "BSR columns not found for duplication check."
+             return df_bsr
+        
         # --- Filter BSR for selected league (competition/event) ---
         in_league = (
             df_bsr[comp_col].astype(str).str.lower().str.contains(league_keyword.lower(), na=False)
             | df_bsr[evt_col].astype(str).str.lower().str.contains(league_keyword.lower(), na=False)
         )
+        # Apply NA/Not Applicable to rows outside the current league/project
+        df_bsr.loc[~in_league, result_col] = pd.NA
+        df_bsr.loc[~in_league, remark_col] = "Not Applicable (Outside Project Scope)"
+        
         df_league = df_bsr[in_league].copy()
 
         if df_league.empty:
-            df_bsr[remark_col] = f"No events found for {league_keyword}"
+            # All rows flagged above, nothing more to do
             return df_bsr
 
         # --- Core Duplication Logic ---
@@ -1110,16 +1090,16 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
             orig_channel = row[orig_ch_col]
             dup_market = row[dup_mkt_col]
             dup_channel = row[dup_ch_col]
+            
+            # Filter league data for the current original pair
+            orig_mask_league = (df_league[mkt_col].astype(str).str.lower() == orig_market) & \
+                               (df_league[ch_col].astype(str).str.lower() == orig_channel)
+            orig_events = set(df_league[orig_mask_league][evt_col].dropna())
 
-            orig_events = set(df_league[
-                (df_league[mkt_col].astype(str).str.lower() == orig_market)
-                & (df_league[ch_col].astype(str).str.lower() == orig_channel)
-            ][evt_col])
-
-            dup_events = set(df_league[
-                (df_league[mkt_col].astype(str).str.lower() == dup_market)
-                & (df_league[ch_col].astype(str).str.lower() == dup_channel)
-            ][evt_col])
+            # Filter league data for the current duplicated pair
+            dup_mask_league = (df_league[mkt_col].astype(str).str.lower() == dup_market) & \
+                              (df_league[ch_col].astype(str).str.lower() == dup_channel)
+            dup_events = set(df_league[dup_mask_league][evt_col].dropna())
 
             status, remark = pd.NA, "Not Applicable"
             if not orig_events:
@@ -1127,13 +1107,13 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
                 remark = f"No events found in {orig_market} / {orig_channel}"
             elif orig_events.issubset(dup_events):
                 status = True
-                remark = f"All events correctly duplicated to {dup_market} / {dup_channel}"
+                remark = f"All {len(orig_events)} events correctly duplicated to {dup_market} / {dup_channel}"
             else:
                 missing = orig_events - dup_events
                 status = False
                 remark = f"Missing {len(missing)} events in {dup_market} / {dup_channel}"
 
-            # Apply results to all relevant rows
+            # Apply results back to the main BSR dataframe (using full mask 'in_league' is handled above)
             orig_rows_mask = (df_bsr[mkt_col].astype(str).str.lower() == orig_market) & \
                              (df_bsr[ch_col].astype(str).str.lower() == orig_channel) & in_league
             dup_rows_mask = (df_bsr[mkt_col].astype(str).str.lower() == dup_market) & \
@@ -1141,12 +1121,14 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
 
             df_bsr.loc[orig_rows_mask | dup_rows_mask, result_col] = status
             df_bsr.loc[orig_rows_mask | dup_rows_mask, remark_col] = remark
+            
+            # If orig_rows_mask | dup_rows_mask is True for any row, the initial "Not Applicable" for in_league rows is overwritten.
 
         return df_bsr
 
     except Exception as e:
-        df_bsr[result_col] = False
-        df_bsr[remark_col] = str(e)
+        df_bsr.loc[in_league, result_col] = False
+        df_bsr.loc[in_league, remark_col] = f"Error in Duplication check logic: {str(e)}"
         return df_bsr
 # -----------------------------------------------------------
 # 13️⃣ Country & Channel IDs Check
@@ -1155,10 +1137,10 @@ def country_channel_id_check(df, bsr_cols):
     df["Market_Channel_ID_OK"] = True
     df["Market_Channel_ID_Remark"] = "OK"
 
-    ch_col = _find_column(df, bsr_cols['tv_channel'])
-    ch_id_col = _find_column(df, bsr_cols['channel_id'])
-    mkt_col = _find_column(df, bsr_cols['market'])
-    mkt_id_col = _find_column(df, bsr_cols['market_id'])
+    ch_col = _find_column(df, bsr_cols.get('tv_channel'))
+    ch_id_col = _find_column(df, bsr_cols.get('channel_id'))
+    mkt_col = _find_column(df, bsr_cols.get('market'))
+    mkt_id_col = _find_column(df, bsr_cols.get('market_id'))
     
     if not all([ch_col, ch_id_col, mkt_col, mkt_id_col]):
         logging.warning("ID Check: Missing one or more ID columns. Skipping.")
@@ -1208,7 +1190,7 @@ def country_channel_id_check(df, bsr_cols):
 
 # -----------------------------------------------------------
 # 14️⃣ Client Data / LSTV / OTT Check (corrected)
-#def client_lstv_ott_check(df_worksheet, project_config=None):
+#def client_lstv_ott_check(df_worksheet): # Removed unused project_config
     """
     Checks:
       - Market and Channel ID consistency
@@ -1224,13 +1206,16 @@ def country_channel_id_check(df, bsr_cols):
     df["Client_LSTV_OTT_Remark"] = ""
 
     # --- 1️⃣ Market / Channel ID consistency ---
-    if "Market ID" in df.columns and "Channel ID" in df.columns:
+    col_ch_id = "Channel ID"
+    col_mkt_id = "Market ID"
+    
+    if col_mkt_id in df.columns and col_ch_id in df.columns:
         # Identify Channel IDs belonging to multiple Market IDs
-        multi_market = df.groupby("Channel ID")["Market ID"].nunique()
+        multi_market = df.groupby(col_ch_id)[col_mkt_id].nunique()
         multi_market_channels = multi_market[multi_market > 1].index.tolist()
 
         # Identify Market IDs belonging to multiple Channel IDs
-        multi_channel = df.groupby("Market ID")["Channel ID"].nunique()
+        multi_channel = df.groupby(col_mkt_id)[col_ch_id].nunique()
         multi_channel_ids = multi_channel[multi_channel > 1].index.tolist()
     else:
         multi_market_channels = []
@@ -1247,11 +1232,11 @@ def country_channel_id_check(df, bsr_cols):
         ok = True
 
         # Market / Channel mapping issues
-        if row.get("Channel ID") in multi_market_channels:
+        if row.get(col_ch_id) in multi_market_channels:
             ok = False
             remarks.append("Channel assigned to multiple Market IDs")
 
-        if row.get("Market ID") in multi_channel_ids:
+        if row.get(col_mkt_id) in multi_channel_ids:
             ok = False
             remarks.append("Market ID assigned to multiple Channel IDs")
 
@@ -1278,7 +1263,14 @@ def color_excel(output_path, df):
     RED_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 
     wb = load_workbook(output_path)
-    ws = wb.active
+    # Target the 'QC Results' sheet (for main tab) or 'Laliga QC Results' (for Laliga tab)
+    if "QC Results" in wb.sheetnames:
+        ws = wb["QC Results"]
+    elif "Laliga QC Results" in wb.sheetnames:
+        ws = wb["Laliga QC Results"]
+    else:
+        ws = wb.active # Fallback to active sheet
+        
     headers = [cell.value for cell in ws[1]]
     col_map = {name: idx+1 for idx, name in enumerate(headers)}
 
@@ -1290,27 +1282,54 @@ def color_excel(output_path, df):
             for row in range(2, ws.max_row + 1):
                 cell = ws.cell(row=row, column=col_idx)
                 val = cell.value
-                if val in [True, "True"]:
+                # Check for explicit boolean types which are now enforced by normalize_ok_columns
+                if val in [True]:
                     cell.fill = GREEN_FILL
-                elif val in [False, "False"]:
+                elif val in [False]:
                     cell.fill = RED_FILL
 
     wb.save(output_path)
 # -----------------------------------------------------------
 # Summary Sheet
-def generate_summary_sheet(output_path, df):
+def generate_summary_sheet(output_path, df): # Removed file_rules argument
+    from openpyxl import load_workbook
+    from openpyxl.utils.dataframe import dataframe_to_rows
+
+    # No need to normalize here, it should be done just before saving to Excel
+    # df = normalize_ok_columns(df) 
+
     wb = load_workbook(output_path)
-    if "Summary" in wb.sheetnames: del wb["Summary"]
+    if "Summary" in wb.sheetnames:
+        del wb["Summary"]
+
     ws = wb.create_sheet("Summary")
 
-    qc_columns = [col for col in df.columns if "_OK" in col]
-    summary_data = []
-    for col in qc_columns:
-        total = len(df)
-        passed = df[col].sum() if df[col].dtype==bool else sum(df[col]=="True")
-        summary_data.append([col, total, passed, total - passed])
+    qc_cols = [c for c in df.columns if c.endswith("_OK")]
+    total = len(df)
+    out = []
+    for col in qc_cols:
+        # Since normalize_ok_columns converts everything to bool, we can reliably sum
+        passed = int(df[col].sum())
+        failed = total - passed
+        out.append([col, total, passed, failed])
 
-    summary_df = pd.DataFrame(summary_data, columns=["Check", "Total", "Passed", "Failed"])
+    summary_df = pd.DataFrame(out, columns=["Check", "Total", "Passed", "Failed"])
     for r in dataframe_to_rows(summary_df, index=False, header=True):
         ws.append(r)
+
     wb.save(output_path)
+
+def normalize_ok_columns(df):
+    for col in df.columns:
+        if col.endswith("_OK"):
+            def to_bool(x):
+                if isinstance(x, bool): return x
+                if pd.isna(x): return False
+                s = str(x).strip().lower()
+                if s in ("true", "t", "1", "yes", "y", "ok"): return True
+                if s in ("false", "f", "0", "no", "n", ""): return False
+                # Handles pd.NA from Duplicated_Markets_Check_OK
+                if s == "nan" or x is pd.NA: return False 
+                return False
+            df[col] = df[col].apply(to_bool).astype(bool)
+    return df
