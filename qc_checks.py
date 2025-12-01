@@ -355,7 +355,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     col_duration   = _find_column(df, b.get("duration"))
 
     # FIXTURE COLUMNS
-    col_comp_fix   = _find_column(df_fix, f.get("event") or f.get("competition"))
+    col_comp_fix   = _find_column(df_fix, f.get("competition"))
     col_home_fix   = _find_column(df_fix, f.get("home_team"))
     col_away_fix   = _find_column(df_fix, f.get("away_team"))
     col_date_fix   = _find_column(df_fix, f.get("date"))
