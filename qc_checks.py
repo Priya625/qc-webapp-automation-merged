@@ -722,89 +722,169 @@ def rates_and_ratings_check(df, bsr_cols):
 def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, debug=False):
     result_col = "Duplicated_Markets_Check_OK"
     remark_col = "Duplicated_Markets_Remark"
+
     df_bsr[result_col] = pd.NA
-    df_bsr[result_col] = df_bsr[result_col].astype('object')
     df_bsr[remark_col] = "Not Applicable"
+
     league_keyword = project.get('league_keyword', 'F24 Spain')
-    bsr_cols = col_map['bsr']
-    macro_cols = col_map.get('macro', {})
-    in_league = pd.Series([False] * len(df_bsr), index=df_bsr.index)
+
+    # -------------------------------------------------------
+    # 1️⃣ Load Macro File Safely
+    # -------------------------------------------------------
     if not macro_path or not os.path.exists(macro_path):
         df_bsr[result_col] = False
         df_bsr[remark_col] = "Macro file missing"
         return df_bsr
+
     try:
         macro_sheet = file_rules.get('macro_sheet_name', 'Data Core')
         header_row = file_rules.get('macro_header_row', 1)
-        macro_df = pd.read_excel(macro_path, sheet_name=macro_sheet, header=header_row - 1, dtype=str)
-        macro_df.columns = macro_df.columns.str.strip()
-        proj_col = _find_column(macro_df, macro_cols.get('projects'))
-        orig_mkt_col = _find_column(macro_df, macro_cols.get('orig_market'))
-        orig_ch_col = _find_column(macro_df, macro_cols.get('orig_channel'))
-        dup_mkt_col = _find_column(macro_df, macro_cols.get('dup_market'))
-        dup_ch_col = _find_column(macro_df, macro_cols.get('dup_channel'))
-        required_macro_cols = [proj_col, orig_mkt_col, orig_ch_col, dup_mkt_col, dup_ch_col]
-        if any(c is None for c in required_macro_cols):
-            df_bsr[result_col] = False
-            df_bsr[remark_col] = "Macro file columns not found based on config."
-            return df_bsr
-        macro_df = macro_df[macro_df[proj_col].astype(str).str.contains(league_keyword, case=False, na=False)].copy()
-        if macro_df.empty:
-            df_bsr.loc[:, result_col] = pd.NA
-            df_bsr.loc[:, remark_col] = f"No duplication rules found for {league_keyword}"
-            return df_bsr
-        for col in [orig_mkt_col, orig_ch_col, dup_mkt_col, dup_ch_col]:
-            macro_df.loc[:, col] = macro_df[col].astype(str).str.strip().str.lower()
-        mkt_col = _find_column(df_bsr, bsr_cols.get('market'))
-        ch_col = _find_column(df_bsr, bsr_cols.get('tv_channel'))
-        comp_col = _find_column(df_bsr, bsr_cols.get('competition'))
-        evt_col = _find_column(df_bsr, bsr_cols.get('event'))
-        if not all([mkt_col, ch_col, comp_col, evt_col]):
-            df_bsr[result_col] = False
-            df_bsr[remark_col] = "BSR columns not found for duplication check."
-            return df_bsr
-        in_league = (
-            df_bsr[comp_col].astype(str).str.lower().str.contains(league_keyword.lower(), na=False)
-            | df_bsr[evt_col].astype(str).str.lower().str.contains(league_keyword.lower(), na=False)
+
+        macro_df = pd.read_excel(
+            macro_path, 
+            sheet_name=macro_sheet, 
+            header=header_row - 1,
+            dtype=str
         )
-        df_bsr.loc[~in_league, result_col] = pd.NA
-        df_bsr.loc[~in_league, remark_col] = "Not Applicable (Outside Project Scope)"
-        df_league = df_bsr[in_league].copy()
-        if df_league.empty:
-            return df_bsr
-        for _, row in macro_df.iterrows():
-            orig_market = row[orig_mkt_col]
-            orig_channel = row[orig_ch_col]
-            dup_market = row[dup_mkt_col]
-            dup_channel = row[dup_ch_col]
-            orig_mask_league = (df_league[mkt_col].astype(str).str.lower() == orig_market) & \
-                               (df_league[ch_col].astype(str).str.lower() == orig_channel)
-            orig_events = set(df_league[orig_mask_league][evt_col].dropna())
-            dup_mask_league = (df_league[mkt_col].astype(str).str.lower() == dup_market) & \
-                              (df_league[ch_col].astype(str).str.lower() == dup_channel)
-            dup_events = set(df_league[dup_mask_league][evt_col].dropna())
-            status, remark = pd.NA, "Not Applicable"
-            if not orig_events:
-                status = pd.NA
-                remark = f"No events found in {orig_market} / {orig_channel}"
-            elif orig_events.issubset(dup_events):
-                status = True
-                remark = f"All {len(orig_events)} events correctly duplicated to {dup_market} / {dup_channel}"
-            else:
-                missing = orig_events - dup_events
-                status = False
-                remark = f"Missing {len(missing)} events in {dup_market} / {dup_channel}"
-            orig_rows_mask = (df_bsr[mkt_col].astype(str).str.lower() == orig_market) & \
-                             (df_bsr[ch_col].astype(str).str.lower() == orig_channel) & in_league
-            dup_rows_mask = (df_bsr[mkt_col].astype(str).str.lower() == dup_market) & \
-                            (df_bsr[ch_col].astype(str).str.lower() == dup_channel) & in_league
-            df_bsr.loc[orig_rows_mask | dup_rows_mask, result_col] = status
-            df_bsr.loc[orig_rows_mask | dup_rows_mask, remark_col] = remark
-        return df_bsr
+
+        # Normalize all column names
+        macro_df.columns = macro_df.columns.str.strip().str.lower()
+
     except Exception as e:
-        df_bsr.loc[in_league, result_col] = False
-        df_bsr.loc[in_league, remark_col] = f"Error in Duplication check logic: {str(e)}"
+        df_bsr[result_col] = False
+        df_bsr[remark_col] = f"Macro load error: {e}"
         return df_bsr
+
+    # -------------------------------------------------------
+    # 2️⃣ Auto-detect required Macro Columns
+    # -------------------------------------------------------
+    def find_col(df, expected_names):
+        """Return the first matching column from list of possible names."""
+        if isinstance(expected_names, str):
+            expected_names = [expected_names]
+
+        expected_names = [x.lower().strip() for x in expected_names]
+
+        for col in df.columns:
+            col_clean = col.lower().strip()
+
+            # direct match
+            if col_clean in expected_names:
+                return col
+
+            # close match using substring
+            for exp in expected_names:
+                if exp in col_clean:
+                    return col
+
+        return None  # not found
+
+    macro_cols = col_map.get('macro', {})
+
+    proj_col = find_col(macro_df, macro_cols.get('projects'))
+    orig_mkt_col = find_col(macro_df, macro_cols.get('orig_market'))
+    orig_ch_col  = find_col(macro_df, macro_cols.get('orig_channel'))
+    dup_mkt_col  = find_col(macro_df, macro_cols.get('dup_market'))
+    dup_ch_col   = find_col(macro_df, macro_cols.get('dup_channel'))
+
+    required = [proj_col, orig_mkt_col, orig_ch_col, dup_mkt_col, dup_ch_col]
+    if any(c is None for c in required):
+        df_bsr[result_col] = False
+        df_bsr[remark_col] = (
+            "Macro columns missing. Columns found: "
+            + ", ".join(macro_df.columns)
+        )
+        return df_bsr
+
+    # -------------------------------------------------------
+    # 3️⃣ Filter Macro to only rules matching project
+    # -------------------------------------------------------
+    macro_df = macro_df[macro_df[proj_col].astype(str).str.contains(league_keyword, case=False, na=False)]
+
+    if macro_df.empty:
+        df_bsr[remark_col] = f"No duplication rules for {league_keyword}"
+        df_bsr[result_col] = pd.NA
+        return df_bsr
+
+    # Normalize text
+    for col in [orig_mkt_col, orig_ch_col, dup_mkt_col, dup_ch_col]:
+        macro_df[col] = macro_df[col].astype(str).str.lower().str.strip()
+
+    # -------------------------------------------------------
+    # 4️⃣ BSR Column Auto-detection
+    # -------------------------------------------------------
+    bsr_cols = col_map['bsr']
+
+    def find_bsr_col(expected_names):
+        return find_col(df_bsr, expected_names)
+
+    mkt_col = find_bsr_col(bsr_cols.get('market'))
+    ch_col = find_bsr_col(bsr_cols.get('tv_channel'))
+    evt_col = find_bsr_col(bsr_cols.get('event'))
+    comp_col = find_bsr_col(bsr_cols.get('competition'))
+
+    if not all([mkt_col, ch_col, evt_col, comp_col]):
+        df_bsr[result_col] = False
+        df_bsr[remark_col] = "BSR columns missing"
+        return df_bsr
+
+    # -------------------------------------------------------
+    # 5️⃣ Filter BSR rows for league
+    # -------------------------------------------------------
+    in_league = (
+        df_bsr[comp_col].astype(str).str.lower().str.contains(league_keyword.lower(), na=False)
+        | df_bsr[evt_col].astype(str).str.lower().str.contains(league_keyword.lower(), na=False)
+    )
+
+    df_bsr.loc[~in_league, remark_col] = "Not Applicable (Outside league)"
+    df_league = df_bsr[in_league].copy()
+
+    # -------------------------------------------------------
+    # 6️⃣ Perform duplication check
+    # -------------------------------------------------------
+    for _, rule in macro_df.iterrows():
+        orig_mkt  = rule[orig_mkt_col]
+        orig_ch   = rule[orig_ch_col]
+        dup_mkt   = rule[dup_mkt_col]
+        dup_ch    = rule[dup_ch_col]
+
+        # rows matching original
+        orig_mask = (
+            (df_league[mkt_col].str.lower() == orig_mkt)
+            & (df_league[ch_col].str.lower() == orig_ch)
+        )
+
+        orig_events = set(df_league[orig_mask][evt_col].dropna())
+
+        # rows matching duplicate
+        dup_mask = (
+            (df_league[mkt_col].str.lower() == dup_mkt)
+            & (df_league[ch_col].str.lower() == dup_ch)
+        )
+
+        dup_events = set(df_league[dup_mask][evt_col].dropna())
+
+        if not orig_events:
+            status = pd.NA
+            remark = f"No events in {orig_mkt}/{orig_ch}"
+        elif orig_events.issubset(dup_events):
+            status = True
+            remark = "All events correctly duplicated"
+        else:
+            missing = orig_events - dup_events
+            status = False
+            remark = f"Missing events: {missing}"
+
+        # write back to original df_bsr
+        apply_mask = (
+            ((df_bsr[mkt_col].str.lower() == orig_mkt) & (df_bsr[ch_col].str.lower() == orig_ch))
+            | ((df_bsr[mkt_col].str.lower() == dup_mkt) & (df_bsr[ch_col].str.lower() == dup_ch))
+        ) & in_league
+
+        df_bsr.loc[apply_mask, result_col] = status
+        df_bsr.loc[apply_mask, remark_col] = remark
+
+    return df_bsr
 
 # -----------------------------------------------------------
 # 13️⃣ Country & Channel IDs Check
