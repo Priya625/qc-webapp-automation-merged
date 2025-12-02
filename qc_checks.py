@@ -285,37 +285,47 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
         overlap_rem[i] = "OK"
 
     # Now detect overlaps by comparing adjacent rows within the same (channel, market, date)
-    for i in range(1, n):
-        prev = df.iloc[i - 1]
-        curr = df.iloc[i]
+    # ----------- FIXED OVERLAP CHECK (correct logic) ----------------
+        for i in range(1, n):
 
-        # ensure same channel and market; date comparison via date part of combined datetime
-        same_channel = str(prev.get(compare_channel)).strip().lower() == str(curr.get(compare_channel)).strip().lower()
-        same_market  = str(prev.get(col_market)).strip().lower() == str(curr.get(col_market)).strip().lower()
-        prev_date = prev["_start_dt"].date() if pd.notna(prev["_start_dt"]) else None
-        curr_date = curr["_start_dt"].date() if pd.notna(curr["_start_dt"]) else None
-        same_date = (prev_date is not None and curr_date is not None and prev_date == curr_date)
+            prev = df.iloc[i - 1]
+            curr = df.iloc[i]
 
-        if not (same_channel and same_market and same_date):
-            # different group — nothing to check between these two for overlap
-            continue
+            same_channel = str(prev.get(compare_channel)).strip().lower() == str(curr.get(compare_channel)).strip().lower()
+            same_market  = str(prev.get(col_market)).strip().lower() == str(curr.get(col_market)).strip().lower()
+            same_date    = str(prev.get(col_date)).strip() == str(curr.get(col_date)).strip()
 
-        # If either row lacked timestamps we already set them to Not Applicable; skip
-        if pd.isna(prev["_end_dt"]) or pd.isna(curr["_start_dt"]):
-            # keep Not Applicable remark for whichever row(s) are missing
-            if pd.isna(prev["_end_dt"]):
-                # prev already set to NA earlier
-                pass
-            if pd.isna(curr["_start_dt"]):
-                # curr already set to NA earlier
-                pass
-            continue
+            if not (same_channel and same_market and same_date):
+                continue
 
-        # Key rule: overlap only when curr_start < prev_end
-        if curr["_start_dt"] < prev["_end_dt"]:
-            # Mark the *later* row (curr) as overlapping; you may also want to mark prev if you prefer
-            overlap_ok[i] = False
-            overlap_rem[i] = f"Overlap detected: starts {curr['_start_dt'].time()} before previous ends {prev['_end_dt'].time()}"
+            prev_start = prev["_start_dt"]
+            prev_end   = prev["_end_dt"]
+            curr_start = curr["_start_dt"]
+            curr_end   = curr["_end_dt"]
+
+            # If timestamps missing → Not Applicable
+            if pd.isna(prev_start) or pd.isna(prev_end) or pd.isna(curr_start) or pd.isna(curr_end):
+                overlap_ok[i] = pd.NA
+                overlap_rem[i] = "Not Applicable – missing timestamps"
+                continue
+
+            # --- CASE 1: Back-to-back (NOT OVERLAP) ---
+            if curr_start == prev_end:
+                overlap_ok[i] = True
+                overlap_rem[i] = "OK – back-to-back scheduling"
+                continue
+
+            # --- CASE 2: TRUE OVERLAP ---
+            if curr_start < prev_end:
+                overlap_ok[i] = False
+                overlap_rem[i] = (
+                    f"Overlap: starts {curr_start.time()} before previous ends {prev_end.time()}"
+                )
+                continue
+
+            # --- CASE 3: No overlap ---
+            overlap_ok[i] = True
+            overlap_rem[i] = "OK"
         else:
             # exact equality -> not overlap (curr_start == prev_end)
             # keep already-set True/"OK"
