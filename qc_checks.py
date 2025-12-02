@@ -854,6 +854,7 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
             .str.lower()
             .str.replace("\xa0", " ")
         )
+
     # -------------------------------
     # 5) League detection — FIXED ✔
     # -------------------------------
