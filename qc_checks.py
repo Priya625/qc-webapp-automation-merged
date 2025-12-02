@@ -306,7 +306,7 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 
     for _, grp_idx in grouped.groups.items():
         # grp_idx is an index (into df after sorting)
-        if not grp_idx:
+        if  len(grp_idx) == 0:
             continue
         prev_end = None
         prev_valid = False
