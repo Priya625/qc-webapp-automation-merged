@@ -304,64 +304,51 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 
     grouped = df.groupby(["_grp_channel", "_grp_market", "_grp_date"], sort=False)
 
+    # -----------------------------
+# Corrected Overlap Check
+# -----------------------------
     for _, grp_idx in grouped.groups.items():
-        # grp_idx is an index (into df after sorting)
-        if  len(grp_idx) == 0:
+        if len(grp_idx) == 0:
             continue
-        prev_end = None
-        prev_valid = False
 
-        for pos_in_group, i in enumerate(grp_idx):
+        # Track PREVIOUS ROW's end time only
+        prev_end = None  
+
+        for i in grp_idx:
             curr_start = df.at[i, "_start_dt"]
             curr_end   = df.at[i, "_end_dt"]
 
-            # missing timestamps -> Not Applicable
+            # Missing timestamps → Not Applicable
             if pd.isna(curr_start) or pd.isna(curr_end):
                 overlap_ok[i] = pd.NA
                 overlap_r[i] = "Not Applicable – missing timestamps"
                 continue
 
-            # first valid entry in group -> OK
-            if prev_end is None or not prev_valid:
+            # First event in the group → always OK
+            if prev_end is None:
                 overlap_ok[i] = True
-                overlap_r[i] = "OK (first valid event in group)"
-                prev_end = curr_end
-                prev_valid = True
+                overlap_r[i] = "OK (first event in group)"
+                prev_end = curr_end              # <-- store this row's end for next comparison
                 continue
 
-            # back-to-back: start equals previous end -> OK
+            # Back-to-back: start equals previous end → OK
             if curr_start == prev_end:
                 overlap_ok[i] = True
                 overlap_r[i] = "OK – back-to-back scheduling"
                 prev_end = curr_end
-                prev_valid = True
                 continue
 
-            # overlap: current start is strictly before previous end
+            # True overlap: start < previous end
             if curr_start < prev_end:
                 overlap_ok[i] = False
-                try:
-                    overlap_r[i] = f"Overlap: starts {curr_start.time()} before previous ends {prev_end.time()}"
-                except Exception:
-                    overlap_r[i] = "Overlap detected between programs"
-                # extend prev_end to max to catch cascading overlaps
-                try:
-                    prev_end = max(prev_end, curr_end)
-                except Exception:
-                    pass
-                prev_valid = True
+                overlap_r[i] = f"Overlap: starts {curr_start.time()} before previous ends {prev_end.time()}"
+                # DO NOT update prev_end here (keep the earlier ending to detect longer overlaps)
                 continue
 
-            # no overlap and not back-to-back -> OK
+            # No overlap → OK
             overlap_ok[i] = True
             overlap_r[i] = "OK"
             prev_end = curr_end
-            prev_valid = True
-
-    # ensure any still-empty remarks get a default NA message where appropriate
-    for idx in range(n):
-        if overlap_ok[idx] is pd.NA and not overlap_r[idx]:
-            overlap_r[idx] = "Not Applicable – missing timestamps"
 
     # -----------------------------
     # Daybreak logic: keep existing functionality (we did not change its core approach)
