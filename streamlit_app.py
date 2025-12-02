@@ -124,7 +124,9 @@ all_market_check_keys_epl = {
     "check_combined_archive_status" : "Flag any row with archive in Combined column",
     "suppress_duplicated_audience" : "Flag if it is a Duplicated Market and has audience ",
     "filter_short_programs": "5 Minute Program Filter: Remove programs shorter than 5 minutes (except Austria/NZ)",
-    "sa_nielsen_inclusion_check": "South Africa Nielsen Inclusion Check"
+    "sa_nielsen_inclusion_check": "South Africa Nielsen Inclusion Check",
+    "live_vs_delay_validation": "Live vs Delay Validation",
+
 }
 
 with home_page_tab:
@@ -654,6 +656,7 @@ with epl_tab:
         st.checkbox(all_market_check_keys_epl["suppress_duplicated_audience"], key="suppress_duplicated_audience")
         st.checkbox(all_market_check_keys_epl["filter_short_programs"], key="filter_short_programs")
         st.checkbox(all_market_check_keys_epl["sa_nielsen_inclusion_check"], key="sa_nielsen_inclusion_check")
+        st.checkbox(all_market_check_keys_epl["live_vs_delay_validation"], key="live_vs_delay_validation")
 
 
         
@@ -739,6 +742,12 @@ with epl_tab:
                             sa = validator.sa_nielsen_df
                             if isinstance(sa, pd.DataFrame) and not sa.empty:
                                 sa.to_excel(writer, index=False, sheet_name="SA_Nielsen")
+
+                        # NEW: Live vs Delay sheet
+                        if hasattr(validator, "live_delay_issues_df"):
+                            ld = validator.live_delay_issues_df
+                            if isinstance(ld, pd.DataFrame) and not ld.empty:
+                                ld.to_excel(writer, index=False, sheet_name="LiveDelay_Issues")
                                     
                     st.success(f"✅ EPL checks completed successfully!")
                     
