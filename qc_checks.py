@@ -300,7 +300,7 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 
     grouped = df.groupby(["_grp_channel", "_grp_market", "_grp_date"], sort=False)
     for _, grp_idx in grouped.groups.items():
-        if not grp_idx:
+        if len(grp_idx) == 0:
             continue
         prev_end = None
         prev_valid = False
