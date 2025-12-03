@@ -608,7 +608,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
         # REPEAT
         df.at[idx, "Program_Category_Expected"] = "repeat"
-        df.at[idx, "Program_Category_Remark"] = "Repeat telecast"
+        df.at[idx, "Program_Category_Remark"] = "Repeat"
 
     df["Program_Category_OK"] = (
         df["Program_Category_Actual"] == df["Program_Category_Expected"]
