@@ -1510,7 +1510,7 @@ class EPLValidator:
         df = self.df.copy()
 
         # Required columns
-        required_cols = ["Program Type", "Program Description"]
+        required_cols = ["Type of Program", "Program Description"]
         missing = [c for c in required_cols if c not in df.columns]
         if missing:
             return {
@@ -1524,7 +1524,7 @@ class EPLValidator:
         df["PL_Magazine_Highlights_Category"] = ""
 
         # Filter only Highlights / Magazine
-        mask = df["Program Type"].str.strip().str.lower().isin(["highlights", "magazine"])
+        mask = df["Type of Program"].str.strip().str.lower().isin(["highlights", "magazine"])
         target_df = df[mask].copy()
 
         if target_df.empty:
