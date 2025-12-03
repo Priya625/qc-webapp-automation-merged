@@ -264,10 +264,12 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
     col_channel_id    = _find_column(df, bsr_cols.get('channel_id'))
     col_market        = _find_column(df, bsr_cols.get('market'))
     col_broadcaster   = _find_column(df, bsr_cols.get('broadcaster'))
-    col_date          = _find_column(df, bsr_cols.get("date"))
-    col_title         = _find_column(df, bsr_cols.get('program_title'))
     col_start         = _find_column(df, bsr_cols.get('start_time'))
     col_end           = _find_column(df, bsr_cols.get('end_time'))
+    # Important: Always use the REAL date column for UTC times
+    col_date = _find_column(df, ["Date (UTC/GMT)"])
+    if col_date is None:
+        col_date = _find_column(df, ["Date"])
 
     # Minimum columns required
     minimal_required = [col_market, col_date, col_start, col_end]

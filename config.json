@@ -41,7 +41,7 @@
       "match_day": ["Matchday", "Match Day", "Matchday "],
       "home_team": ["Home Team", "HomeTeam", "Home"],
       "away_team": ["Away Team", "AwayTeam", "Away"],
-      "date": ["Date (UTC/GMT)", "Date(UTC/GMT)"],
+      "date": ["Date (UTC/GMT)", "Date(UTC/GMT)","Date"],
       "start_time": ["Start (UTC)", "Start(UTC)"],
       "end_time": ["End (UTC)", "End(UTC)"],
       "duration": ["Duration"],
