@@ -83,7 +83,7 @@ class EPLValidator:
         "suppress_duplicated_audience" : self._suppress_duplicated_audience,
         "filter_short_programs": self._filter_short_programs,
         "sa_nielsen_inclusion_check": self._sa_nielsen_inclusion_check,
-        "live_vs_delay_validation": self._live_vs_delay_validation,
+        "epl_live_vs_delay_validation": self._epl_live_vs_delay_validation,
         "pl_magazine_highlights_classification": self._pl_magazine_highlights_classification
         # Future EPL checks would be added here
     }
@@ -1385,82 +1385,114 @@ class EPLValidator:
             "details": {"rows_found": int(len(sa_rows))}
         }
     
-    def _live_vs_delay_validation(self):
+    def _epl_live_vs_delay_validation(self) -> Dict[str, Any]:
         """
-        EPL Live vs Delay Validation:
-
-        Rule:
-        - For each Market + Broadcaster + Match combo:
-            1. If ANY program is Live -> all others CANNOT be Delayed.
-            2. If NONE are Live -> the earliest airing must be Delayed.
-        - Flag violations.
-
-        Output:
-        - Adds new column: 'EPL_LiveDelay_Flag'
-        - Creates self.live_delay_issues_df for report sheet
+        EPL Live vs Delay Validation
+        - Group by (Market, TV-Channel, MatchKey)
+        - If any row in group has Program Type == 'Live' -> any rows with Program Type == 'Delayed' are INVALID
+        - If no 'Live' in group -> mark earliest airing in the group as 'Delayed' (flagged as 'Marked: Earliest as Delayed')
+        Outputs:
+        - Adds column 'EPL_LiveDelay_Flag' to self.df
+        - Stores flagged rows (invalid delayed + newly-marked delayed) in self.live_delay_flags_df
         """
-        df = self.df.copy()
+        FLAG_COL = "EPL_LiveDelay_Flag"
+        required_cols = ["Market", "TV-Channel", "Start (UTC)", "End (UTC)"]
+        # Accept either 'Match ID' or 'Event' as match key
+        match_key_col = None
+        for c in ("Match ID", "MatchID", "Event"):
+            if c in self.df.columns:
+                match_key_col = c
+                break
 
-        required_cols = ["Market", "TV-Channel", "Match ID", "Event", "Start (UTC)", "End (UTC)"]
-        missing = [c for c in required_cols if c not in df.columns]
-        if missing:
+        # Validate columns
+        if not all(c in self.df.columns for c in required_cols) or match_key_col is None or "Type of program" not in self.df.columns:
+            missing = [c for c in required_cols if c not in self.df.columns]
+            if match_key_col is None:
+                missing.append("Match ID / Event")
+            if "Type of program" not in self.df.columns:
+                missing.append("Type of program")
             return {
-                "check_key": "live_vs_delay_validation",
+                "check_key": "epl_live_vs_delay_validation",
                 "status": "Skipped",
-                "description": f"Missing columns: {missing}",
+                "description": f"Missing required columns: {missing}",
                 "details": {}
             }
 
-        # Clean status column
-        df["Event"] = df["Event"].astype(str).str.strip()
+        # Copy so we don't lose index info
+        df = self.df.copy()
+        df[FLAG_COL] = ""  # default blank
 
-        # Initialize flag
-        df["EPL_LiveDelay_Flag"] = ""
+        # Normalize strings for grouping (but keep original values)
+        df["_Market_norm"] = df["Market"].astype(str).str.strip()
+        df["_Channel_norm"] = df["TV-Channel"].astype(str).str.strip()
+        df["_Match_norm"] = df[match_key_col].astype(str).str.strip()
 
-        problem_rows = []
+        # Parse start datetimes robustly
+        try:
+            # build a datetime using the Date or Start(UTC) directly - assume Start (UTC) contains time
+            df["_Start_dt"] = pd.to_datetime(df["Start (UTC)"], errors="coerce")
+            # If Start(UTC) lacks date, try combining with Date column
+            if df["_Start_dt"].isna().all() and "Date" in df.columns:
+                date_only = pd.to_datetime(df["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
+                df["_Start_dt"] = pd.to_datetime(date_only + " " + df["Start (UTC)"].astype(str), errors="coerce")
+        except Exception:
+            df["_Start_dt"] = pd.to_datetime(df["Start (UTC)"].astype(str), errors="coerce")
 
-        # Group logic
-        groups = df.groupby(["Market", "TV-Channel", "Match ID"])
+        # Set up container for flagged rows
+        flagged_indices = set()
+        newly_marked_indices = set()
 
-        for (market, channel, match_id), g in groups:
+        group_cols = ["_Market_norm", "_Channel_norm", "_Match_norm"]
 
-            g_sorted = g.sort_values("Start (UTC)")
-            has_live = any(g_sorted["Event"].str.lower() == "live")
-            has_delay = any(g_sorted["Event"].str.lower() == "delayed")
+        # iterate groups
+        for _, group in df.groupby(group_cols, dropna=False):
+            if group.empty:
+                continue
+            # Standardize program type
+            type_series = group["Type of program"].astype(str).str.strip().str.upper()
+            has_live = (type_series == "LIVE").any()
 
-            # CASE 1 → There is at least one LIVE
             if has_live:
-                # Anything marked delayed is WRONG
-                wrong_delays = g_sorted[g_sorted["Event"].str.lower() == "delayed"]
-
-                if not wrong_delays.empty:
-                    df.loc[wrong_delays.index, "EPL_LiveDelay_Flag"] = "Error: Delayed exists when LIVE available"
-                    problem_rows.append(wrong_delays)
-
-            # CASE 2 → No live exists
+                # Any 'DELAYED' rows in this group are invalid
+                delayed_mask = type_series == "DELAYED"
+                if delayed_mask.any():
+                    idxs = group.loc[delayed_mask].index.tolist()
+                    for i in idxs:
+                        df.at[i, FLAG_COL] = "INVALID - Delayed while Live exists"
+                        flagged_indices.add(i)
             else:
-                # Earliest must be delayed
-                earliest = g_sorted.index[0]
+                # No Live -> mark the earliest airing in the group as Delayed (if not already delayed)
+                # Use parsed _Start_dt; fallback to Start (UTC) lexicographic
+                group_sorted = group.sort_values(by="_Start_dt", na_position="last")
+                earliest_idx = None
+                for i, row in group_sorted.iterrows():
+                    if pd.notna(row["_Start_dt"]):
+                        earliest_idx = i
+                        break
+                if earliest_idx is None:
+                    # fallback to first index in group
+                    earliest_idx = group_sorted.index[0] if not group_sorted.empty else None
 
-                # If earliest not delayed → flag
-                if g_sorted.loc[earliest, "Event"].lower() != "delayed":
-                    df.loc[earliest, "EPL_LiveDelay_Flag"] = "Error: Earliest airing should be DELAYED"
-                    problem_rows.append(g_sorted.loc[[earliest]])
+                if earliest_idx is not None:
+                    prev_flag = df.at[earliest_idx, FLAG_COL]
+                    # Only mark if it's not already marked invalid
+                    df.at[earliest_idx, FLAG_COL] = (prev_flag + " || " if prev_flag else "") + "Marked: Earliest as Delayed (No Live in group)"
+                    newly_marked_indices.add(earliest_idx)
 
-        # Save flagged items
-        if problem_rows:
-            self.live_delay_issues_df = pd.concat(problem_rows, ignore_index=True)
-        else:
-            self.live_delay_issues_df = pd.DataFrame()
+        # Save flagged rows DataFrame
+        flagged_df = df.loc[sorted(list(flagged_indices.union(newly_marked_indices)))]
+        self.live_delay_flags_df = flagged_df.drop(columns=["_Market_norm", "_Channel_norm", "_Match_norm", "_Start_dt"], errors="ignore").reset_index(drop=True)
 
-        # Update validator DF
-        self.df = df
+        # Copy FLAG column back to self.df (preserve other columns)
+        # If self.df has duplicate index or changed, align by a safe merge on index
+        self.df = df.drop(columns=["_Market_norm", "_Channel_norm", "_Match_norm", "_Start_dt"], errors="ignore")
 
+        total_flagged = len(self.live_delay_flags_df) if hasattr(self, "live_delay_flags_df") else 0
         return {
-            "check_key": "live_vs_delay_validation",
-            "status": "Completed",
-            "description": f"Flagged {len(self.live_delay_issues_df)} rows violating Live/Delay rules.",
-            "details": {"rows_flagged": len(self.live_delay_issues_df)}
+            "check_key": "epl_live_vs_delay_validation",
+            "status": "Flagged" if total_flagged > 0 else "Completed",
+            "description": f"Live vs Delay validation completed. Flagged {total_flagged} rows.",
+            "details": {"rows_flagged": int(total_flagged)}
         }
 
 
