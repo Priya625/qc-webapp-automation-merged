@@ -126,6 +126,7 @@ all_market_check_keys_epl = {
     "filter_short_programs": "5 Minute Program Filter: Remove programs shorter than 5 minutes (except Austria/NZ)",
     "sa_nielsen_inclusion_check": "South Africa Nielsen Inclusion Check",
     "live_vs_delay_validation": "Live vs Delay Validation",
+    "pl_magazine_highlights_classification": "PL Magazine/Highlights Classification"
 
 }
 
@@ -657,7 +658,7 @@ with epl_tab:
         st.checkbox(all_market_check_keys_epl["filter_short_programs"], key="filter_short_programs")
         st.checkbox(all_market_check_keys_epl["sa_nielsen_inclusion_check"], key="sa_nielsen_inclusion_check")
         st.checkbox(all_market_check_keys_epl["live_vs_delay_validation"], key="live_vs_delay_validation")
-
+        st.checkbox(all_market_check_keys_epl["pl_magazine_highlights_classification"], key="pl_magazine_highlights_classification")
 
         
 
@@ -748,6 +749,12 @@ with epl_tab:
                             ld = validator.live_delay_issues_df
                             if isinstance(ld, pd.DataFrame) and not ld.empty:
                                 ld.to_excel(writer, index=False, sheet_name="LiveDelay_Issues")
+
+                        # PL Magazine/Highlights classification sheet
+                        if hasattr(validator, "pl_mag_highlights_df"):
+                            pl = validator.pl_mag_highlights_df
+                            if isinstance(pl, pd.DataFrame) and not pl.empty:
+                                pl.to_excel(writer, index=False, sheet_name="PL_Mag_Highlights")
                                     
                     st.success(f"✅ EPL checks completed successfully!")
                     

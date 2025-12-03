@@ -83,7 +83,8 @@ class EPLValidator:
         "suppress_duplicated_audience" : self._suppress_duplicated_audience,
         "filter_short_programs": self._filter_short_programs,
         "sa_nielsen_inclusion_check": self._sa_nielsen_inclusion_check,
-        "live_vs_delay_validation": self._live_vs_delay_validation
+        "live_vs_delay_validation": self._live_vs_delay_validation,
+        "pl_magazine_highlights_classification": self._pl_magazine_highlights_classification
         # Future EPL checks would be added here
     }
 
@@ -1384,84 +1385,167 @@ class EPLValidator:
             "details": {"rows_found": int(len(sa_rows))}
         }
     
-def _live_vs_delay_validation(self):
-    """
-    EPL Live vs Delay Validation:
+    def _live_vs_delay_validation(self):
+        """
+        EPL Live vs Delay Validation:
 
-    Rule:
-    - For each Market + Broadcaster + Match combo:
-        1. If ANY program is Live -> all others CANNOT be Delayed.
-        2. If NONE are Live -> the earliest airing must be Delayed.
-    - Flag violations.
+        Rule:
+        - For each Market + Broadcaster + Match combo:
+            1. If ANY program is Live -> all others CANNOT be Delayed.
+            2. If NONE are Live -> the earliest airing must be Delayed.
+        - Flag violations.
 
-    Output:
-      - Adds new column: 'EPL_LiveDelay_Flag'
-      - Creates self.live_delay_issues_df for report sheet
-    """
-    df = self.df.copy()
+        Output:
+        - Adds new column: 'EPL_LiveDelay_Flag'
+        - Creates self.live_delay_issues_df for report sheet
+        """
+        df = self.df.copy()
 
-    required_cols = ["Market", "TV-Channel", "Match ID", "Event", "Start (UTC)", "End (UTC)"]
-    missing = [c for c in required_cols if c not in df.columns]
-    if missing:
+        required_cols = ["Market", "TV-Channel", "Match ID", "Event", "Start (UTC)", "End (UTC)"]
+        missing = [c for c in required_cols if c not in df.columns]
+        if missing:
+            return {
+                "check_key": "live_vs_delay_validation",
+                "status": "Skipped",
+                "description": f"Missing columns: {missing}",
+                "details": {}
+            }
+
+        # Clean status column
+        df["Event"] = df["Event"].astype(str).str.strip()
+
+        # Initialize flag
+        df["EPL_LiveDelay_Flag"] = ""
+
+        problem_rows = []
+
+        # Group logic
+        groups = df.groupby(["Market", "TV-Channel", "Match ID"])
+
+        for (market, channel, match_id), g in groups:
+
+            g_sorted = g.sort_values("Start (UTC)")
+            has_live = any(g_sorted["Event"].str.lower() == "live")
+            has_delay = any(g_sorted["Event"].str.lower() == "delayed")
+
+            # CASE 1 → There is at least one LIVE
+            if has_live:
+                # Anything marked delayed is WRONG
+                wrong_delays = g_sorted[g_sorted["Event"].str.lower() == "delayed"]
+
+                if not wrong_delays.empty:
+                    df.loc[wrong_delays.index, "EPL_LiveDelay_Flag"] = "Error: Delayed exists when LIVE available"
+                    problem_rows.append(wrong_delays)
+
+            # CASE 2 → No live exists
+            else:
+                # Earliest must be delayed
+                earliest = g_sorted.index[0]
+
+                # If earliest not delayed → flag
+                if g_sorted.loc[earliest, "Event"].lower() != "delayed":
+                    df.loc[earliest, "EPL_LiveDelay_Flag"] = "Error: Earliest airing should be DELAYED"
+                    problem_rows.append(g_sorted.loc[[earliest]])
+
+        # Save flagged items
+        if problem_rows:
+            self.live_delay_issues_df = pd.concat(problem_rows, ignore_index=True)
+        else:
+            self.live_delay_issues_df = pd.DataFrame()
+
+        # Update validator DF
+        self.df = df
+
         return {
             "check_key": "live_vs_delay_validation",
-            "status": "Skipped",
-            "description": f"Missing columns: {missing}",
-            "details": {}
+            "status": "Completed",
+            "description": f"Flagged {len(self.live_delay_issues_df)} rows violating Live/Delay rules.",
+            "details": {"rows_flagged": len(self.live_delay_issues_df)}
         }
 
-    # Clean status column
-    df["Event"] = df["Event"].astype(str).str.strip()
 
-    # Initialize flag
-    df["EPL_LiveDelay_Flag"] = ""
+    def _pl_magazine_highlights_classification(self):
+        """
+        PL Magazine / Highlights Classification Check
 
-    problem_rows = []
+        - Applies only to rows where Program Type is 'Highlights' or 'Magazine'
+        - Uses Program Description to classify the correct PL sub-category:
+            'Netbusters', 'Reload', 'Review', 'Highlights' etc.
+        - Creates a new column: PL_Magazine_Highlights_Category
+        - Creates separate report: self.pl_mag_highlights_df
+        """
 
-    # Group logic
-    groups = df.groupby(["Market", "TV-Channel", "Match ID"])
+        df = self.df.copy()
 
-    for (market, channel, match_id), g in groups:
+        # Required columns
+        required_cols = ["Program Type", "Program Description"]
+        missing = [c for c in required_cols if c not in df.columns]
+        if missing:
+            return {
+                "check_key": "pl_magazine_highlights_classification",
+                "status": "Skipped",
+                "description": f"Missing required columns: {missing}",
+                "details": {}
+            }
 
-        g_sorted = g.sort_values("Start (UTC)")
-        has_live = any(g_sorted["Event"].str.lower() == "live")
-        has_delay = any(g_sorted["Event"].str.lower() == "delayed")
+        # New output column
+        df["PL_Magazine_Highlights_Category"] = ""
 
-        # CASE 1 → There is at least one LIVE
-        if has_live:
-            # Anything marked delayed is WRONG
-            wrong_delays = g_sorted[g_sorted["Event"].str.lower() == "delayed"]
+        # Filter only Highlights / Magazine
+        mask = df["Program Type"].str.strip().str.lower().isin(["highlights", "magazine"])
+        target_df = df[mask].copy()
 
-            if not wrong_delays.empty:
-                df.loc[wrong_delays.index, "EPL_LiveDelay_Flag"] = "Error: Delayed exists when LIVE available"
-                problem_rows.append(wrong_delays)
+        if target_df.empty:
+            self.pl_mag_highlights_df = pd.DataFrame()
+            self.df = df
+            return {
+                "check_key": "pl_magazine_highlights_classification",
+                "status": "Completed",
+                "description": "No Highlight/Magazine rows found.",
+                "details": {}
+            }
 
-        # CASE 2 → No live exists
-        else:
-            # Earliest must be delayed
-            earliest = g_sorted.index[0]
+        # Normalize description
+        desc = target_df["Program Description"].astype(str).str.lower()
 
-            # If earliest not delayed → flag
-            if g_sorted.loc[earliest, "Event"].lower() != "delayed":
-                df.loc[earliest, "EPL_LiveDelay_Flag"] = "Error: Earliest airing should be DELAYED"
-                problem_rows.append(g_sorted.loc[[earliest]])
+        # Classification logic
+        conditions = [
+            desc.str.contains("netbusters"),
+            desc.str.contains("reload"),
+            desc.str.contains("review") & ~desc.str.contains("preview"),
+            desc.str.contains("highlight") | desc.str.contains("more view") | desc.str.contains("hl show")
+        ]
 
-    # Save flagged items
-    if problem_rows:
-        self.live_delay_issues_df = pd.concat(problem_rows, ignore_index=True)
-    else:
-        self.live_delay_issues_df = pd.DataFrame()
+        categories = [
+            "PL Netbusters",
+            "PL Reload",
+            "PL Review",
+            "PL Highlights"
+        ]
 
-    # Update validator DF
-    self.df = df
+        # Apply classification
+        import numpy as np
+        target_df.loc[:, "PL_Magazine_Highlights_Category"] = np.select(
+            conditions,
+            categories,
+            default=""
+        )
 
-    return {
-        "check_key": "live_vs_delay_validation",
-        "status": "Completed",
-        "description": f"Flagged {len(self.live_delay_issues_df)} rows violating Live/Delay rules.",
-        "details": {"rows_flagged": len(self.live_delay_issues_df)}
-    }
+        # Save only classified rows
+        self.pl_mag_highlights_df = target_df[
+            target_df["PL_Magazine_Highlights_Category"] != ""
+        ].copy()
 
+        # Assign results back to main DF
+        df.update(target_df)
+        self.df = df
+
+        return {
+            "check_key": "pl_magazine_highlights_classification",
+            "status": "Completed",
+            "description": f"Classified {len(self.pl_mag_highlights_df)} rows.",
+            "details": {"rows_classified": len(self.pl_mag_highlights_df)}
+        }
 
 
 # ----------------------------- ⚙️ Utility Functions (kept standalone) -----------------------------
