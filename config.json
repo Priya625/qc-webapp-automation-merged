@@ -36,6 +36,7 @@
       "market": ["Market"],
       "market_id": ["Market ID"],
       "broadcaster": ["Broadcaster", "BROADCASTER"],
+      "combined": ["Combined"],
       "type_of_program": ["Type of Program", "Type of programme", "Type of program"],
       "match_day": ["Matchday", "Match Day", "Matchday "],
       "home_team": ["Home Team", "HomeTeam", "Home"],
