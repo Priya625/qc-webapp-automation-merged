@@ -78,6 +78,62 @@ def parse_duration_to_minutes(duration_series):
             results.append(np.nan)
     return pd.Series(results, index=duration_series.index)
 
+def to_time_str(val):
+    """Convert Excel time/float/time/string to HH:MM:SS string."""
+    if pd.isna(val):
+        return None
+
+    # if already datetime.time
+    if isinstance(val, datetime.time):
+        return val.strftime("%H:%M:%S")
+
+    # Excel float time (0.0–1.0)
+    try:
+        if isinstance(val, float) or isinstance(val, int):
+            total_seconds = int(val * 24 * 3600)
+            h = total_seconds // 3600
+            m = (total_seconds % 3600) // 60
+            s = total_seconds % 60
+            return f"{h:02}:{m:02}:{s:02}"
+    except:
+        pass
+
+    # fallback: string
+    try:
+        t = pd.to_datetime(str(val), errors="coerce")
+        if isinstance(t, pd.Timestamp):
+            return t.strftime("%H:%M:%S")
+    except:
+        return None
+
+    return None
+
+
+def to_date_str(val):
+    """Convert Excel date/datetime/string to YYYY-MM-DD."""
+    if pd.isna(val):
+        return None
+
+    if isinstance(val, datetime.date):
+        return val.strftime("%Y-%m-%d")
+
+    try:
+        d = pd.to_datetime(val, errors="coerce")
+        if isinstance(d, pd.Timestamp):
+            return d.strftime("%Y-%m-%d")
+    except:
+        return None
+
+    return None
+
+
+def combine_parse(date_val, time_val):
+    d = to_date_str(date_val)
+    t = to_time_str(time_val)
+    if not d or not t:
+        return pd.NaT
+    return pd.to_datetime(f"{d} {t}", errors="coerce")
+
 # ----------------------------- 1️⃣ Detect Monitoring Period -----------------------------
 def detect_period_from_rosco(rosco_path):
     x = pd.read_excel(rosco_path, header=None, dtype=str)
@@ -235,18 +291,6 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
         return df
 
     compare_channel = col_channel if col_channel else col_channel_id
-
-    # Build datetime safely
-    def combine_parse(date_val, time_val):
-        if pd.isna(date_val) or pd.isna(time_val):
-            return pd.NaT
-        try:
-            return pd.to_datetime(f"{date_val} {time_val}", errors="coerce")
-        except:
-            try:
-                return pd.to_datetime(time_val, errors="coerce")
-            except:
-                return pd.NaT
 
     df["_start_dt"] = [
         combine_parse(df.at[i, col_date], df.at[i, col_start])
