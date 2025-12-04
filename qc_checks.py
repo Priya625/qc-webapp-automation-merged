@@ -440,9 +440,7 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 def program_category_check(bsr_path, df, col_map, rules, file_rules):
     import datetime as _dt
 
-    # -----------------------------------------------
-    # Load fixture sheet
-    # -----------------------------------------------
+    # ---------- Load fixture sheet ----------
     xl = pd.ExcelFile(bsr_path)
     fixture_keyword = file_rules.get("fixture_sheet_keyword", "fixture")
     fixture_sheet = next((s for s in xl.sheet_names if fixture_keyword in s.lower()), None)
@@ -456,108 +454,126 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
     df_fix = xl.parse(fixture_sheet)
 
-    # -----------------------------------------------
-    # Column mapping
-    # -----------------------------------------------
+    # ---------- Column detection ----------
     b = col_map["bsr"]
     f = col_map["fixture"]
 
-    col_home = _find_column(df, b.get("home_team"))
-    col_away = _find_column(df, b.get("away_team"))
-    col_date = _find_column(df, b.get("date"))
-    col_start = _find_column(df, b.get("start_time"))
+    col_home_bsr = _find_column(df, b.get("home_team"))
+    col_away_bsr = _find_column(df, b.get("away_team"))
+    col_date_bsr = _find_column(df, b.get("date"))
+    col_start_bsr = _find_column(df, b.get("start_time"))
     col_progtype = _find_column(df, b.get("type_of_program"))
 
-    col_fix_home = _find_column(df_fix, f.get("home_team"))
-    col_fix_away = _find_column(df_fix, f.get("away_team"))
-    col_fix_date = _find_column(df_fix, f.get("date"))
-    col_fix_start = _find_column(df_fix, f.get("start_time"))
+    col_home_fix = _find_column(df_fix, f.get("home_team"))
+    col_away_fix = _find_column(df_fix, f.get("away_team"))
+    col_date_fix = _find_column(df_fix, f.get("date"))
+    col_start_fix = _find_column(df_fix, f.get("start_time"))
 
-    # -----------------------------------------------
-    # Helper normalizers to avoid false "No match"
-    # -----------------------------------------------
-    def clean_team(x):
+    # ---------- Required columns check ----------
+    req = [col_home_bsr, col_away_bsr, col_date_bsr, col_start_bsr]
+    if any(c is None for c in req):
+        df["Program_Category_Expected"] = pd.NA
+        df["Program_Category_Actual"] = df[col_progtype] if col_progtype else ""
+        df["Program_Category_OK"] = False
+        df["Program_Category_Remark"] = "Missing required columns for LIVE check"
+        return df
+
+    # ---------- Cleaning helper ----------
+    def clean(x):
         if pd.isna(x):
             return ""
-        x = str(x).lower()
+        x = str(x).strip().lower()
         x = re.sub(r"[^\w\s]", " ", x)
-        remove_words = ["fc", "cf", "club", "sad", "ud", "ac", "the"]
-        x = " ".join([w for w in x.split() if w not in remove_words])
-        return x.strip()
+        return re.sub(r"\s+", " ", x).strip()
 
-    def safe_dt(date_v, time_v):
+    # ---------- Datetime parser ----------
+    def parse_datetime(d, t):
         try:
-            return combine_parse(date_v, time_v)
+            return combine_parse(d, t)
         except:
             return pd.NaT
 
-    # Pre-normalize fixture table
-    df_fix["_home"] = df_fix[col_fix_home].apply(clean_team)
-    df_fix["_away"] = df_fix[col_fix_away].apply(clean_team)
-    df_fix["_date"] = df_fix[col_fix_date].apply(lambda x: to_date_str(x))
-    df_fix["_start_dt"] = [
-        safe_dt(df_fix.at[i, col_fix_date], df_fix.at[i, col_fix_start])
+    # ---------- Prepare fixture lookup ----------
+    df_fix["_home"] = df_fix[col_home_fix].map(clean)
+    df_fix["_away"] = df_fix[col_away_fix].map(clean)
+    df_fix["_date"] = pd.to_datetime(df_fix[col_date_fix], errors="coerce").dt.date
+    df_fix["_start"] = [
+        parse_datetime(df_fix.at[i, col_date_fix], df_fix.at[i, col_start_fix])
         for i in df_fix.index
     ]
 
-    df["Program_Category_Actual"] = df[col_progtype].astype(str).str.lower().str.strip()
+    # ---------- Prepare BSR ----------
+    df["_home"] = df[col_home_bsr].map(clean)
+    df["_away"] = df[col_away_bsr].map(clean)
+    df["_date"] = pd.to_datetime(df[col_date_bsr], errors="coerce").dt.date
+    df["_start"] = [
+        parse_datetime(df.at[i, col_date_bsr], df.at[i, col_start_bsr])
+        for i in df.index
+    ]
+
+    df["Program_Category_Actual"] = (
+        df[col_progtype].astype(str).str.lower().str.strip() if col_progtype else ""
+    )
+
     df["Program_Category_Expected"] = pd.NA
     df["Program_Category_Remark"] = ""
-    df["Program_Category_OK"] = False
 
-    tolerance = rules.get("live_tolerance_min", 30)
+    LIVE_TOL = rules.get("live_tolerance_min", 30)  # ±30 minutes
 
-    # -----------------------------------------------
+    # ======================================================
     # MAIN LOOP — LIVE ONLY
-    # -----------------------------------------------
+    # ======================================================
     for idx, row in df.iterrows():
 
-        home = clean_team(row.get(col_home))
-        away = clean_team(row.get(col_away))
-        date = to_date_str(row.get(col_date))
-        bsr_start = safe_dt(row.get(col_date), row.get(col_start))
-        actual_type = row.get(col_progtype, "").lower().strip()
+        h = row["_home"]
+        a = row["_away"]
+        d = row["_date"]
+        bsr_start = row["_start"]
+        actual = row["Program_Category_Actual"]
 
-        if home == "" or away == "" or date is None or pd.isna(bsr_start):
-            df.at[idx, "Program_Category_Remark"] = "Missing fields"
+        # Missing start datetime
+        if pd.isna(bsr_start):
+            df.at[idx, "Program_Category_Remark"] = "Invalid BSR start datetime"
+            df.at[idx, "Program_Category_Expected"] = pd.NA
             continue
 
-        # -------------------------------------------
-        # Find fixture match (soft matching)
-        # -------------------------------------------
-        candidates = df_fix[
-            (df_fix["_date"] == date) &
-            (
-                ((df_fix["_home"] == home) & (df_fix["_away"] == away)) |
-                ((df_fix["_home"] == away) & (df_fix["_away"] == home))
-            )
+        # ---- Find matching fixture rows (STRICT HOME + AWAY + DATE) ----
+        fixture_rows = df_fix[
+            (df_fix["_home"] == h)
+            & (df_fix["_away"] == a)
+            & (df_fix["_date"] == d)
         ]
 
-        if candidates.empty:
-            df.at[idx, "Program_Category_Remark"] = "No fixture match"
+        if fixture_rows.empty:
+            df.at[idx, "Program_Category_Remark"] = "No matching fixture (home/away/date)"
+            df.at[idx, "Program_Category_Expected"] = pd.NA
             continue
 
-        # Use the first (or only) fixture row
-        fix_start = candidates["_start_dt"].iloc[0]
+        # In LaLiga there will be exactly one fixture row
+        fix_start = fixture_rows["_start"].iloc[0]
 
         if pd.isna(fix_start):
-            df.at[idx, "Program_Category_Remark"] = "Invalid fixture start time"
+            df.at[idx, "Program_Category_Remark"] = "Invalid fixture datetime"
+            df.at[idx, "Program_Category_Expected"] = pd.NA
             continue
 
-        diff = abs((bsr_start - fix_start).total_seconds() / 60)
+        # ---- LIVE tolerance comparison ----
+        diff_min = abs((bsr_start - fix_start).total_seconds() / 60)
 
-        # -------------------------------------------
-        # LIVE CHECK
-        # -------------------------------------------
-        if diff <= tolerance:
+        if diff_min <= LIVE_TOL:
             df.at[idx, "Program_Category_Expected"] = "live"
-            df.at[idx, "Program_Category_Remark"] = f"Live within ±{tolerance} min"
-            df.at[idx, "Program_Category_OK"] = (actual_type == "live")
-            continue
+            df.at[idx, "Program_Category_Remark"] = f"Live (start within ±{LIVE_TOL} min)"
+        else:
+            df.at[idx, "Program_Category_Expected"] = pd.NA
+            df.at[idx, "Program_Category_Remark"] = (
+                f"Start not within LIVE window (diff {diff_min:.1f} min)"
+            )
 
-        # If not within tolerance → NOT live
-        df.at[idx, "Program_Category_Expected"] = "not live"
-        df.at[idx, "Program_Category_Remark"] = f"Outside live window ({diff:.1f} min)"
+    # ---- Final OK status ----
+    df["Program_Category_OK"] = df["Program_Category_Actual"] == df["Program_Category_Expected"]
+
+    # cleanup
+    df.drop(columns=["_home", "_away", "_date", "_start"], errors="ignore", inplace=True)
 
     return df
 
