@@ -521,7 +521,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     LIVE_TOL = rules.get("live_tolerance_min", 30)  # ±30 minutes
 
     # ======================================================
-    # MAIN LOOP — LIVE ONLY
+    # MAIN LOOP — LIVE ONLY (now + delayed)
     # ======================================================
     for idx, row in df.iterrows():
 
@@ -531,17 +531,15 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         bsr_start = row["_start"]
         actual = row["Program_Category_Actual"]
 
-        # Missing start datetime
         if pd.isna(bsr_start):
             df.at[idx, "Program_Category_Remark"] = "Invalid BSR start datetime"
             df.at[idx, "Program_Category_Expected"] = pd.NA
             continue
 
-        # ---- Find matching fixture rows (STRICT HOME + AWAY + DATE) ----
         fixture_rows = df_fix[
-            (df_fix["_home"] == h)
-            & (df_fix["_away"] == a)
-            & (df_fix["_date"] == d)
+            (df_fix["_home"] == h) &
+            (df_fix["_away"] == a) &
+            (df_fix["_date"] == d)
         ]
 
         if fixture_rows.empty:
@@ -549,7 +547,6 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             df.at[idx, "Program_Category_Expected"] = pd.NA
             continue
 
-        # In LaLiga there will be exactly one fixture row
         fix_start = fixture_rows["_start"].iloc[0]
 
         if pd.isna(fix_start):
@@ -557,22 +554,22 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             df.at[idx, "Program_Category_Expected"] = pd.NA
             continue
 
-        # ---- LIVE tolerance comparison ----
         diff_min = abs((bsr_start - fix_start).total_seconds() / 60)
 
+        # ---------- LIVE CHECK ----------
         if diff_min <= LIVE_TOL:
             df.at[idx, "Program_Category_Expected"] = "live"
             df.at[idx, "Program_Category_Remark"] = f"Live (start within ±{LIVE_TOL} min)"
+
         else:
             df.at[idx, "Program_Category_Expected"] = pd.NA
             df.at[idx, "Program_Category_Remark"] = (
                 f"Start not within LIVE window (diff {diff_min:.1f} min)"
             )
 
-        # ---------- DELAYED CHECK (only if NOT LIVE) ----------
+        # ---------- DELAYED CHECK ADDED HERE ----------
         if df.at[idx, "Program_Category_Expected"] is pd.NA:
 
-            # Find all BSR rows for same Home, Away, Date, Broadcaster
             same_group = df[
                 (df["_home"] == h) &
                 (df["_away"] == a) &
@@ -583,7 +580,6 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
             earliest_bsr_start = same_group["_start"].min()
 
-            # If THIS row is the first telecast → DELAYED
             if bsr_start == earliest_bsr_start:
                 df.at[idx, "Program_Category_Expected"] = "delayed"
                 df.at[idx, "Program_Category_Remark"] = (
