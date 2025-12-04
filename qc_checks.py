@@ -522,62 +522,89 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     LIVE_TOL = rules.get("live_tolerance_min", 30)
 
     # ---------- Group rows by event (home, away, broadcaster) ----------
-    grouped = df.groupby(["_home", "_away", "_broad"], dropna=False)
+    # This groups per broadcaster; earliest per group is considered "first broadcast" for that broadcaster+event.
+    grouped = df.groupby(["_home", "_away", "_broad"], dropna=False, sort=False)
 
-    for (_, _, _), rows in grouped:
-
+    for (home_k, away_k, broad_k), rows in grouped:
+        # sort group by start to identify earliest broadcast for this broadcaster+event
         rows = rows.sort_values("_start")
+        if rows.empty:
+            continue
+
+        # earliest row index in this group (first broadcast for this broadcaster+event)
         first_idx = rows.index[0]
 
-        home = rows["_home"].iloc[0]
-        away = rows["_away"].iloc[0]
-        date = rows["_date"].iloc[0]
-
-        # find matching fixture row
+        # find fixture for the home/away/date (date used is the BSR row's date of the group's first row)
+        # We'll use the date from the group's first row to attempt fixture matching
+        group_date = rows["_date"].iloc[0]
         fixture_rows = df_fix[
-            (df_fix["_home"] == home)
-            & (df_fix["_away"] == away)
-            & (df_fix["_date"] == date)
+            (df_fix["_home"] == home_k) &
+            (df_fix["_away"] == away_k) &
+            (df_fix["_date"] == group_date)
         ]
-
         fixture_start = fixture_rows["_start"].iloc[0] if not fixture_rows.empty else pd.NaT
 
+        # iterate each row in group in start order
         for idx, row in rows.iterrows():
-
             bsr_start = row["_start"]
+            actual = row["Program_Category_Actual"] or ""
+            actual_lower = str(actual).strip().lower()
 
-            # --- No fixture found ---
-            if pd.isna(fixture_start):
-                df.at[idx, "Program_Category_Expected"] = pd.NA
-                df.at[idx, "Program_Category_Remark"] = "No matching fixture"
+            # 1) If BSR type explicitly says 'repeat' and this row is NOT the first broadcast
+            #    => mark it as repeat based on BSR only (do NOT require fixture match)
+            if ("repeat" in actual_lower) and (idx != first_idx):
+                # time difference relative to fixture if fixture exists; else just mark repeat without fixture diff
+                if pd.notna(fixture_start) and pd.notna(bsr_start):
+                    diff = (bsr_start - fixture_start).total_seconds() / 60.0
+                    df.at[idx, "Program_Category_Expected"] = "repeat"
+                    df.at[idx, "Program_Category_Remark"] = f"Repeat (BSR-labelled; start {diff:+.1f} min from fixture)"
+                else:
+                    df.at[idx, "Program_Category_Expected"] = "repeat"
+                    df.at[idx, "Program_Category_Remark"] = "Repeat (BSR-labelled; fixture not required)"
                 continue
 
-            # ---------- LIVE CHECK (unchanged) ----------
-            diff_min = abs((bsr_start - fixture_start).total_seconds() / 60)
+            # 2) If BSR type says 'repeat' but this IS the first broadcast,
+            #    fall through to normal live/delayed logic (user requested that).
+            #    (so no special action here)
 
+            # 3) If start datetime missing, cannot decide
+            if pd.isna(bsr_start):
+                df.at[idx, "Program_Category_Expected"] = pd.NA
+                df.at[idx, "Program_Category_Remark"] = "Invalid BSR start datetime"
+                continue
+
+            # 4) If fixture missing -> for non-repeat rows we still want to try mark as NA (no fixture)
+            if pd.isna(fixture_start):
+                # However: if this row is the first broadcast AND BSR says 'live' we still cannot decide without fixture
+                # So mark as No matching fixture
+                # (Repeat rows already handled above)
+                df.at[idx, "Program_Category_Expected"] = pd.NA
+                df.at[idx, "Program_Category_Remark"] = "No matching fixture (home/away/date)"
+                continue
+
+            # 5) LIVE check (unchanged)
+            diff_min = abs((bsr_start - fixture_start).total_seconds() / 60.0)
             if diff_min <= LIVE_TOL:
                 df.at[idx, "Program_Category_Expected"] = "live"
                 df.at[idx, "Program_Category_Remark"] = f"Live (within ±{LIVE_TOL} min)"
                 continue
 
-            # ---------- DELAYED (first broadcast only) ----------
+            # 6) DELAYED: applies only to the FIRST broadcast (first_idx) for this broadcaster+event
             if idx == first_idx:
-                diff = (bsr_start - fixture_start).total_seconds() / 60
+                diff = (bsr_start - fixture_start).total_seconds() / 60.0
                 df.at[idx, "Program_Category_Expected"] = "delayed"
-                df.at[idx, "Program_Category_Remark"] = (
-                    f"Delayed (start {diff:+.1f} min from fixture)"
-                )
+                df.at[idx, "Program_Category_Remark"] = f"Delayed (first broadcast; start {diff:+.1f} min from fixture)"
                 continue
 
-            # ---------- REPEAT (any later broadcast, any date) ----------
-            diff = (bsr_start - fixture_start).total_seconds() / 60
+            # 7) FALLBACK: Any later broadcast that didn't match live & isn't BSR-labelled repeat above -> mark repeat
+            diff = (bsr_start - fixture_start).total_seconds() / 60.0
             df.at[idx, "Program_Category_Expected"] = "repeat"
-            df.at[idx, "Program_Category_Remark"] = (
-                f"Repeat (start {diff:+.1f} min from fixture)"
-            )
+            df.at[idx, "Program_Category_Remark"] = f"Repeat (not first broadcast; start {diff:+.1f} min from fixture)"
 
+    # Final OK column (strict equality)
     df["Program_Category_OK"] = df["Program_Category_Actual"] == df["Program_Category_Expected"]
 
+    # cleanup
     df.drop(columns=["_home", "_away", "_date", "_start", "_broad"], errors="ignore", inplace=True)
     return df
 
