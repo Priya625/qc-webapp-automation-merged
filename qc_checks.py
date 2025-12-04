@@ -463,37 +463,37 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     col_date_bsr = _find_column(df, b.get("date"))
     col_start_bsr = _find_column(df, b.get("start_time"))
     col_progtype = _find_column(df, b.get("type_of_program"))
+    col_broadcaster = _find_column(df, b.get("broadcaster"))
 
     col_home_fix = _find_column(df_fix, f.get("home_team"))
     col_away_fix = _find_column(df_fix, f.get("away_team"))
     col_date_fix = _find_column(df_fix, f.get("date"))
     col_start_fix = _find_column(df_fix, f.get("start_time"))
 
-    # ---------- Required columns check ----------
+    # ---------- Required columns ----------
     req = [col_home_bsr, col_away_bsr, col_date_bsr, col_start_bsr]
     if any(c is None for c in req):
         df["Program_Category_Expected"] = pd.NA
         df["Program_Category_Actual"] = df[col_progtype] if col_progtype else ""
         df["Program_Category_OK"] = False
-        df["Program_Category_Remark"] = "Missing required columns for LIVE check"
+        df["Program_Category_Remark"] = "Missing required columns for LIVE/DELAYED check"
         return df
 
-    # ---------- Cleaning helper ----------
+    # ---------- Helpers ----------
     def clean(x):
         if pd.isna(x):
             return ""
-        x = str(x).strip().lower()
+        x = str(x).lower().strip()
         x = re.sub(r"[^\w\s]", " ", x)
         return re.sub(r"\s+", " ", x).strip()
 
-    # ---------- Datetime parser ----------
     def parse_datetime(d, t):
         try:
             return combine_parse(d, t)
         except:
             return pd.NaT
 
-    # ---------- Prepare fixture lookup ----------
+    # ---------- Prepare fixture ----------
     df_fix["_home"] = df_fix[col_home_fix].map(clean)
     df_fix["_away"] = df_fix[col_away_fix].map(clean)
     df_fix["_date"] = pd.to_datetime(df_fix[col_date_fix], errors="coerce").dt.date
@@ -511,17 +511,23 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         for i in df.index
     ]
 
+    df["_broad"] = (
+        df[col_broadcaster].astype(str).str.lower().str.strip()
+        if col_broadcaster else ""
+    )
+
     df["Program_Category_Actual"] = (
-        df[col_progtype].astype(str).str.lower().str.strip() if col_progtype else ""
+        df[col_progtype].astype(str).str.lower().str.strip()
+        if col_progtype else ""
     )
 
     df["Program_Category_Expected"] = pd.NA
     df["Program_Category_Remark"] = ""
 
-    LIVE_TOL = rules.get("live_tolerance_min", 30)  # ±30 minutes
+    LIVE_TOL = rules.get("live_tolerance_min", 30)
 
     # ======================================================
-    # MAIN LOOP — LIVE ONLY
+    # MAIN LOOP (LIVE + DELAYED ONLY)
     # ======================================================
     for idx, row in df.iterrows():
 
@@ -529,52 +535,61 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         a = row["_away"]
         d = row["_date"]
         bsr_start = row["_start"]
-        actual = row["Program_Category_Actual"]
+        broadcaster = row["_broad"]
 
-        # Missing start datetime
         if pd.isna(bsr_start):
             df.at[idx, "Program_Category_Remark"] = "Invalid BSR start datetime"
-            df.at[idx, "Program_Category_Expected"] = pd.NA
             continue
 
-        # ---- Find matching fixture rows (STRICT HOME + AWAY + DATE) ----
-        fixture_rows = df_fix[
+        # ---- Find matching fixture (strict match) ----
+        fx = df_fix[
             (df_fix["_home"] == h)
             & (df_fix["_away"] == a)
             & (df_fix["_date"] == d)
         ]
 
-        if fixture_rows.empty:
-            df.at[idx, "Program_Category_Remark"] = "No matching fixture (home/away/date)"
-            df.at[idx, "Program_Category_Expected"] = pd.NA
+        if fx.empty:
+            df.at[idx, "Program_Category_Remark"] = "No matching fixture"
             continue
 
-        # In LaLiga there will be exactly one fixture row
-        fix_start = fixture_rows["_start"].iloc[0]
-
+        fix_start = fx["_start"].iloc[0]
         if pd.isna(fix_start):
             df.at[idx, "Program_Category_Remark"] = "Invalid fixture datetime"
-            df.at[idx, "Program_Category_Expected"] = pd.NA
             continue
 
-        # ---- LIVE tolerance comparison ----
         diff_min = abs((bsr_start - fix_start).total_seconds() / 60)
 
+        # ============================
+        # 1️⃣ LIVE CHECK
+        # ============================
         if diff_min <= LIVE_TOL:
             df.at[idx, "Program_Category_Expected"] = "live"
-            df.at[idx, "Program_Category_Remark"] = f"Live (start within ±{LIVE_TOL} min)"
-        else:
-            df.at[idx, "Program_Category_Expected"] = pd.NA
-            df.at[idx, "Program_Category_Remark"] = (
-                f"Start not within LIVE window (diff {diff_min:.1f} min)"
-            )
+            df.at[idx, "Program_Category_Remark"] = "Live (within tolerance)"
+            continue
 
-    # ---- Final OK status ----
+        # ============================
+        # 2️⃣ DELAYED CHECK
+        # ============================
+        # Get all BSR rows for same: home+away+date+broadcaster
+        same_match = df[
+            (df["_home"] == h)
+            & (df["_away"] == a)
+            & (df["_date"] == d)
+            & (df["_broad"] == broadcaster)
+        ]
+
+        earliest_start = same_match["_start"].min()
+
+        if bsr_start == earliest_start:
+            df.at[idx, "Program_Category_Expected"] = "delayed"
+            df.at[idx, "Program_Category_Remark"] = "Delayed (first telecast outside live window)"
+        else:
+            df.at[idx, "Program_Category_Remark"] = "Later telecast (repeat logic will apply later)"
+
+    # Final OK flag
     df["Program_Category_OK"] = df["Program_Category_Actual"] == df["Program_Category_Expected"]
 
-    # cleanup
-    df.drop(columns=["_home", "_away", "_date", "_start"], errors="ignore", inplace=True)
-
+    df.drop(columns=["_home", "_away", "_date", "_start", "_broad"], errors="ignore", inplace=True)
     return df
 
 # 8️⃣ Event / Matchday / Competition Check
