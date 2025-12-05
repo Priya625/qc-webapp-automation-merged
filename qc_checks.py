@@ -634,6 +634,8 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     # ==================================================================
     df["Program_Category_OK"] = (
         df["Program_Category_Actual"] == df["Program_Category_Expected"]
+        .fillna(False)
+        .astype(bool)
     )
 
     df.drop(columns=["_home", "_away", "_date", "_start", "_event_key"],
