@@ -7,7 +7,6 @@ import logging
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 from openpyxl.utils.dataframe import dataframe_to_rows
-from openpyxl.styles import Font, Alignment
 
 DATE_FORMAT = "%Y-%m-%d"
 
@@ -433,12 +432,13 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
                  "_grp_channel", "_grp_market", "_grp_date"],
         errors="ignore"
     )
+
+
+
 # -----------------------------------------------------------
 # 6️⃣ Program Category Check (updated: combined fallback + robust matching)
 def program_category_check(bsr_path, df, col_map, rules, file_rules):
     import datetime as _dt
-
-    LIVE_TOL = rules.get("live_tolerance_min", 30)  # ±30 mins
 
     # ---------- Load fixture sheet ----------
     xl = pd.ExcelFile(bsr_path)
@@ -462,190 +462,157 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     col_away_bsr = _find_column(df, b.get("away_team"))
     col_date_bsr = _find_column(df, b.get("date"))
     col_start_bsr = _find_column(df, b.get("start_time"))
-    col_progtype  = _find_column(df, b.get("type_of_program"))
+    col_progtype = _find_column(df, b.get("type_of_program"))
+    col_broadcaster = _find_column(df, b.get("broadcaster"))
 
     col_home_fix = _find_column(df_fix, f.get("home_team"))
     col_away_fix = _find_column(df_fix, f.get("away_team"))
     col_date_fix = _find_column(df_fix, f.get("date"))
     col_start_fix = _find_column(df_fix, f.get("start_time"))
 
-    # ---------- Required columns ----------
+    # ---------- Required columns check ----------
     req = [col_home_bsr, col_away_bsr, col_date_bsr, col_start_bsr]
     if any(c is None for c in req):
         df["Program_Category_Expected"] = pd.NA
         df["Program_Category_Actual"] = df[col_progtype] if col_progtype else ""
         df["Program_Category_OK"] = False
-        df["Program_Category_Remark"] = "Missing required columns for LIVE/DELAYED check"
+        df["Program_Category_Remark"] = "Missing required columns for LIVE check"
         return df
 
-    # ---------- Helpers ----------
+    # ---------- Cleaning helper ----------
     def clean(x):
-        if pd.isna(x): return ""
-        x = str(x).lower()
+        if pd.isna(x):
+            return ""
+        x = str(x).strip().lower()
         x = re.sub(r"[^\w\s]", " ", x)
         return re.sub(r"\s+", " ", x).strip()
 
+    # ---------- Datetime parser ----------
     def parse_datetime(d, t):
         try:
             return combine_parse(d, t)
         except:
             return pd.NaT
 
-    # Safe expected getter
-    def _expected(row):
-        return str(row["Program_Category_Expected"] or "").strip().lower()
-
-    # ---------- Prepare FIXTURE ----------
-    df_fix["_home"]  = df_fix[col_home_fix].map(clean)
-    df_fix["_away"]  = df_fix[col_away_fix].map(clean)
-    df_fix["_date"]  = pd.to_datetime(df_fix[col_date_fix], errors="coerce").dt.date
+    # ---------- Prepare fixture lookup ----------
+    df_fix["_home"] = df_fix[col_home_fix].map(clean)
+    df_fix["_away"] = df_fix[col_away_fix].map(clean)
+    df_fix["_date"] = pd.to_datetime(df_fix[col_date_fix], errors="coerce").dt.date
     df_fix["_start"] = [
         parse_datetime(df_fix.at[i, col_date_fix], df_fix.at[i, col_start_fix])
         for i in df_fix.index
     ]
 
     # ---------- Prepare BSR ----------
-    df["_home"]  = df[col_home_bsr].map(clean)
-    df["_away"]  = df[col_away_bsr].map(clean)
-    df["_date"]  = pd.to_datetime(df[col_date_bsr], errors="coerce").dt.date
+    df["_home"] = df[col_home_bsr].map(clean)
+    df["_away"] = df[col_away_bsr].map(clean)
+    df["_event_key"] = df["_home"] + "||" + df["_away"]  # event_key
+    df["_date"] = pd.to_datetime(df[col_date_bsr], errors="coerce").dt.date
     df["_start"] = [
         parse_datetime(df.at[i, col_date_bsr], df.at[i, col_start_bsr])
         for i in df.index
     ]
+    df["_broad"] = df[col_broadcaster].astype(str).str.lower().str.strip() if col_broadcaster else ""
 
     df["Program_Category_Actual"] = (
-        df[col_progtype].astype(str).str.lower().str.strip()
-        if col_progtype else ""
+        df[col_progtype].astype(str).str.lower().str.strip() if col_progtype else ""
     )
 
     df["Program_Category_Expected"] = pd.NA
     df["Program_Category_Remark"] = ""
-    df["Time_Diff_Min"] = pd.NA
 
-    # ==================================================================
-    # STEP 1 — LIVE CHECK (uses fixture)
-    # ==================================================================
+    LIVE_TOL = rules.get("live_tolerance_min", 30)  # ±30 minutes
+
+    # ---------- MAIN LOOP ----------
     for idx, row in df.iterrows():
 
-        h, a, d, bsr_start = row["_home"], row["_away"], row["_date"], row["_start"]
+        ev_key = row["_event_key"]
+        h = row["_home"]
+        a = row["_away"]
+        d = row["_date"]
+        bsr_start = row["_start"]
+        actual = row["Program_Category_Actual"]
+        broadcaster = row["_broad"]
 
-        if pd.isna(bsr_start):
-            continue  # cannot evaluate live
+        # ---------- REPEAT LOGIC (RUNS BEFORE FIXTURE CHECK) ----------
+        if actual == "repeat":
+            same_event = df[df["_event_key"] == ev_key]
 
-        fix = df_fix[
-            (df_fix["_home"] == h) &
-            (df_fix["_away"] == a) &
-            (df_fix["_date"] == d)
-        ]
-
-        if fix.empty:
-            continue
-
-        fix_start = fix["_start"].iloc[0]
-        if pd.isna(fix_start):
-            continue
-
-        diff = abs((bsr_start - fix_start).total_seconds() / 60)
-
-        if diff <= LIVE_TOL:
-            df.at[idx, "Program_Category_Expected"] = "live"
-            df.at[idx, "Program_Category_Remark"] = f"Live (within ±{LIVE_TOL} min)"
-            df.at[idx, "Time_Diff_Min"] = diff
-
-    # ==================================================================
-    # STEP 2 — DELAYED CHECK (fixture + earliest broadcast)
-    # ==================================================================
-    df["_event_key"] = df["_home"] + "_" + df["_away"]
-
-    earliest = df.groupby("_event_key")["_start"].transform("min")
-
-    for idx, row in df.iterrows():
-
-        if _expected(row) == "live":
-            continue
-
-        if row["Program_Category_Actual"] == "repeat":
-            continue
-
-        h, a, d, bsr_start = row["_home"], row["_away"], row["_date"], row["_start"]
-
-        if pd.isna(bsr_start):
-            continue
-
-        if bsr_start != earliest[idx]:
-            continue
-
-        fix = df_fix[
-            (df_fix["_home"] == h) &
-            (df_fix["_away"] == a) &
-            (df_fix["_date"] == d)
-        ]
-
-        if fix.empty:
-            continue
-
-        fix_start = fix["_start"].iloc[0]
-        if pd.isna(fix_start):
-            continue
-
-        diff = abs((bsr_start - fix_start).total_seconds() / 60)
-
-        if diff > LIVE_TOL:
-            df.at[idx, "Program_Category_Expected"] = "delayed"
-            df.at[idx, "Program_Category_Remark"] = f"Delayed (first telecast, diff = {diff:.1f} min)"
-            df.at[idx, "Time_Diff_Min"] = diff
-
-    # ==================================================================
-    # STEP 3 — REPEAT CHECK (NO FIXTURE CHECK)
-    # ==================================================================
-    live_delayed_events = set(
-        df.loc[df["Program_Category_Expected"].isin(["live", "delayed"]), "_event_key"]
-    )
-
-    for idx, row in df.iterrows():
-
-        if row["Program_Category_Actual"] != "repeat":
-            continue
-
-        ek = row["_event_key"]
-
-        if ek in live_delayed_events:
-            earlier_rows = df[
-                (df["_event_key"] == ek) &
-                (df["Program_Category_Expected"].isin(["live", "delayed"]))
+            # Find any earlier BSR broadcast (ignore date)
+            earlier = same_event[
+                pd.to_datetime(same_event["_start"], errors="coerce") <
+                pd.to_datetime(bsr_start, errors="coerce")
             ]
 
-            if not earlier_rows.empty:
-                earliest_time = earlier_rows["_start"].min()
-                repeat_time = row["_start"]
-
-                diff = abs((repeat_time - earliest_time).total_seconds() / 60)
+            if not earlier.empty:
+                first_time = pd.to_datetime(earlier["_start"], errors="coerce").min()
+                diff = (bsr_start - first_time).total_seconds() / 60
 
                 df.at[idx, "Program_Category_Expected"] = "repeat"
                 df.at[idx, "Program_Category_Remark"] = (
-                    f"Repeat (earlier broadcast found, diff = {diff:.1f} min)"
+                    f"Repeat (earlier BSR broadcast exists, {diff:.1f} min earlier)"
                 )
-                df.at[idx, "Time_Diff_Min"] = diff
-        else:
+                continue
+            else:
+                df.at[idx, "Program_Category_Expected"] = pd.NA
+                df.at[idx, "Program_Category_Remark"] = (
+                    "Repeat flagged but no earlier BSR broadcast found"
+                )
+                continue
+
+        # ---------- LIVE LOGIC (Your original logic — UNTOUCHED) ----------
+        fixture_rows = df_fix[
+            (df_fix["_home"] == h)
+            & (df_fix["_away"] == a)
+            & (df_fix["_date"] == d)
+        ]
+
+        if fixture_rows.empty:
             df.at[idx, "Program_Category_Expected"] = pd.NA
-            df.at[idx, "Program_Category_Remark"] = "Repeat stated but no earlier broadcast found"
+            df.at[idx, "Program_Category_Remark"] = "No matching fixture (home/away/date)"
+            continue
 
-    # ==================================================================
-    # FINAL OK FLAG
-    # ==================================================================
-    df["Program_Category_OK"] = (
-        df["Program_Category_Actual"] == df["Program_Category_Expected"]
-        .fillna(False)
-        .astype(bool)
-    )
+        fix_start = fixture_rows["_start"].iloc[0]
 
-    df.drop(columns=["_home", "_away", "_date", "_start", "_event_key"],
+        if pd.isna(bsr_start) or pd.isna(fix_start):
+            df.at[idx, "Program_Category_Expected"] = pd.NA
+            df.at[idx, "Program_Category_Remark"] = "Invalid datetime"
+            continue
+
+        diff_min = abs((bsr_start - fix_start).total_seconds() / 60)
+
+        # LIVE
+        if diff_min <= LIVE_TOL:
+            df.at[idx, "Program_Category_Expected"] = "live"
+            df.at[idx, "Program_Category_Remark"] = f"Live (within ±{LIVE_TOL} min)"
+            continue
+
+        # ---------- DELAYED LOGIC (first telecast outside live window) ----------
+        same_event = df[df["_event_key"] == ev_key]
+        earliest = pd.to_datetime(same_event["_start"], errors="coerce").min()
+
+        if bsr_start == earliest:
+            df.at[idx, "Program_Category_Expected"] = "delayed"
+            df.at[idx, "Program_Category_Remark"] = (
+                f"Delayed (first telecast outside window; diff {diff_min:.1f} min)"
+            )
+            continue
+
+        # ---------- OTHERWISE: REPEAT ----------
+        df.at[idx, "Program_Category_Expected"] = "repeat"
+        later_diff = (bsr_start - earliest).total_seconds() / 60
+        df.at[idx, "Program_Category_Remark"] = f"Repeat (first telecast was {later_diff:.1f} min earlier)"
+
+    # ---------- FINAL OK ----------
+    df["Program_Category_OK"] = df["Program_Category_Actual"] == df["Program_Category_Expected"]
+
+    # cleanup
+    df.drop(columns=["_home", "_away", "_event_key", "_date", "_start", "_broad"],
             errors="ignore", inplace=True)
 
     return df
-# ==================================================================
+
 # 8️⃣ Event / Matchday / Competition Check
-# ==================================================================
 def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules, debug_rows=20):
     def norm_strip(x):
         if pd.isna(x): return ""
@@ -1133,105 +1100,84 @@ def country_channel_id_check(df, bsr_cols):
 
 # -----------------------------------------------------------
 # Excel Coloring for True/False checks
-def color_excel(output_path, df): 
-    # normalize before coloring
-    df = normalize_ok_columns(df)
-
+def color_excel(output_path, df):
+    from openpyxl import load_workbook
     wb = load_workbook(output_path)
-
     if "QC Results" in wb.sheetnames:
         ws = wb["QC Results"]
     elif "Laliga QC Results" in wb.sheetnames:
         ws = wb["Laliga QC Results"]
     else:
         ws = wb.active
-
     headers = [cell.value for cell in ws[1]]
     col_map = {name: idx+1 for idx, name in enumerate(headers)}
-
-    qc_columns = [c for c in df.columns if c.endswith("_OK")]
-
+    qc_columns = [col for col in df.columns if col.endswith("_OK")]
     for col_name in qc_columns:
-        if col_name not in col_map:
-            continue
-
-        col_idx = col_map[col_name]
-
-        for row in range(2, ws.max_row + 1):
-            cell = ws.cell(row=row, column=col_idx)
-            val = df[col_name].iloc[row-2]  # row-2 matches df index
-
-            if val is True:
-                cell.fill = GREEN_FILL
-            elif val is False:
-                cell.fill = RED_FILL
-            else:
-                # Should never happen now, but still safe
-                cell.fill = RED_FILL
-
+        if col_name in col_map:
+            col_idx = col_map[col_name]
+            for row in range(2, ws.max_row + 1):
+                cell = ws.cell(row=row, column=col_idx)
+                val = cell.value
+                if val is True or str(val).lower() in ("true", "t", "1"):
+                    cell.fill = GREEN_FILL
+                elif val is False or str(val).lower() in ("false", "f", "0"):
+                    cell.fill = RED_FILL
     wb.save(output_path)
 
 # -----------------------------------------------------------
 # Summary Sheet
 def generate_summary_sheet(output_path, df):
-    df = df.copy()
-    # make sure all _OK columns are normalized
-    df = normalize_ok_columns(df)
+    from openpyxl import load_workbook
+    from openpyxl.utils.dataframe import dataframe_to_rows
+    from openpyxl.styles import Font, Alignment
     wb = load_workbook(output_path)
-
     if "Summary" in wb.sheetnames:
         del wb["Summary"]
-
     ws = wb.create_sheet("Summary")
-
     qc_cols = [c for c in df.columns if c.endswith("_OK")]
-
     out = []
     for col in qc_cols:
-        col_values = df[col].astype(bool)
-
-        total = len(col_values)
-        passed = int((col_values == True).sum())
-        failed = int((col_values == False).sum())
-
-        out.append([col, total, passed, failed])
-
+        valid_rows = df[col].notna()
+        current_total = int(valid_rows.sum())
+        passed = 0
+        # If dtype is pandas 'boolean' (nullable), sum works
+        try:
+            if df[col].dtype == 'boolean' or df[col].dtype == bool:
+                passed = int(df.loc[valid_rows, col].sum())
+            else:
+                passed = int((df.loc[valid_rows, col] == True).sum())
+        except Exception:
+            passed = int((df.loc[valid_rows, col] == True).sum())
+        failed = current_total - passed
+        out.append([col, current_total, passed, failed])
     summary_df = pd.DataFrame(out, columns=["Check", "Total Counted", "Passed", "Failed"])
-
     for r_idx, r in enumerate(dataframe_to_rows(summary_df, index=False, header=True)):
         ws.append(r)
         if r_idx == 0:
+            header_font = Font(bold=True)
             for cell in ws[1]:
-                cell.font = Font(bold=True)
+                cell.font = header_font
                 cell.alignment = Alignment(horizontal='center')
-
     for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=2):
         for cell in row:
             cell.alignment = Alignment(horizontal='center')
-
-    for col in "ABCD":
+    for col in 'ABCD':
         try:
             ws.column_dimensions[col].width = 25
-        except:
+        except Exception:
             pass
-
     wb.save(output_path)
 
 def normalize_ok_columns(df):
     for col in df.columns:
         if col.endswith("_OK"):
             def to_bool(x):
-                if isinstance(x, bool):
-                    return x
-                if x is None or (isinstance(x, float) and pd.isna(x)):
-                    return False
+                if isinstance(x, bool): return x
+                if pd.isna(x) or x is None or str(x).lower() in ("nan", "none"):
+                    return pd.NA
                 s = str(x).strip().lower()
-                if s in ("true", "t", "1", "yes", "y", "ok"):
-                    return True
-                if s in ("false", "f", "0", "no", "n", "", "nan", "none"):
-                    return False
-                return False   # Fallback safe value
-
-            df[col] = df[col].apply(to_bool).astype(bool)
-
+                if s in ("true", "t", "1", "yes", "y", "ok"): return True
+                if s in ("false", "f", "0", "no", "n", ""): return False
+                return pd.NA
+            df[col] = df[col].apply(to_bool).astype('boolean')
     return df
