@@ -435,7 +435,6 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 # -----------------------------------------------------------
 # 6️⃣ Program Category Check (updated: combined fallback + robust matching)
 def program_category_check(bsr_path, df, col_map, rules, file_rules):
-    import datetime as _dt
 
     LIVE_TOL = rules.get("live_tolerance_min", 30)  # ±30 mins
 
@@ -638,8 +637,9 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             errors="ignore", inplace=True)
 
     return df
-
+# ==================================================================
 # 8️⃣ Event / Matchday / Competition Check
+# ==================================================================
 def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules, debug_rows=20):
     def norm_strip(x):
         if pd.isna(x): return ""
