@@ -7,6 +7,7 @@ import logging
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 from openpyxl.utils.dataframe import dataframe_to_rows
+from openpyxl.styles import Font, Alignment
 
 DATE_FORMAT = "%Y-%m-%d"
 
@@ -1132,84 +1133,105 @@ def country_channel_id_check(df, bsr_cols):
 
 # -----------------------------------------------------------
 # Excel Coloring for True/False checks
-def color_excel(output_path, df):
-    from openpyxl import load_workbook
+def color_excel(output_path, df): 
+    # normalize before coloring
+    df = normalize_ok_columns(df)
+
     wb = load_workbook(output_path)
+
     if "QC Results" in wb.sheetnames:
         ws = wb["QC Results"]
     elif "Laliga QC Results" in wb.sheetnames:
         ws = wb["Laliga QC Results"]
     else:
         ws = wb.active
+
     headers = [cell.value for cell in ws[1]]
     col_map = {name: idx+1 for idx, name in enumerate(headers)}
-    qc_columns = [col for col in df.columns if col.endswith("_OK")]
+
+    qc_columns = [c for c in df.columns if c.endswith("_OK")]
+
     for col_name in qc_columns:
-        if col_name in col_map:
-            col_idx = col_map[col_name]
-            for row in range(2, ws.max_row + 1):
-                cell = ws.cell(row=row, column=col_idx)
-                val = cell.value
-                if val is True or str(val).lower() in ("true", "t", "1"):
-                    cell.fill = GREEN_FILL
-                elif val is False or str(val).lower() in ("false", "f", "0"):
-                    cell.fill = RED_FILL
+        if col_name not in col_map:
+            continue
+
+        col_idx = col_map[col_name]
+
+        for row in range(2, ws.max_row + 1):
+            cell = ws.cell(row=row, column=col_idx)
+            val = df[col_name].iloc[row-2]  # row-2 matches df index
+
+            if val is True:
+                cell.fill = GREEN_FILL
+            elif val is False:
+                cell.fill = RED_FILL
+            else:
+                # Should never happen now, but still safe
+                cell.fill = RED_FILL
+
     wb.save(output_path)
 
 # -----------------------------------------------------------
 # Summary Sheet
 def generate_summary_sheet(output_path, df):
-    from openpyxl import load_workbook
-    from openpyxl.utils.dataframe import dataframe_to_rows
-    from openpyxl.styles import Font, Alignment
+    df = df.copy()
+    # make sure all _OK columns are normalized
+    df = normalize_ok_columns(df)
     wb = load_workbook(output_path)
+
     if "Summary" in wb.sheetnames:
         del wb["Summary"]
+
     ws = wb.create_sheet("Summary")
+
     qc_cols = [c for c in df.columns if c.endswith("_OK")]
+
     out = []
     for col in qc_cols:
-        valid_rows = df[col].notna()
-        current_total = int(valid_rows.sum())
-        passed = 0
-        # If dtype is pandas 'boolean' (nullable), sum works
-        try:
-            if df[col].dtype == 'boolean' or df[col].dtype == bool:
-                passed = int(df.loc[valid_rows, col].sum())
-            else:
-                passed = int((df.loc[valid_rows, col] == True).sum())
-        except Exception:
-            passed = int((df.loc[valid_rows, col] == True).sum())
-        failed = current_total - passed
-        out.append([col, current_total, passed, failed])
+        col_values = df[col].astype(bool)
+
+        total = len(col_values)
+        passed = int((col_values == True).sum())
+        failed = int((col_values == False).sum())
+
+        out.append([col, total, passed, failed])
+
     summary_df = pd.DataFrame(out, columns=["Check", "Total Counted", "Passed", "Failed"])
+
     for r_idx, r in enumerate(dataframe_to_rows(summary_df, index=False, header=True)):
         ws.append(r)
         if r_idx == 0:
-            header_font = Font(bold=True)
             for cell in ws[1]:
-                cell.font = header_font
+                cell.font = Font(bold=True)
                 cell.alignment = Alignment(horizontal='center')
+
     for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=2):
         for cell in row:
             cell.alignment = Alignment(horizontal='center')
-    for col in 'ABCD':
+
+    for col in "ABCD":
         try:
             ws.column_dimensions[col].width = 25
-        except Exception:
+        except:
             pass
+
     wb.save(output_path)
 
 def normalize_ok_columns(df):
     for col in df.columns:
         if col.endswith("_OK"):
             def to_bool(x):
-                if isinstance(x, bool): return x
-                if pd.isna(x) or x is None or str(x).lower() in ("nan", "none"):
-                    return pd.NA
+                if isinstance(x, bool):
+                    return x
+                if x is None or (isinstance(x, float) and pd.isna(x)):
+                    return False
                 s = str(x).strip().lower()
-                if s in ("true", "t", "1", "yes", "y", "ok"): return True
-                if s in ("false", "f", "0", "no", "n", ""): return False
-                return pd.NA
-            df[col] = df[col].apply(to_bool).astype('boolean')
+                if s in ("true", "t", "1", "yes", "y", "ok"):
+                    return True
+                if s in ("false", "f", "0", "no", "n", "", "nan", "none"):
+                    return False
+                return False   # Fallback safe value
+
+            df[col] = df[col].apply(to_bool).astype(bool)
+
     return df
