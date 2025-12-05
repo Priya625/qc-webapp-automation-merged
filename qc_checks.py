@@ -557,8 +557,8 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     earliest = df.groupby("_event_key")["_start"].transform("min")
 
     for idx, row in df.iterrows():
-
-        if row["Program_Category_Expected"] == "live":
+        expected = str(row["Program_Category_Expected"] or "").lower()
+        if  expected == "live":
             continue  # already assigned
 
         if row["Program_Category_Actual"] == "repeat":
