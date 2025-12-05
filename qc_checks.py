@@ -583,7 +583,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     df["Program_Category_Expected"] = pd.NA
     df["Program_Category_Remark"] = ""
 
-    LIVE_TOL = rules.get("live_tolerance_min", 30)
+    LIVE_TOL = rules.get("live_tolerance_min", 35)
 
     # ---------- MAIN LOOP ----------
     for idx, row in df.iterrows():
@@ -689,7 +689,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                 continue
             else:
                 df.at[idx, "Program_Category_Expected"] = pd.NA
-                df.at[idx, "Program_Category_Remark"] = "Earliest broadcast not after fixture start"
+                df.at[idx, "Program_Category_Remark"] = "Broadcast recieved before the fixture start"
                 continue
         else:
             # not earliest -> repeat
@@ -1152,45 +1152,100 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
 # -----------------------------------------------------------
 # 13️⃣ Country & Channel IDs Check
 def country_channel_id_check(df, bsr_cols):
+    """
+    Check consistency of channel IDs per (market, channel) pair.
+
+    Rules:
+    - For each (market, channel) pair, collect all channel_id values found.
+    - If the pair appears multiple times and there are multiple distinct channel_id values
+      (or the single value is blank/missing), mark those rows as False and add a remark.
+    - Otherwise mark as OK.
+    """
     df["Market_Channel_ID_OK"] = True
     df["Market_Channel_ID_Remark"] = "OK"
+
     ch_col = _find_column(df, bsr_cols.get('tv_channel'))
     ch_id_col = _find_column(df, bsr_cols.get('channel_id'))
     mkt_col = _find_column(df, bsr_cols.get('market'))
-    mkt_id_col = _find_column(df, bsr_cols.get('market_id'))
-    if not all([ch_col, ch_id_col, mkt_col, mkt_id_col]):
-        logging.warning("ID Check: Missing one or more ID columns. Skipping.")
+
+    if not all([ch_col, ch_id_col, mkt_col]):
+        logging.warning("ID Check: Missing one or more required columns (market/channel/channel_id). Skipping.")
         df["Market_Channel_ID_OK"] = False
-        df["Market_Channel_ID_Remark"] = "Check skipped: ID columns not found"
+        df["Market_Channel_ID_Remark"] = "Check skipped: required columns not found"
         return df
+
     def norm(x):
         return str(x).strip() if pd.notna(x) else ""
-    channel_id_map = {}
-    market_id_map = {}
+
+    # Map (market, channel) -> set of channel_ids and list of indices
+    pair_to_ids = {}
+    pair_to_idxs = {}
+
     for idx, row in df.iterrows():
+        market = norm(row.get(mkt_col))
         channel = norm(row.get(ch_col))
         channel_id = norm(row.get(ch_id_col))
-        market = norm(row.get(mkt_col))
-        market_id = norm(row.get(mkt_id_col))
-        if channel and channel_id and channel not in channel_id_map:
-            channel_id_map[channel] = channel_id
-        if market and market_id and market not in market_id_map:
-            market_id_map[market] = market_id
+
+        # skip rows where both market and channel are empty
+        if not market and not channel:
+            continue
+
+        key = (market, channel)
+        pair_to_ids.setdefault(key, set()).add(channel_id)
+        pair_to_idxs.setdefault(key, []).append(idx)
+
+    # Evaluate each pair
+    for key, ids in pair_to_ids.items():
+        idxs = pair_to_idxs.get(key, [])
+        # Determine if inconsistent:
+        # - more than one unique id across rows -> inconsistent
+        # - exactly one unique id but it's empty -> inconsistent (missing ID)
+        inconsistent = False
+        remark = "OK"
+
+        # Normalize ids: keep as they are (empty string allowed)
+        unique_ids = set(ids)
+
+        if len(idxs) > 1:
+            # duplicate occurrences exist
+            if len(unique_ids) > 1:
+                inconsistent = True
+                # make a readable list of distinct ids (show <BLANK> for empty)
+                ids_list = [i if i != "" else "<BLANK>" for i in sorted(unique_ids)]
+                remark = f"Duplicate (market,channel) with multiple channel IDs: {', '.join(ids_list)}"
+            else:
+                # only one unique id across duplicates
+                only_id = next(iter(unique_ids))
+                if only_id == "":
+                    inconsistent = True
+                    remark = "Duplicate (market,channel) with missing channel ID"
+                else:
+                    inconsistent = False
+                    remark = "OK"
+        else:
+            # appears only once
+            only_id = next(iter(unique_ids))
+            if only_id == "":
+                # single row but missing ID -> mark as false (missing ID)
+                inconsistent = True
+                remark = "Missing channel ID"
+            else:
+                inconsistent = False
+                remark = "OK"
+
+        # Apply to all rows for this pair
+        for i in idxs:
+            df.at[i, "Market_Channel_ID_OK"] = not inconsistent
+            df.at[i, "Market_Channel_ID_Remark"] = remark
+
+    # For rows we skipped earlier (both market & channel empty), mark them as False with remark
     for idx, row in df.iterrows():
-        channel = norm(row.get(ch_col))
-        channel_id = norm(row.get(ch_id_col))
         market = norm(row.get(mkt_col))
-        market_id = norm(row.get(mkt_id_col))
-        remarks = []
-        ok = True
-        if channel and channel_id_map.get(channel) != channel_id:
-            remarks.append(f"Channel '{channel}' has multiple IDs")
-            ok = False
-        if market and market_id_map.get(market) != market_id:
-            remarks.append(f"Market '{market}' has multiple IDs")
-            ok = False
-        df.at[idx, "Market_Channel_ID_OK"] = ok
-        df.at[idx, "Market_Channel_ID_Remark"] = "; ".join(remarks) if remarks else "OK"
+        channel = norm(row.get(ch_col))
+        if not market and not channel:
+            df.at[idx, "Market_Channel_ID_OK"] = False
+            df.at[idx, "Market_Channel_ID_Remark"] = "Missing market and channel"
+
     return df
 
 # -----------------------------------------------------------
