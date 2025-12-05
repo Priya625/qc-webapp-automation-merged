@@ -1155,18 +1155,17 @@ def country_channel_id_check(df, bsr_cols):
     """
     Check consistency of channel IDs per (market, channel) pair.
 
-    Rules:
-    - For each (market, channel) pair, collect all channel_id values found.
-    - If the pair appears multiple times and there are multiple distinct channel_id values
-      (or the single value is blank/missing), mark those rows as False and add a remark.
-    - Otherwise mark as OK.
+    - Rows get Market_Channel_ID_OK (bool) and Market_Channel_ID_Remark (str).
+    - Same channel name across different markets is allowed.
+    - Inconsistent when the same (market, channel) pair maps to multiple channel_id values
+      or when the single channel_id for that pair is blank.
     """
     df["Market_Channel_ID_OK"] = True
     df["Market_Channel_ID_Remark"] = "OK"
 
-    ch_col = _find_column(df, bsr_cols.get('tv_channel'))
-    ch_id_col = _find_column(df, bsr_cols.get('channel_id'))
-    mkt_col = _find_column(df, bsr_cols.get('market'))
+    ch_col = _find_column(df, bsr_cols.get("tv_channel"))
+    ch_id_col = _find_column(df, bsr_cols.get("channel_id"))
+    mkt_col = _find_column(df, bsr_cols.get("market"))
 
     if not all([ch_col, ch_id_col, mkt_col]):
         logging.warning("ID Check: Missing one or more required columns (market/channel/channel_id). Skipping.")
@@ -1177,44 +1176,39 @@ def country_channel_id_check(df, bsr_cols):
     def norm(x):
         return str(x).strip() if pd.notna(x) else ""
 
-    # Map (market, channel) -> set of channel_ids and list of indices
-    pair_to_ids = {}
-    pair_to_idxs = {}
+    # Build grouping by (market, channel)
+    # We'll collect: set of channel_ids and list of indices for each (market, channel) key
+    pair_ids = {}   # (market,channel) -> set(channel_id)
+    pair_idxs = {}  # (market,channel) -> list of dataframe indices
 
     for idx, row in df.iterrows():
         market = norm(row.get(mkt_col))
         channel = norm(row.get(ch_col))
         channel_id = norm(row.get(ch_id_col))
 
-        # skip rows where both market and channel are empty
-        if not market and not channel:
-            continue
-
+        # Use empty strings for missing values; still record them
         key = (market, channel)
-        pair_to_ids.setdefault(key, set()).add(channel_id)
-        pair_to_idxs.setdefault(key, []).append(idx)
+        pair_ids.setdefault(key, set()).add(channel_id)
+        pair_idxs.setdefault(key, []).append(idx)
 
-    # Evaluate each pair
-    for key, ids in pair_to_ids.items():
-        idxs = pair_to_idxs.get(key, [])
-        # Determine if inconsistent:
-        # - more than one unique id across rows -> inconsistent
-        # - exactly one unique id but it's empty -> inconsistent (missing ID)
+    # Evaluate each (market, channel) pair
+    for key, ids in pair_ids.items():
+        idxs = pair_idxs.get(key, [])
+        unique_ids = set(ids)  # may contain "" for blanks
+
+        # default assumption
         inconsistent = False
         remark = "OK"
 
-        # Normalize ids: keep as they are (empty string allowed)
-        unique_ids = set(ids)
-
         if len(idxs) > 1:
-            # duplicate occurrences exist
+            # pair appears multiple times
             if len(unique_ids) > 1:
                 inconsistent = True
-                # make a readable list of distinct ids (show <BLANK> for empty)
+                # present distinct ids, show "<BLANK>" for empty strings
                 ids_list = [i if i != "" else "<BLANK>" for i in sorted(unique_ids)]
                 remark = f"Duplicate (market,channel) with multiple channel IDs: {', '.join(ids_list)}"
             else:
-                # only one unique id across duplicates
+                # single unique id across duplicates
                 only_id = next(iter(unique_ids))
                 if only_id == "":
                     inconsistent = True
@@ -1226,25 +1220,16 @@ def country_channel_id_check(df, bsr_cols):
             # appears only once
             only_id = next(iter(unique_ids))
             if only_id == "":
-                # single row but missing ID -> mark as false (missing ID)
                 inconsistent = True
                 remark = "Missing channel ID"
             else:
                 inconsistent = False
                 remark = "OK"
 
-        # Apply to all rows for this pair
+        # Apply results to all rows for this pair
         for i in idxs:
             df.at[i, "Market_Channel_ID_OK"] = not inconsistent
             df.at[i, "Market_Channel_ID_Remark"] = remark
-
-    # For rows we skipped earlier (both market & channel empty), mark them as False with remark
-    for idx, row in df.iterrows():
-        market = norm(row.get(mkt_col))
-        channel = norm(row.get(ch_col))
-        if not market and not channel:
-            df.at[idx, "Market_Channel_ID_OK"] = False
-            df.at[idx, "Market_Channel_ID_Remark"] = "Missing market and channel"
 
     return df
 
