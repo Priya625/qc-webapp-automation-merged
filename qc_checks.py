@@ -628,6 +628,27 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         combined_text = row["_combined_text"]
         dur_min = row["_duration_min"] if col_duration else None
 
+        # ---------- NEW: Highlights & Magazine/Support detection (must NOT use fixture) ----------
+        # Condition: duration between 10-50 mins (if duration present) and keywords present in the combined text
+        dur_ok = True
+        if col_duration:
+            if dur_min is None:
+                dur_ok = False
+            else:
+                dur_ok = (10 <= dur_min <= 50)
+
+        # Also consider Program_Category_Actual textual type directly (if user already set it)
+        # If actual says "highlights" or contains "highlight" etc, prefer that
+        if isinstance(actual, str) and actual.strip().lower() == "highlights":
+            df.at[idx, "Program_Is_Highlights"] = True
+        elif dur_ok and contains_any_keyword(combined_text, highlights_keywords):
+            df.at[idx, "Program_Is_Highlights"] = True
+
+        if isinstance(actual, str) and actual.strip().lower() in ("magazine", "magazine and support", "magazine & support", "magazine/support", "magazine support"):
+            df.at[idx, "Program_Is_MagazineSupport"] = True
+        elif dur_ok and contains_any_keyword(combined_text, magazine_keywords):
+            df.at[idx, "Program_Is_MagazineSupport"] = True
+
         # ---------- REPEAT LOGIC (RUNS BEFORE FIXTURE CHECK) ----------
         if actual == "repeat":
             same_event = df[df["_event_key"] == ev_key]
@@ -646,75 +667,71 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                 df.at[idx, "Program_Category_Remark"] = (
                     f"Repeat (earlier BSR broadcast exists, {diff:.1f} min earlier)"
                 )
-                # still set highlights/magazine flags below (do not skip)
+                # continue processing (we still compute flags)
+                continue
             else:
                 df.at[idx, "Program_Category_Expected"] = pd.NA
                 df.at[idx, "Program_Category_Remark"] = (
                     "Repeat flagged but no earlier BSR broadcast found"
                 )
-                # continue to compute flags
+                continue
 
-        # ---------- LIVE / DELAYED / REPEAT (Your original logic — UNTOUCHED for core category) ----------
+        # ---------- FIXTURE LOOKUP ----------
         fixture_rows = df_fix[
             (df_fix["_home"] == h)
             & (df_fix["_away"] == a)
             & (df_fix["_date"] == d)
         ]
 
+        # If no fixture rows, do NOT set "No matching fixture" remark (per your request).
         if fixture_rows.empty:
-            # keep expected as NA (or previous set), add remark if not already set
-            if not df.at[idx, "Program_Category_Remark"]:
-                df.at[idx, "Program_Category_Remark"] = "No matching fixture (home/away/date)"
-            # continue to compute flags
+            # We cannot determine LIVE/DELAYED using fixture — leave Expected as-is (pd.NA)
+            # Do not set remark "No matching fixture..." — leave remark blank unless something else set it.
+            # Important: do NOT return/continue here because flags already computed and REPEAT handled earlier.
+            pass
         else:
+            # fixture exists -> proceed with original live/delayed/repeat logic (updated delayed handling)
             fix_start = fixture_rows["_start"].iloc[0]
 
             if pd.isna(bsr_start) or pd.isna(fix_start):
                 df.at[idx, "Program_Category_Expected"] = pd.NA
                 df.at[idx, "Program_Category_Remark"] = "Invalid datetime"
-            else:
-                diff_min = abs((bsr_start - fix_start).total_seconds() / 60)
+                continue
 
-                # LIVE
-                if diff_min <= LIVE_TOL:
-                    df.at[idx, "Program_Category_Expected"] = "live"
-                    df.at[idx, "Program_Category_Remark"] = f"Live (within ±{LIVE_TOL} min)"
+            diff_min = abs((bsr_start - fix_start).total_seconds() / 60)
+
+            # LIVE
+            if diff_min <= LIVE_TOL:
+                df.at[idx, "Program_Category_Expected"] = "live"
+                df.at[idx, "Program_Category_Remark"] = f"Live (within ±{LIVE_TOL} min)"
+                continue
+
+            # DELAYED: (first telecast outside live window AND fixture exists)
+            same_event = df[df["_event_key"] == ev_key]
+            earliest = pd.to_datetime(same_event["_start"], errors="coerce").min()
+
+            # If this BSR record is the earliest AND it is after the fixture start => delayed
+            if pd.to_datetime(bsr_start, errors="coerce") == earliest:
+                # ensure it's after fixture start (i.e., occurred later than fixture scheduled start)
+                if (bsr_start - fix_start).total_seconds() > 0:
+                    df.at[idx, "Program_Category_Expected"] = "delayed"
+                    remark = f"Delayed (first telecast outside window; diff {diff_min:.1f} min)"
+                    # If Program_Category_Actual isn't 'delayed', note the mismatch for easier auditing
+                    if actual != "delayed":
+                        remark = remark + f"; note: Program_Type actual='{actual}'"
+                    df.at[idx, "Program_Category_Remark"] = remark
+                    continue
                 else:
-                    # ---------- DELAYED LOGIC (first telecast outside live window) ----------
-                    same_event = df[df["_event_key"] == ev_key]
-                    earliest = pd.to_datetime(same_event["_start"], errors="coerce").min()
-
-                    if bsr_start == earliest:
-                        df.at[idx, "Program_Category_Expected"] = "delayed"
-                        df.at[idx, "Program_Category_Remark"] = (
-                            f"Delayed (first telecast outside window; diff {diff_min:.1f} min)"
-                        )
-                    else:
-                        # ---------- OTHERWISE: REPEAT ----------
-                        df.at[idx, "Program_Category_Expected"] = "repeat"
-                        later_diff = (bsr_start - earliest).total_seconds() / 60
-                        df.at[idx, "Program_Category_Remark"] = f"Repeat (first telecast was {later_diff:.1f} min earlier)"
-
-        # ---------- NEW: Highlights & Magazine/Support detection (non-destructive) ----------
-        # Condition: duration between 10-50 mins (if duration present) and keywords present in the combined text
-        dur_ok = True
-        if col_duration:
-            if dur_min is None:
-                dur_ok = False
+                    # This is the earliest but not after fixture start — treat as live/unexpected — fallback
+                    df.at[idx, "Program_Category_Expected"] = pd.NA
+                    df.at[idx, "Program_Category_Remark"] = "Earliest broadcast not after fixture start"
+                    continue
             else:
-                dur_ok = (10 <= dur_min <= 50)
-
-        # Highlights detection
-        if dur_ok and contains_any_keyword(combined_text, highlights_keywords):
-            # set flag True
-            df.at[idx, "Program_Is_Highlights"] = True
-
-        # Magazine and support detection
-        if dur_ok and contains_any_keyword(combined_text, magazine_keywords):
-            df.at[idx, "Program_Is_MagazineSupport"] = True
-
-        # Note: we intentionally DO NOT change Program_Category_Expected (live/delayed/repeat)
-        # so the original behaviour is preserved.
+                # Not earliest -> REPEAT
+                df.at[idx, "Program_Category_Expected"] = "repeat"
+                later_diff = (bsr_start - earliest).total_seconds() / 60
+                df.at[idx, "Program_Category_Remark"] = f"Repeat (first telecast was {later_diff:.1f} min earlier)"
+                continue
 
     # ---------- FINAL OK ----------
     df["Program_Category_OK"] = df["Program_Category_Actual"] == df["Program_Category_Expected"]
