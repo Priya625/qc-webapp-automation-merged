@@ -7,6 +7,19 @@ import logging
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 from openpyxl.utils.dataframe import dataframe_to_rows
+import sys
+
+def debug_trace():
+    def trace(frame, event, arg):
+        if event == "exception":
+            exc_type, exc_value, tb = arg
+            print("\n🔥 DEBUG → Exception caught")
+            print("Type:", exc_type)
+            print("Value:", exc_value)
+            print("Line:", frame.f_lineno)
+            print("Function:", frame.f_code.co_name)
+        return trace
+    sys.settrace(trace)
 
 DATE_FORMAT = "%Y-%m-%d"
 
@@ -583,7 +596,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     df["Program_Category_Expected"] = pd.NA
     df["Program_Category_Remark"] = ""
 
-    LIVE_TOL = rules.get("live_tolerance_min", 30)
+    LIVE_TOL = rules.get("live_tolerance_min", 35)
 
     # ---------- MAIN LOOP ----------
     for idx, row in df.iterrows():
@@ -689,7 +702,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                 continue
             else:
                 df.at[idx, "Program_Category_Expected"] = pd.NA
-                df.at[idx, "Program_Category_Remark"] = "Earliest broadcast not after fixture start"
+                df.at[idx, "Program_Category_Remark"] = "Broadcast recieved before the fixture start"
                 continue
         else:
             # not earliest -> repeat
