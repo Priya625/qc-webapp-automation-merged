@@ -160,26 +160,43 @@ def detect_period_from_rosco(rosco_path):
     raise ValueError("Could not parse monitoring period dates from Rosco file.")
 
 # ----------------------------- 2️⃣ Load BSR -----------------------------
-def detect_header_row(bsr_path, bsr_cols):
-    df_sample = pd.read_excel(bsr_path, header=None, nrows=200)
-    # construct possible key tokens (lowercased)
+def detect_header_row(df, bsr_cols):
+    """
+    Detect the header row using known column candidate lists.
+    Ensures only STRINGS are used for 'in' comparisons.
+    """
+    # Helper: pick first string from list
+    def first_str(x):
+        if isinstance(x, list):
+            return str(x[0]).strip() if x else ""
+        return str(x).strip() if x else ""
+
     key_cols = []
-    # bsr_cols is expected to be a dict mapping logical names to lists of candidates
-    try:
-        key_cols.append(bsr_cols.get('market', ['market'])[0])
-        key_cols.append(bsr_cols.get('tv_channel', ['channel'])[0])
-        key_cols.append(bsr_cols.get('date', ['date'])[0])
-        key_cols.append(bsr_cols.get('start_time', ['start'])[0])
-    except Exception:
-        # fallback
-        key_cols = ['market','channel','date','start']
-    key_cols = [str(k).lower() for k in key_cols if k]
-    for i, row in df_sample.iterrows():
-        row_str = " ".join(row.dropna().astype(str).tolist()).lower()
-        match_count = sum(1 for col in key_cols if col in row_str)
+
+    # market
+    key_cols.append(first_str(bsr_cols.get("market")))
+
+    # tv channel
+    key_cols.append(first_str(bsr_cols.get("tv_channel")))
+
+    # match day / matchday
+    md = bsr_cols.get("matchday") or bsr_cols.get("match_day")
+    key_cols.append(first_str(md))
+
+    # audience
+    key_cols.append(first_str(bsr_cols.get("aud_estimates")))
+
+    # Normalize
+    key_cols = [c for c in key_cols if c]
+
+    for i in range(min(50, len(df))):
+        row_str = " ".join([str(x).lower() for x in df.iloc[i].tolist()])
+        match_count = sum(1 for col in key_cols if col.lower() in row_str)
+
         if match_count >= 2:
-            return i
-    raise ValueError("Could not detect header row in BSR file.")
+            return i  # header row index
+
+    return 0
 
 def load_bsr(bsr_path, bsr_cols):
     header_row = detect_header_row(bsr_path, bsr_cols)
