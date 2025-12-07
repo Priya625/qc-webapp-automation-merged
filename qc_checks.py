@@ -1154,22 +1154,13 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
 def country_channel_id_check(df, bsr_cols):
     """
     Check consistency of channel IDs per (market, tv_channel) pair.
-
-    RULE:
-    - For each (Market, TV-Channel) pair → must have exactly ONE unique Channel ID.
-    - If same pair appears with different Channel IDs → inconsistent.
-    - If the only channel_id is blank → inconsistent.
-    - Same TV-Channel across different markets is allowed (treated independently).
-
-    Adds these columns:
-        Market_Channel_ID_OK (bool)
-        Market_Channel_ID_Remark (str)
+    Ensures each (Market, TV-Channel) pair maps to exactly ONE unique Channel ID.
     """
 
     df["Market_Channel_ID_OK"] = True
     df["Market_Channel_ID_Remark"] = "OK"
 
-    # Resolve column names
+    # Resolve columns
     ch_col = _find_column(df, bsr_cols.get("tv_channel"))
     ch_id_col = _find_column(df, bsr_cols.get("channel_id"))
     mkt_col = _find_column(df, bsr_cols.get("market"))
@@ -1181,9 +1172,19 @@ def country_channel_id_check(df, bsr_cols):
         return df
 
     def norm(x):
-        return str(x).strip() if pd.notna(x) else ""
+        """Normalize values safely:
+           - list → join as string
+           - number → convert to string
+           - nan → ""
+           - string → strip
+        """
+        if isinstance(x, list):
+            return " ".join([str(i).strip() for i in x])
+        if pd.isna(x):
+            return ""
+        return str(x).strip()
 
-    # Build mapping: (market, tv_channel) → set(channel_ids) & row indices
+    # Build mapping
     pair_ids = {}
     pair_idxs = {}
 
@@ -1197,34 +1198,26 @@ def country_channel_id_check(df, bsr_cols):
         pair_ids.setdefault(key, set()).add(channel_id)
         pair_idxs.setdefault(key, []).append(idx)
 
-    # Evaluate each pair
+    # Evaluate
     for key, id_set in pair_ids.items():
         idxs = pair_idxs[key]
         unique_ids = set(id_set)
 
+        non_blank_ids = {cid for cid in unique_ids if cid != ""}
+
         inconsistent = False
         remark = "OK"
 
-        # Remove blank IDs for logic, but track if they exist
-        non_blank_ids = {cid for cid in unique_ids if cid != ""}
-
         if len(non_blank_ids) == 0:
-            # All IDs are blank
             inconsistent = True
             remark = "Missing channel ID"
 
         elif len(non_blank_ids) > 1:
-            # Different non-blank IDs exist → inconsistent
             inconsistent = True
             ids_list = [cid if cid != "" else "<BLANK>" for cid in sorted(unique_ids)]
             remark = f"Conflicting Channel IDs for same (market,channel): {', '.join(ids_list)}"
 
-        else:
-            # Exactly 1 unique non-blank channel ID → OK
-            inconsistent = False
-            remark = "OK"
-
-        # Apply results
+        # Apply
         for i in idxs:
             df.at[i, "Market_Channel_ID_OK"] = not inconsistent
             df.at[i, "Market_Channel_ID_Remark"] = remark
