@@ -18,15 +18,33 @@ HEADER_FILL = PatternFill(start_color="BDD7EE", end_color="BDD7EE", fill_type="s
 def _find_column(df, candidates):
     if df is None:
         return None
+        
+    # Ensure candidates is always a list before iteration
     if not isinstance(candidates, list):
-        candidates = [candidates]
+        # Handle cases where `candidates` is passed as a single string or None
+        candidates = [candidates] 
+        
     cols_lower = {str(c).lower().strip(): c for c in df.columns}
+    
     for cand in candidates:
         if cand is None:
             continue
+            
+        # Added check for nested list (the likely cause of the error)
+        if isinstance(cand, list):
+            # Iterate over the nested list and check candidates
+            for sub_cand in cand:
+                if sub_cand is not None:
+                    k = str(sub_cand).lower().strip()
+                    if k in cols_lower:
+                        return cols_lower[k]
+            continue 
+        
         k = str(cand).lower().strip()
+        
         if k in cols_lower:
             return cols_lower[k]
+            
     return None
 
 def _is_present(val):
@@ -164,21 +182,37 @@ def detect_header_row(bsr_path, bsr_cols):
     df_sample = pd.read_excel(bsr_path, header=None, nrows=200)
     # construct possible key tokens (lowercased)
     key_cols = []
-    # bsr_cols is expected to be a dict mapping logical names to lists of candidates
+    
+    # Safely extract single string candidates, or fallback to default
     try:
-        key_cols.append(bsr_cols.get('market', ['market'])[0])
-        key_cols.append(bsr_cols.get('tv_channel', ['channel'])[0])
-        key_cols.append(bsr_cols.get('date', ['date'])[0])
-        key_cols.append(bsr_cols.get('start_time', ['start'])[0])
+        # We explicitly cast to string and safely access the first item
+        market_cand = bsr_cols.get('market', ['market'])
+        key_cols.append(str(market_cand[0]) if market_cand and len(market_cand) > 0 else 'market')
+        
+        channel_cand = bsr_cols.get('tv_channel', ['channel'])
+        key_cols.append(str(channel_cand[0]) if channel_cand and len(channel_cand) > 0 else 'channel')
+        
+        date_cand = bsr_cols.get('date', ['date'])
+        key_cols.append(str(date_cand[0]) if date_cand and len(date_cand) > 0 else 'date')
+        
+        start_cand = bsr_cols.get('start_time', ['start'])
+        key_cols.append(str(start_cand[0]) if start_cand and len(start_cand) > 0 else 'start')
+        
     except Exception:
-        # fallback
+        # fallback is already a list of strings, which is safe
         key_cols = ['market','channel','date','start']
-    key_cols = [str(k).lower() for k in key_cols if k]
+        
+    # Final cleanup to ensure only lowercased, non-empty strings remain
+    key_cols = [str(k).lower() for k in key_cols if k and str(k).strip()]
+    
     for i, row in df_sample.iterrows():
         row_str = " ".join(row.dropna().astype(str).tolist()).lower()
-        match_count = sum(1 for col in key_cols if col in row_str)
+        
+        # This check is now safe: col is definitely a string
+        match_count = sum(1 for col in key_cols if col in row_str) 
         if match_count >= 2:
             return i
+    
     raise ValueError("Could not detect header row in BSR file.")
 
 def load_bsr(bsr_path, bsr_cols):
