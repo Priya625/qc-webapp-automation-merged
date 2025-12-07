@@ -164,16 +164,23 @@ def detect_header_row(bsr_path, bsr_cols):
     df_sample = pd.read_excel(bsr_path, header=None, nrows=200)
     # construct possible key tokens (lowercased)
     key_cols = []
+
+    def safe_first(x,default):
+        if isinstance(x, list) and x:
+            return str(x[0])
+        if isinstance(x, str):
+            return x
+        return default
     # bsr_cols is expected to be a dict mapping logical names to lists of candidates
     try:
-        key_cols.append(bsr_cols.get('market', ['market'])[0])
-        key_cols.append(bsr_cols.get('tv_channel', ['channel'])[0])
-        key_cols.append(bsr_cols.get('date', ['date'])[0])
-        key_cols.append(bsr_cols.get('start_time', ['start'])[0])
+        key_cols.append(bsr_cols.get('market', ['market']))
+        key_cols.append(bsr_cols.get('tv_channel', ['channel']))
+        key_cols.append(bsr_cols.get('date', ['date']))
+        key_cols.append(bsr_cols.get('start_time', ['start']))
     except Exception:
         # fallback
-        key_cols = ['market','channel','date','start']
-    key_cols = [str(k).lower() for k in key_cols if k]
+        #key_cols = ['market','channel','date','start']
+        key_cols = [str(k).lower().strip() for k in key_cols]
     for i, row in df_sample.iterrows():
         row_str = " ".join(row.dropna().astype(str).tolist()).lower()
         match_count = sum(1 for col in key_cols if col in row_str)
