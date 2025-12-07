@@ -729,7 +729,7 @@ def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules
                 fixture_keywords = [fixture_keywords]
 
             fixture_sheet = next(
-                (s for s in xl.sheet_names 
+                (s for s in xls.sheet_names 
                 if any(kw.lower() in s.lower() for kw in fixture_keywords)),
                 None
             )
@@ -874,7 +874,7 @@ def market_channel_consistency_check(df_bsr, rosco_path, col_map, file_rules):
             if sheet_name:
                 rosco_df = xls.parse(sheet_name)
             else:
-                logging.warning(f"No valid sheet found in ROSCO (ignoring '{ignore_sheet}').")
+                logging.warning(f"No valid sheet found in ROSCO (ignoring '{ignore_sheets}').")
         except Exception as e:
             logging.error(f"Error loading ROSCO file: {e}")
             df_bsr["Market_Channel_Consistency_OK"] = False
