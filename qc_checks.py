@@ -862,8 +862,15 @@ def market_channel_consistency_check(df_bsr, rosco_path, col_map, file_rules):
     if rosco_path:
         try:
             xls = pd.ExcelFile(rosco_path)
-            ignore_sheet = file_rules.get('rosco_ignore_sheet', 'general')
-            sheet_name = next((s for s in xls.sheet_names if ignore_sheet not in s.lower()), None)
+            ignore_sheets = file_rules.get('rosco_ignore_sheet', ['general'])
+            if isinstance(ignore_sheets, str):
+                ignore_sheets = [ignore_sheets]
+
+            sheet_name = next(
+                (s for s in xls.sheet_names 
+                if all(ig.lower() not in s.lower() for ig in ignore_sheets)),
+                None
+            )
             if sheet_name:
                 rosco_df = xls.parse(sheet_name)
             else:
