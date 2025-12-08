@@ -175,8 +175,10 @@ def detect_header_row(bsr_path, bsr_cols):
         key_cols = ['market','channel','date','start']
     key_cols = [str(k).lower() for k in key_cols if k]
     for i, row in df_sample.iterrows():
-        # FIX: Ensure all row elements are explicitly strings before joining
-        row_str = " ".join(str(x) for x in row.dropna().tolist()).lower()
+        # FIX: Robust extraction and string conversion to prevent list/string mix-up errors.
+        row_values = [str(x) for x in row.values if pd.notna(x)]
+        row_str = " ".join(row_values).lower()
+        
         match_count = sum(1 for col in key_cols if col in row_str)
         if match_count >= 2:
             return i
