@@ -168,44 +168,32 @@ def detect_header_row(df, bsr_cols):
     """
 
     # Helper: safely extract first usable string
-def first_str(x):
-    """Always return a clean string, never list/Series/array."""
-    if x is None:
-        return ""
-
-    # If list → use first non-empty element
-    if isinstance(x, list):
-        for item in x:
-            s = str(item).strip()
-            if s:
-                return s
-        return ""
-
-    # If Series/array → use first non-null element
-    if isinstance(x, (pd.Series, np.ndarray)):
-        try:
-            if hasattr(x, "dropna"):
-                xx = x.dropna()
-                if len(xx) > 0:
-                    return str(xx.iloc[0]).strip()
-            else:
-                if len(x) > 0:
-                    return str(x[0]).strip()
-        except:
+    def first_str(x):
+        if x is None:
             return ""
+        if isinstance(x, list):
+            for i in x:
+                if i and str(i).strip():
+                    return str(i).strip()
+            return ""
+        if isinstance(x, (pd.Series, np.ndarray)):
+            try:
+                x = x.dropna() if hasattr(x, "dropna") else x
+                return str(x[0]).strip() if len(x) > 0 else ""
+            except:
+                return ""
+        return str(x).strip()
 
-    # Otherwise convert directly
-    try:
-        s = str(x).strip()
-        return s
-    except:
-        return ""
-
-    # ---- SAFE retrieval of matchday (no OR on arrays!) ----
+# ---- SAFE retrieval of matchday (no OR on arrays!) ----
     md = bsr_cols.get("matchday", None)
     if md is None:
         md = bsr_cols.get("match_day", None)
 
+    safe_key_cols = []
+    for c in key_cols:
+        if isinstance(c, str) and c.strip():
+            safe_key_cols.append(c.lower())
+    key_cols = safe_key_cols
     # Collect key header identifiers
     key_cols = [
         first_str(bsr_cols.get("market")),
