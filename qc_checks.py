@@ -172,10 +172,10 @@ def detect_header_row(bsr_path, bsr_cols):
     key_cols = []
     # bsr_cols is expected to be a dict mapping logical names to lists of candidates
     try:
-        key_cols.extend(ensure_list(bsr_cols.get('market', ['market'])))
-        key_cols.extend(ensure_list(bsr_cols.get('tv_channel', ['channel'])))
-        key_cols.extend(ensure_list(bsr_cols.get('date', ['date'])))
-        key_cols.extend(ensure_list(bsr_cols.get('start_time', ['start'])))
+        key_cols.append(bsr_cols.get('market', ['market'])[0])
+        key_cols.append(bsr_cols.get('tv_channel', ['channel'])[0])
+        key_cols.append(bsr_cols.get('date', ['date'])[0])
+        key_cols.append(bsr_cols.get('start_time', ['start'])[0])
     except Exception:
         # fallback
         key_cols = ['market','channel','date','start']
