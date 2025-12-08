@@ -167,48 +167,31 @@ def detect_header_row(df, bsr_cols):
     """
     # Helper: pick first string from list
     def first_str(x):
-        # Handle None or NaN
-        if x is None or pd.isna(x):
-            return ""
-        # If it's a list, try to get the first non-empty string element
         if isinstance(x, list):
-            for item in x:
-                s = str(item).strip()
-                if s:
-                    return s
-            return ""
-        # If it's a single item (int, float, string), convert and clean
+            return str(x[0]).strip() if x else ""
         return str(x).strip() if x else ""
 
     key_cols = []
 
-    # Market
+    # market
     key_cols.append(first_str(bsr_cols.get("market")))
 
-    # TV Channel
+    # tv channel
     key_cols.append(first_str(bsr_cols.get("tv_channel")))
 
-    # Match Day
+    # match day / matchday
     md = bsr_cols.get("matchday") or bsr_cols.get("match_day")
     key_cols.append(first_str(md))
 
-    # Audience
+    # audience
     key_cols.append(first_str(bsr_cols.get("aud_estimates")))
 
-    # Normalize: Ensure every element is a non-empty, lower-cased string
-    # This is the key line to eliminate any remaining lists or empty strings.
-    key_cols = [c.lower() for c in key_cols if c]
-
-    if not key_cols:
-        return 0 # Cannot detect header, return default
+    # Normalize
+    key_cols = [str(c) for c in key_cols if c]
 
     for i in range(min(50, len(df))):
-        # Prepare the row content for matching, converting all values to lower-cased strings
         row_str = " ".join([str(x).lower() for x in df.iloc[i].tolist()])
-        
-        # Check if enough key columns are present in the row string
-        # Since key_cols are now all lower-case strings, the comparison is safe.
-        match_count = sum(1 for col in key_cols if col in row_str)
+        match_count = sum(1 for col in key_cols if col.lower() in row_str)
 
         if match_count >= 2:
             return i  # header row index
