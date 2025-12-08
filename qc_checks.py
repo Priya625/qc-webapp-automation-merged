@@ -189,7 +189,11 @@ def detect_header_row(df, bsr_cols):
     if md is None:
         md = bsr_cols.get("match_day", None)
 
-    key_cols = [c for c in key_cols if isinstance(c, str)]
+    safe_key_cols = []
+    for c in key_cols:
+        if isinstance(c, str) and c.strip():
+            safe_key_cols.append(c.lower())
+    key_cols = safe_key_cols
     # Collect key header identifiers
     key_cols = [
         first_str(bsr_cols.get("market")),
@@ -197,6 +201,16 @@ def detect_header_row(df, bsr_cols):
         first_str(md),
         first_str(bsr_cols.get("aud_estimates"))
     ]
+
+    # Normalize: keep only REAL strings
+    safe_key_cols = []
+    for c in key_cols:
+        if isinstance(c, str) and c.strip():
+         safe_key_cols.append(c.lower())
+    key_cols = safe_key_cols
+
+    if not key_cols:
+        return 0  # fallback
 
     # ---- Try first 50 rows to find header ----
     for i in range(min(50, len(df))):
