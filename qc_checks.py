@@ -168,34 +168,38 @@ def detect_header_row(df, bsr_cols):
     """
 
     # Helper: safely extract first usable string
-    def first_str(x):
-        # Handle Pandas Series / numpy arrays
-        if isinstance(x, (pd.Series, np.ndarray)):
-            try:
-                if hasattr(x, "dropna"):
-                    x = x.dropna()
-                    if len(x) == 0:
-                        return ""
-                    return str(x.iloc[0]).strip()
-                else:
-                    if len(x) > 0:
-                        return str(x[0]).strip()
-            except:
-                return ""
+def first_str(x):
+    """Always return a clean string, never list/Series/array."""
+    if x is None:
+        return ""
 
-        if x is None or pd.isna(x):
+    # If list → use first non-empty element
+    if isinstance(x, list):
+        for item in x:
+            s = str(item).strip()
+            if s:
+                return s
+        return ""
+
+    # If Series/array → use first non-null element
+    if isinstance(x, (pd.Series, np.ndarray)):
+        try:
+            if hasattr(x, "dropna"):
+                xx = x.dropna()
+                if len(xx) > 0:
+                    return str(xx.iloc[0]).strip()
+            else:
+                if len(x) > 0:
+                    return str(x[0]).strip()
+        except:
             return ""
 
-        # If list → return first non-empty
-        if isinstance(x, list):
-            for item in x:
-                s = str(item).strip()
-                if s:
-                    return s
-            return ""
-
-        # Simple item (str/int/etc.)
-        return str(x).strip()
+    # Otherwise convert directly
+    try:
+        s = str(x).strip()
+        return s
+    except:
+        return ""
 
     # ---- SAFE retrieval of matchday (no OR on arrays!) ----
     md = bsr_cols.get("matchday", None)
