@@ -1,5 +1,9 @@
 import pandas as pd
 import re
+import datetime
+import os
+import numpy as np
+import logging
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 from openpyxl.utils.dataframe import dataframe_to_rows
@@ -10,6 +14,127 @@ DATE_FORMAT = "%Y-%m-%d"
 GREEN_FILL = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
 RED_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
 HEADER_FILL = PatternFill(start_color="BDD7EE", end_color="BDD7EE", fill_type="solid")
+
+# ----------------------------- Helpers -----------------------------
+def _find_column(df, candidates):
+    if df is None:
+        return None
+    if not isinstance(candidates, list):
+        candidates = [candidates]
+    cols_lower = {str(c).lower().strip(): c for c in df.columns}
+    for cand in candidates:
+        if cand is None:
+            continue
+        k = str(cand).lower().strip()
+        if k in cols_lower:
+            return cols_lower[k]
+    return None
+
+def _is_present(val):
+    if val is None:
+        return False
+    try:
+        if pd.isna(val):
+            return False
+    except Exception:
+        pass
+    if isinstance(val, (int, float)) and not (isinstance(val, float) and pd.isna(val)):
+        return True
+    s = str(val).strip()
+    if s == "":
+        return False
+    if s.lower() in ("nan", "none", "-"):
+        return False
+    return True
+
+def parse_duration_to_minutes(duration_series):
+    results = []
+    for item in duration_series:
+        if pd.isna(item):
+            results.append(np.nan)
+            continue
+        if isinstance(item, (int, float)):
+            results.append(float(item))
+            continue
+        s = str(item).strip()
+        try:
+            num = float(s)
+            results.append(num)
+            continue
+        except Exception:
+            pass
+        parts = s.split(':')
+        if len(parts) >= 2:
+            try:
+                hours = float(re.sub(r"[^0-9.]", "", parts[0])) if parts[0] else 0.0
+                minutes = float(re.sub(r"[^0-9.]", "", parts[1])) if parts[1] else 0.0
+                seconds = 0.0
+                if len(parts) >= 3:
+                    seconds = float(re.sub(r"[^0-9.]", "", parts[2])) if parts[2] else 0.0
+                total_minutes = (hours * 60) + minutes + (seconds / 60)
+                results.append(total_minutes)
+            except Exception:
+                results.append(np.nan)
+        else:
+            results.append(np.nan)
+    return pd.Series(results, index=duration_series.index)
+
+def to_time_str(val):
+    """Convert Excel time/float/time/string to HH:MM:SS string."""
+    if pd.isna(val):
+        return None
+
+    # if already datetime.time
+    if isinstance(val, datetime.time):
+        return val.strftime("%H:%M:%S")
+
+    # Excel float time (0.0–1.0)
+    try:
+        if isinstance(val, float) or isinstance(val, int):
+            total_seconds = int(val * 24 * 3600)
+            h = total_seconds // 3600
+            m = (total_seconds % 3600) // 60
+            s = total_seconds % 60
+            return f"{h:02}:{m:02}:{s:02}"
+    except:
+        pass
+
+    # fallback: string
+    try:
+        t = pd.to_datetime(str(val), errors="coerce")
+        if isinstance(t, pd.Timestamp):
+            return t.strftime("%H:%M:%S")
+    except:
+        return None
+
+    return None
+
+
+def to_date_str(val):
+    """Convert Excel date/datetime/string to YYYY-MM-DD."""
+    if pd.isna(val):
+        return None
+
+    if isinstance(val, datetime.date):
+        return val.strftime("%Y-%m-%d")
+
+    try:
+        d = pd.to_datetime(val, errors="coerce")
+        if isinstance(d, pd.Timestamp):
+            return d.strftime("%Y-%m-%d")
+    except:
+        return None
+
+    return None
+
+
+def combine_parse(date_val, time_val):
+    d = to_date_str(date_val)
+    t = to_time_str(time_val)
+    if not d or not t:
+        return pd.NaT
+    return pd.to_datetime(f"{d} {t}", errors="coerce")
+
 
 
 # ----------------------------- 1️⃣ Detect Monitoring Period -----------------------------
@@ -594,58 +719,36 @@ def domestic_market_coverage_check(df_worksheet, reference_df=None, debug_rows=1
 # -----------------------------------------------------------
 # 11️⃣ Rates & Ratings Check
 # --------------------------------------------
-def rates_and_ratings_check(df):
-    """
-    Rates and Ratings QC Check
-    Outputs two columns:
-      - Rates_Ratings_QC_OK (True/False)
-      - Rates_Ratings_QC_Remark
-    """
-    print("\n--- Running Rates and Ratings Check ---")
-
-    if 'Source' not in df.columns:
-        df['Source'] = None
-    if 'TVR% 3+' not in df.columns:
-        df['TVR% 3+'] = None
-    if "CPT's [Euro]" not in df.columns and "Spot price in Euro [30 sec.]" in df.columns:
-        df["CPT's [Euro]"] = df["Spot price in Euro [30 sec.]"]
-
+def rates_and_ratings_check(df, bsr_cols):
+    est_col = _find_column(df, bsr_cols.get('aud_estimates'))
+    met_col = _find_column(df, bsr_cols.get('aud_metered'))
+    est_col_exists = est_col is not None and est_col in df.columns
+    met_col_exists = met_col is not None and met_col in df.columns
+    if est_col is None:
+        est_col = "Audience_Estimates_Dummy"
+        df[est_col] = np.nan
+        logging.warning("Rates/Ratings Check: Audience Estimates column not found.")
+    if met_col is None:
+        met_col = "Audience_Metered_Dummy"
+        df[met_col] = np.nan
+        logging.warning("Rates/Ratings Check: Audience Metered column not found.")
+    present_est = df[est_col].apply(_is_present)
+    present_met = df[met_col].apply(_is_present)
+    both_empty_mask = (~present_est) & (~present_met)
+    both_present_mask = (present_est) & (present_met)
+    exactly_one_mask = (present_est ^ present_met)
     df["Rates_Ratings_QC_OK"] = True
     df["Rates_Ratings_QC_Remark"] = ""
-
-    # 1️⃣ Source overlap
-    overlap_rows = []
-    grouped = df.groupby(["TV-Channel", "Date"], dropna=False)
-    for (channel, date), group in grouped:
-        sources = group["Source"].dropna().unique().tolist()
-        if "Meter" in sources and any(s not in ["Meter", None] for s in sources):
-            overlap_rows.extend(group.index.tolist())
-
-    df.loc[overlap_rows, "Rates_Ratings_QC_OK"] = False
-    df.loc[overlap_rows, "Rates_Ratings_QC_Remark"] = "Meter and Non-Meter overlap"
-
-    # 2️⃣ Linear vs OTT conflict
-    if "Type of program" in df.columns:
-        ott_mask = df["TV-Channel"].astype(str).str.contains("OTT", case=False, na=False)
-        linear_mask = df["TV-Channel"].astype(str).str.contains("HD|TV", case=False, na=False)
-        both_mask = ott_mask & linear_mask
-        df.loc[both_mask, "Rates_Ratings_QC_OK"] = False
-        df.loc[both_mask, "Rates_Ratings_QC_Remark"] = "Channel classified as both Linear and OTT"
-
-    # 3️⃣ Missing rate/rating values
-    invalid_rates = df[df["CPT's [Euro]"].astype(str).isin(["", "nan", "None"])]
-    invalid_ratings = df[df["TVR% 3+"].astype(str).isin(["", "nan", "None"])]
-
-    df.loc[invalid_rates.index, "Rates_Ratings_QC_OK"] = False
-    df.loc[invalid_rates.index, "Rates_Ratings_QC_Remark"] = "Missing rate values"
-
-    df.loc[invalid_ratings.index, "Rates_Ratings_QC_OK"] = False
-    df.loc[invalid_ratings.index, "Rates_Ratings_QC_Remark"] = "Missing audience ratings"
-
-    total = len(df)
-    failed = (~df["Rates_Ratings_QC_OK"]).sum()
-    print(f"Rates & Ratings QC Summary: {failed}/{total} failed ({(failed/total)*100:.2f}%)")
-
+    df.loc[both_empty_mask, "Rates_Ratings_QC_OK"] = False
+    df.loc[both_empty_mask, "Rates_Ratings_QC_Remark"] = "Missing audience ratings (both empty)"
+    df.loc[both_present_mask, "Rates_Ratings_QC_OK"] = False
+    df.loc[both_present_mask, "Rates_Ratings_QC_Remark"] = "Invalid: both metered and estimated present"
+    df.loc[exactly_one_mask, "Rates_Ratings_QC_OK"] = True
+    df.loc[exactly_one_mask, "Rates_Ratings_QC_Remark"] = "Valid: one rating source available"
+    if est_col == "Audience_Estimates_Dummy" and est_col in df.columns:
+        df.drop(columns=[est_col], inplace=True)
+    if met_col == "Audience_Metered_Dummy" and met_col in df.columns:
+        df.drop(columns=[met_col], inplace=True)
     return df
 
 # -----------------------------------------------------------
