@@ -451,7 +451,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         if any(kw.lower() in s.lower() for kw in fixture_keywords)),
         None
     )
-    fixture_sheet = next((s for s in xl.sheet_names if fixture_keywords in s.lower()), None)
+    fixture_sheet = next((s for s in xl.sheet_names if fixture_keyword in s.lower()), None)
 
     if not fixture_sheet:
         df["Program_Category_Expected"] = pd.NA
@@ -733,7 +733,7 @@ def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules
                 if any(kw.lower() in s.lower() for kw in fixture_keywords)),
                 None
             )
-            fixture_sheet = next((s for s in xls.keys() if fixture_keywords in s.lower()), None)
+            fixture_sheet = next((s for s in xls.keys() if fixture_keyword in s.lower()), None)
             if fixture_sheet:
                 df_data = xls[fixture_sheet]
             else:
