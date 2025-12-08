@@ -1244,69 +1244,85 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
     return df_bsr
 # -----------------------------------------------------------
 # 13️⃣ Country & Channel IDs Check
-def country_channel_id_check(df):
+def country_channel_id_check(df, bsr_cols):
     """
-    Ensures that each channel and market is mapped to a single, consistent ID.
-    Outputs two columns:
-      - Market_Channel_ID_OK (True/False)
-      - Market_Channel_ID_Remark (string)
+    Check consistency of channel IDs per (market, tv_channel) pair.
+
+    RULE:
+    - For each (Market, TV-Channel) pair → must have exactly ONE unique Channel ID.
+    - If same pair appears with different Channel IDs → inconsistent.
+    - If the only channel_id is blank → inconsistent.
+    - Same TV-Channel across different markets is allowed (treated independently).
+
+    Adds these columns:
+        Market_Channel_ID_OK (bool)
+        Market_Channel_ID_Remark (str)
     """
 
-    df_result = df.copy()
-    df_result["Market_Channel_ID_OK"] = True
-    df_result["Market_Channel_ID_Remark"] = ""
+    df["Market_Channel_ID_OK"] = True
+    df["Market_Channel_ID_Remark"] = "OK"
+
+    # Resolve column names
+    ch_col = _find_column(df, bsr_cols.get("tv_channel"))
+    ch_id_col = _find_column(df, bsr_cols.get("channel_id"))
+    mkt_col = _find_column(df, bsr_cols.get("market"))
+
+    if not all([ch_col, ch_id_col, mkt_col]):
+        logging.warning("Country/Channel ID Check: Missing required columns. Skipping.")
+        df["Market_Channel_ID_OK"] = False
+        df["Market_Channel_ID_Remark"] = "Check skipped: missing required columns"
+        return df
 
     def norm(x):
         return str(x).strip() if pd.notna(x) else ""
 
-    # Maps to track consistency
-    channel_id_map = {}
-    market_id_map = {}
+    # Build mapping: (market, tv_channel) → set(channel_ids) & row indices
+    pair_ids = {}
+    pair_idxs = {}
 
-    for idx, row in df_result.iterrows():
-        channel = norm(row.get("TV-Channel"))
-        channel_id = norm(row.get("Channel ID"))
-        market = norm(row.get("Market"))
-        market_id = norm(row.get("Market ID"))
+    for idx, row in df.iterrows():
+        market = norm(row[mkt_col])
+        channel = norm(row[ch_col])
+        channel_id = norm(row[ch_id_col])
 
-        remarks = []
-        ok = True
+        key = (market, channel)
 
-        # ✅ Check 1 – Same channel shouldn't have multiple Channel IDs
-        if channel:
-            if channel in channel_id_map and channel_id_map[channel] != channel_id:
-                remarks.append(
-                    f"Channel '{channel}' has multiple IDs ({channel_id_map[channel]} vs {channel_id})"
-                )
-                ok = False
-            else:
-                channel_id_map[channel] = channel_id
+        pair_ids.setdefault(key, set()).add(channel_id)
+        pair_idxs.setdefault(key, []).append(idx)
 
-        # ✅ Check 2 – Same market shouldn't have multiple Market IDs
-        if market:
-            if market in market_id_map and market_id_map[market] != market_id:
-                remarks.append(
-                    f"Market '{market}' has multiple IDs ({market_id_map[market]} vs {market_id})"
-                )
-                ok = False
-            else:
-                market_id_map[market] = market_id
+    # Evaluate each pair
+    for key, id_set in pair_ids.items():
+        idxs = pair_idxs[key]
+        unique_ids = set(id_set)
 
-        # ✅ Check 3 – Same Channel ID shouldn't be used for multiple channels
-        if channel_id and list(channel_id_map.values()).count(channel_id) > 1:
-            remarks.append(f"Channel ID '{channel_id}' assigned to multiple channels")
-            ok = False
+        inconsistent = False
+        remark = "OK"
 
-        # ✅ Check 4 – Same Market ID shouldn't be used for multiple markets
-        if market_id and list(market_id_map.values()).count(market_id) > 1:
-            remarks.append(f"Market ID '{market_id}' assigned to multiple markets")
-            ok = False
+        # Remove blank IDs for logic, but track if they exist
+        non_blank_ids = {cid for cid in unique_ids if cid != ""}
 
-        # ✅ Write results
-        df_result.at[idx, "Market_Channel_ID_OK"] = ok
-        df_result.at[idx, "Market_Channel_ID_Remark"] = "; ".join(remarks) if remarks else "OK"
+        if len(non_blank_ids) == 0:
+            # All IDs are blank
+            inconsistent = True
+            remark = "Missing channel ID"
 
-    return df_result
+        elif len(non_blank_ids) > 1:
+            # Different non-blank IDs exist → inconsistent
+            inconsistent = True
+            ids_list = [cid if cid != "" else "<BLANK>" for cid in sorted(unique_ids)]
+            remark = f"Conflicting Channel IDs for same (market,channel): {', '.join(ids_list)}"
+
+        else:
+            # Exactly 1 unique non-blank channel ID → OK
+            inconsistent = False
+            remark = "OK"
+
+        # Apply results
+        for i in idxs:
+            df.at[i, "Market_Channel_ID_OK"] = not inconsistent
+            df.at[i, "Market_Channel_ID_Remark"] = remark
+
+    return df
 
 # -----------------------------------------------------------
 # ✅ Excel Coloring for True/False checks
