@@ -18,30 +18,15 @@ HEADER_FILL = PatternFill(start_color="BDD7EE", end_color="BDD7EE", fill_type="s
 def _find_column(df, candidates):
     if df is None:
         return None
-
-    # Always work with a flat list of strings
-    flat_candidates = []
-
-    if isinstance(candidates, list):
-        for c in candidates:
-            if isinstance(c, list):   # flatten nested lists
-                flat_candidates.extend(c)
-            else:
-                flat_candidates.append(c)
-    else:
-        flat_candidates = [candidates]
-
-    # Normalize the DF columns
+    if not isinstance(candidates, list):
+        candidates = [candidates]
     cols_lower = {str(c).lower().strip(): c for c in df.columns}
-
-    # Try matching each candidate
-    for cand in flat_candidates:
+    for cand in candidates:
         if cand is None:
             continue
         k = str(cand).lower().strip()
         if k in cols_lower:
             return cols_lower[k]
-
     return None
 
 def _is_present(val):
