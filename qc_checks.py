@@ -126,19 +126,13 @@ def to_date_str(val):
 
     return None
 
+
 def combine_parse(date_val, time_val):
     d = to_date_str(date_val)
     t = to_time_str(time_val)
     if not d or not t:
         return pd.NaT
     return pd.to_datetime(f"{d} {t}", errors="coerce")
-
-def ensure_list(x):
-    if isinstance(x, list):
-        return x
-    if x is None:
-        return []
-    return [x]
 
 # ----------------------------- 1️⃣ Detect Monitoring Period -----------------------------
 def detect_period_from_rosco(rosco_path):
