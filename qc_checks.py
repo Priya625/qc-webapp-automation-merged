@@ -161,73 +161,57 @@ def detect_period_from_rosco(rosco_path):
 
 # ----------------------------- 2️⃣ Load BSR -----------------------------
 def detect_header_row(df, bsr_cols):
-
+    """
+    Robust header row detection.
+    Fixes: "truth value of an array is ambiguous"
+    by avoiding `a or b` when a/b may be lists/Series/arrays.
+    """
+    # --- Safe extractor: ALWAYS returns a string ---
     def first_str(x):
-        """Return ONLY a string. Never list, never Series."""
         if x is None:
             return ""
-
-        # If x is a list → return first non-empty string
         if isinstance(x, list):
-            for v in x:
-                if v is not None and str(v).strip():
-                    return str(v).strip()
+            for item in x:
+                if item and str(item).strip():
+                    return str(item).strip()
             return ""
-
-        # If x is Series/array → return first non-null
         if isinstance(x, (pd.Series, np.ndarray)):
             try:
-                arr = x.dropna() if hasattr(x, "dropna") else x
-                if len(arr) > 0:
-                    return str(arr.iloc[0] if hasattr(arr, "iloc") else arr[0]).strip()
+                if hasattr(x, "dropna"):
+                    xx = x.dropna()
+                    if len(xx) > 0:
+                        return str(xx.iloc[0]).strip()
+                else:
+                    if len(x) > 0:
+                        return str(x[0]).strip()
             except:
                 return ""
+        return str(x).strip()
 
-        # Fallback: convert to string
-        try:
-            return str(x).strip()
-        except:
-            return ""
-
-    # ---------- Retrieve matchday safely ----------
-    md = bsr_cols.get("matchday")
+    # ----- SAFE retrieval of matchday -----
+    md = bsr_cols.get("matchday", None)
     if md is None:
-        md = bsr_cols.get("match_day")
+        md = bsr_cols.get("match_day", None)
 
-    # ---------- Create raw list ----------
-    raw_keys = [
+    # ----- Build key list (raw) -----
+    key_cols = [
         first_str(bsr_cols.get("market")),
         first_str(bsr_cols.get("tv_channel")),
         first_str(md),
         first_str(bsr_cols.get("aud_estimates"))
     ]
 
-    # ---------- Convert to final list of strings ----------
-    key_cols = []
-    for x in raw_keys:
-        if isinstance(x, str):
-            x = x.strip()
-            if x:
-                key_cols.append(x.lower())
+    # ----- Mandatory cleanup BEFORE any usage -----
+    safe_key_cols = []
+    for c in key_cols:
+        if isinstance(c, str) and c.strip():
+            safe_key_cols.append(c.lower())
 
-    # If nothing usable, fallback row 0
+    key_cols = safe_key_cols  # always a clean list of strings
+
+    # If no valid key columns → fallback
     if not key_cols:
         return 0
-
-    # ---------- Header detection loop ----------
-    for i in range(min(50, len(df))):
-        try:
-            row_str = " ".join(str(v).lower() for v in df.iloc[i].tolist())
-        except:
-            continue
-
-        # Here c is ALWAYS a string → cannot raise the error anymore
-        match_count = sum(1 for c in key_cols if c in row_str)
-
-        if match_count >= 2:
-            return i
-
-    return 0
 
     # ----- Try first 50 rows -----
     for i in range(min(50, len(df))):
