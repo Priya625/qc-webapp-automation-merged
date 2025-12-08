@@ -126,13 +126,19 @@ def to_date_str(val):
 
     return None
 
-
 def combine_parse(date_val, time_val):
     d = to_date_str(date_val)
     t = to_time_str(time_val)
     if not d or not t:
         return pd.NaT
     return pd.to_datetime(f"{d} {t}", errors="coerce")
+
+def ensure_list(x):
+    if isinstance(x, list):
+        return x
+    if x is None:
+        return []
+    return [x]
 
 # ----------------------------- 1️⃣ Detect Monitoring Period -----------------------------
 def detect_period_from_rosco(rosco_path):
@@ -166,10 +172,10 @@ def detect_header_row(bsr_path, bsr_cols):
     key_cols = []
     # bsr_cols is expected to be a dict mapping logical names to lists of candidates
     try:
-        key_cols.append(bsr_cols.get('market', ['market'])[0])
-        key_cols.append(bsr_cols.get('tv_channel', ['channel'])[0])
-        key_cols.append(bsr_cols.get('date', ['date'])[0])
-        key_cols.append(bsr_cols.get('start_time', ['start'])[0])
+        key_cols.extend(ensure_list(bsr_cols.get('market', ['market'])))
+        key_cols.extend(ensure_list(bsr_cols.get('tv_channel', ['channel'])))
+        key_cols.extend(ensure_list(bsr_cols.get('date', ['date'])))
+        key_cols.extend(ensure_list(bsr_cols.get('start_time', ['start'])))
     except Exception:
         # fallback
         key_cols = ['market','channel','date','start']
@@ -438,14 +444,20 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 # -----------------------------------------------------------
 # 6️⃣ Program Category Check (updated: combined fallback + robust matching)
 def program_category_check(bsr_path, df, col_map, rules, file_rules):
-    import datetime as _dt
-    import pandas as pd
-    import re
-
+   
     # ---------- Load fixture sheet ----------
     xl = pd.ExcelFile(bsr_path)
-    fixture_keyword = file_rules.get("fixture_sheet_keyword", "fixture")
-    fixture_sheet = next((s for s in xl.sheet_names if fixture_keyword in s.lower()), None)
+    # --- FIX for list-based fixture keyword ---
+    fixture_keywords = file_rules.get("fixture_sheet_keyword", ["fixture"])
+    if isinstance(fixture_keywords, str):
+        fixture_keywords = [fixture_keywords]
+
+    fixture_sheet = next(
+        (s for s in xl.sheet_names 
+        if any(kw.lower() in s.lower() for kw in fixture_keywords)),
+        None
+    )
+    fixture_sheet = next((s for s in xl.sheet_names if fixture_keywords in s.lower()), None)
 
     if not fixture_sheet:
         df["Program_Category_Expected"] = pd.NA
@@ -717,8 +729,17 @@ def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules
     if bsr_path is not None:
         try:
             xls = pd.ExcelFile(bsr_path, sheet_name=None)
-            fixture_keyword = file_rules.get("fixture_sheet_keyword", "fixture")
-            fixture_sheet = next((s for s in xls.keys() if fixture_keyword in s.lower()), None)
+            # --- FIX for list-based fixture keyword ---
+            fixture_keywords = file_rules.get("fixture_sheet_keyword", ["fixture"])
+            if isinstance(fixture_keywords, str):
+                fixture_keywords = [fixture_keywords]
+
+            fixture_sheet = next(
+                (s for s in xls.sheet_names 
+                if any(kw.lower() in s.lower() for kw in fixture_keywords)),
+                None
+            )
+            fixture_sheet = next((s for s in xls.keys() if fixture_keywords in s.lower()), None)
             if fixture_sheet:
                 df_data = xls[fixture_sheet]
             else:
@@ -847,12 +868,19 @@ def market_channel_consistency_check(df_bsr, rosco_path, col_map, file_rules):
     if rosco_path:
         try:
             xls = pd.ExcelFile(rosco_path)
-            ignore_sheet = file_rules.get('rosco_ignore_sheet', 'general')
-            sheet_name = next((s for s in xls.sheet_names if ignore_sheet not in s.lower()), None)
+            ignore_sheets = file_rules.get('rosco_ignore_sheet', ['general'])
+            if isinstance(ignore_sheets, str):
+                ignore_sheets = [ignore_sheets]
+
+            sheet_name = next(
+                (s for s in xls.sheet_names 
+                if all(ig.lower() not in s.lower() for ig in ignore_sheets)),
+                None
+            )
             if sheet_name:
                 rosco_df = xls.parse(sheet_name)
             else:
-                logging.warning(f"No valid sheet found in ROSCO (ignoring '{ignore_sheet}').")
+                logging.warning(f"No valid sheet found in ROSCO (ignoring '{ignore_sheets}').")
         except Exception as e:
             logging.error(f"Error loading ROSCO file: {e}")
             df_bsr["Market_Channel_Consistency_OK"] = False
