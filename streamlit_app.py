@@ -203,7 +203,7 @@ with home_page_tab:
 
             /* Capability Cards Styling (3-column layout) */
             .metric-card {
-                background-color: #F7F7F9;
+                background-color: #5F3CFF;
                 border-bottom: 4px solid var(--accent-color); /* Bottom border accent */
                 border-radius: 8px;
                 padding: 20px 20px;
