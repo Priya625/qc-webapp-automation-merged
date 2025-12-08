@@ -707,88 +707,150 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     return df
 
 # 8️⃣ Event / Matchday / Competition Check
-def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules, debug_rows=20):
-    def norm_strip(x):
-        if pd.isna(x): return ""
-        return re.sub(r"[^\w\s]", " ", str(x)).strip()
+# 8️⃣ Event / Matchday / Competition Check
+def check_event_matchday_competition(df_worksheet, df_data=None, rosco_path=None, debug_rows=20):
+    """
+    Validate Event / Competition / Matchday / Match combinations.
+
+    Inputs:
+      - df_worksheet : DataFrame of the main worksheet (the BSR "Worksheet")
+          expected columns: "Competition", "Event", "Matchday", "Home Team", "Away Team", maybe "Match"
+      - df_data : optional DataFrame extracted from the 'Data' sheet (the reference/master lists).
+      - rosco_path : optional path to Excel; used if df_data is None to try to extract reference values from that file.
+      - debug_rows: how many rows to print for debug output
+
+    Output:
+      - same df_worksheet with two new columns:
+          Event_Matchday_Competition_OK (bool)
+          Event_Matchday_Competition_Remark (string)
+    """
+
+    # --- Helper: normalize text ---
+    def norm(x):
+        if pd.isna(x):
+            return ""
+        return str(x).strip()
+
+    def norm_lower(x):
+        return norm(x).lower()
+
+    # --- Get reference competitions / allowed values ---
     reference_comps = set()
-    df_data = None
-    if bsr_path is not None:
+    reference_matches = set()  # optional: canonical "home vs away" pairs if available
+    reference_matchday_counts = {}  # optional expected counts per (competition, matchday)
+
+    if df_data is None and rosco_path is not None:
+        # attempt to load a 'Data' sheet or the first sheet that looks like the data table
         try:
-            xls = pd.ExcelFile(bsr_path, sheet_name=None)
-            fixture_keyword = file_rules.get("fixture_sheet_keyword", "fixture")
-            fixture_sheet = next((s for s in xls.keys() if fixture_keyword in s.lower()), None)
-            if fixture_sheet:
-                df_data = xls[fixture_sheet]
-            else:
-                # try common sheets
-                for p in ["Data", "data", "Monitoring list", "monitoring list", "Monitoring List"]:
-                    if p in xls:
-                        df_data = xls[p]
+            xls = pd.read_excel(rosco_path, sheet_name=None)
+            # try common names
+            priority = ["Data", "data", "Monitoring list", "monitoring list", "Monitoring List"]
+            found_df = None
+            for p in priority:
+                if p in xls:
+                    found_df = xls[p]
+                    break
+            if found_df is None:
+                # fallback: pick sheet that has words like 'Type of programme' or 'Competition' in header rows
+                for name, sheet in xls.items():
+                    header_text = " ".join(sheet.columns.astype(str).tolist()).lower()
+                    if "competition" in header_text or "type of programme" in header_text or "type of program" in header_text:
+                        found_df = sheet
                         break
+            if found_df is not None:
+                df_data = found_df
         except Exception:
-            pass
-    if isinstance(df_data, pd.DataFrame) and not df_data.empty:
-        tmp = df_data.astype(str).applymap(lambda v: norm_strip(v).lower())
-        for col in tmp.columns:
-            for val in tmp[col].unique():
+            df_data = None
+
+    # If df_data is available, extract competition names and optional counts
+    if isinstance(df_data, pd.DataFrame):
+        # strategy: scan df_data content for competition-like strings
+        df_tmp = df_data.astype(str).applymap(lambda v: v.strip() if pd.notna(v) else "")
+        # collect distinct non-empty strings that look like competition names
+        for col in df_tmp.columns:
+            for val in df_tmp[col].unique():
                 v = str(val).strip()
-                if v and v not in ["0", "nan", "-", "none"]:
+                if v and v not in ["0", "nan", "-", "None"]:
+                    # filter out lines that look numeric counts (only digits)
                     if not re.fullmatch(r"^\d+$", v):
                         reference_comps.add(v.lower())
-    # If still empty, also attempt to use competition column values from the main worksheet itself:
-    if not reference_comps:
-        # attempt to extract competition names from the worksheet directly
+
+        # attempt to read counts if present: some Data sheets have count rows above/below the headers
+        # Look for numeric entries adjacent to competition names in columns
+        # Heuristic: if the first few rows contain digits under the same columns as competition names, store count.
         try:
-            b = col_map.get("bsr", {})
-            comp_col_name = _find_column(df_worksheet, b.get("competition", ["competition"]))
-            if comp_col_name:
-                comp_vals = df_worksheet[comp_col_name].dropna().astype(str).apply(lambda x: norm_strip(x).lower())
-                for v in comp_vals.unique():
-                    if v and v not in ["0","nan","-","none"] and not re.fullmatch(r"^\d+$", v):
-                        reference_comps.add(v)
+            # look at the first ~10 rows for numeric counts under columns that are competition names
+            for col in df_data.columns:
+                numeric_counts = []
+                for r in range(min(10, len(df_data))):
+                    try:
+                        v = df_data.iloc[r][col]
+                        if pd.notna(v) and str(v).strip().isdigit():
+                            numeric_counts.append(int(str(v).strip()))
+                    except Exception:
+                        continue
+                if numeric_counts:
+                    # pick a representative (first) numeric if consistent
+                    reference_matchday_counts[col.strip().lower()] = numeric_counts[0]
         except Exception:
             pass
+
+    # fallback: if still empty, use some likely defaults
     if not reference_comps:
         reference_comps = set([
             "bundesliga", "2. bundesliga", "dfb-pokal", "dfl supercup",
             "premier league", "epl", "la liga", "serie a", "champions league"
         ])
+
+    # Precompute a lowercase set for quick lookup
     reference_comps_lower = set(x.lower() for x in reference_comps)
+
+    # --- Prepare output columns ---
     df = df_worksheet.copy()
     df["Event_Matchday_Competition_OK"] = False
     df["Event_Matchday_Competition_Remark"] = ""
-    b = col_map["bsr"]
-    col_comp = _find_column(df, b.get("competition", ["Competition"]))
-    col_evt = _find_column(df, b.get("event", ["Event"]))
-    col_mday = _find_column(df, b.get("matchday", ["Matchday"]))
-    col_home = _find_column(df, b.get("home_team", ["Home Team"]))
-    col_away = _find_column(df, b.get("away_team", ["Away Team"]))
-    col_title = _find_column(df, b.get("program_title", ["Program Title"]))
-    col_combined = _find_column(df, b.get("combined", ["Combined"]))
-    def get_val(row, col_name, default=""):
-        return norm_strip(row.get(col_name)) if col_name else default
+
+    # We'll build grouping counts to verify number of matches per (Competition, Matchday)
     grouped_counts = {}
+
+    # iterate rows
     for idx, row in df.iterrows():
-        competition = get_val(row, col_comp)
-        event = get_val(row, col_evt)
-        matchday = get_val(row, col_mday)
-        home = get_val(row, col_home)
-        away = get_val(row, col_away)
+        competition = norm(row.get("Competition", ""))
+        event = norm(row.get("Event", ""))
+        matchday = norm(row.get("Matchday", ""))
+
+        # some BSRs have 'Matchday' in other column names like 'Matchday ' or 'Match Day' - check alternatives
+        if not matchday:
+            # try columns similar to matchday
+            for c in df.columns:
+                if "matchday" in c.lower() or "match day" in c.lower() or c.lower().strip() == "match":
+                    matchday = norm(row.get(c, ""))
+                    if matchday:
+                        break
+
+        # find home/away or match field
+        home = norm(row.get("Home Team", "")) or norm(row.get("HomeTeam", "")) or norm(row.get("Home", ""))
+        away = norm(row.get("Away Team", "")) or norm(row.get("AwayTeam", "")) or norm(row.get("Away", ""))
+
         remarks = []
         ok = True
-        if not competition or competition.strip().lower() in ["-", "nan", "none", ""]:
+
+        # 1) Missing fields
+        if not competition or competition.strip() in ["-", "nan", "none"]:
             ok = False
             remarks.append("Missing Competition")
-        if not event or event.strip().lower() in ["-", "nan", "none", ""]:
+        if not event or event.strip() in ["-", "nan", "none"]:
             ok = False
             remarks.append("Missing Event")
-        if not matchday or matchday.strip().lower() in ["-", "nan", "none", ""]:
+        if not matchday or matchday.strip() in ["-", "nan", "none"]:
             ok = False
             remarks.append("Missing Matchday")
         if not (home and away):
-            match_text = (get_val(row, col_title) or get_val(row, col_combined) or "")
+            # sometimes matches are in 'Match' or 'Program Title', try match detection
+            match_text = norm(row.get("Match", "")) or norm(row.get("Program Title", "")) or norm(row.get("Combined", ""))
+            # a simple heuristic: look for ' vs ' or ' v ' separators
             if " vs " in match_text.lower() or " v " in match_text.lower():
+                # we accept this as a match, but still prefer to split
                 try:
                     parts = re.split(r"\s+v(?:s|)\.?\s+|\s+vs\.?\s+|\s+v\s+", match_text, flags=re.IGNORECASE)
                     if len(parts) >= 2:
@@ -796,37 +858,75 @@ def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules
                         away = parts[1].strip()
                 except Exception:
                     pass
-            if not (home and away):
+            else:
                 ok = False
                 remarks.append("Missing Home/Away or Match field")
-        # Validate competition against reference list using normalized matching
-        comp_l = (competition or "").lower().strip()
-        # strip punctuation for comp_l for robust matching
-        comp_l_simple = re.sub(r"[^\w\s]", " ", comp_l)
-        comp_matches_reference = any(rc and (rc in comp_l_simple or comp_l_simple in rc) for rc in reference_comps_lower)
+
+        # 2) Validate competition against reference list
+        comp_l = competition.lower()
+        # some competitions appear with extra words, do a contains check
+        comp_matches_reference = False
+        for rc in reference_comps_lower:
+            if rc and (rc in comp_l or comp_l in rc):
+                comp_matches_reference = True
+                break
         if not comp_matches_reference:
             ok = False
             remarks.append("Competition not in reference list")
+
+        # 3) Simple event-matchday-match consistency: check if 'matchday' value format looks valid (MD, Round, etc.)
+        # Accept common formats: 'Matchday 01', 'MD01', 'Round 01', 'Round 1', 'Matchday 1'
         if matchday:
             if not re.search(r"(matchday|md|round|rd|r|matchday)\s*\d+", matchday.lower()):
+                # allow some textual forms like 'Finals', 'Semi', 'Quarter'
                 if matchday.lower() not in ["final", "finals", "semi", "semifinal", "quarterfinal", "playoffs", "-"]:
+                    # it's not necessarily an error; just add a warning
                     remarks.append("Unusual matchday format")
-        comp_key = (competition.strip().lower() if competition else "", matchday.strip().lower() if matchday else "")
+
+        # 4) If we have a reference expected counts mapping (from df_data), count per (competition, matchday)
+        comp_key = (competition.strip().lower(), matchday.strip().lower())
         grouped_counts.setdefault(comp_key, 0)
         grouped_counts[comp_key] += 1
+
+        # Compose final remark and set OK
         df.at[idx, "Event_Matchday_Competition_OK"] = ok
         df.at[idx, "Event_Matchday_Competition_Remark"] = "; ".join(remarks) if remarks else "OK"
-    # Debug summary
-    try:
-        print("=== Event/Matchday/Competition QC summary (first rows) ===")
-        for idx in range(min(debug_rows, len(df))):
-            r = df.iloc[idx]
-            print(f"[Row {idx}] Competition='{get_val(r, col_comp)}' | Event='{get_val(r, col_evt)}' | Matchday='{get_val(r, col_mday)}' | "
-                  f"Home='{get_val(r, col_home)}' Away='{get_val(r, col_away)}' | "
-                  f"OK={r['Event_Matchday_Competition_OK']} | Remark={r['Event_Matchday_Competition_Remark']}")
-        print("=== End summary ===\n")
-    except Exception:
-        pass
+
+    # 5) If reference_matchday_counts available, compare counts and append remarks for rows belonging to mismatch groups
+    # reference_matchday_counts keys may be competition names -> expected counts per matchday (heuristic)
+    if reference_matchday_counts:
+        # For each group in grouped_counts, compare to reference (best-effort)
+        for (comp, mday), observed in grouped_counts.items():
+            expected = None
+            # try to find matching competition in reference counts map
+            for ref_comp_name, cnt in reference_matchday_counts.items():
+                if ref_comp_name and (ref_comp_name in comp or comp in ref_comp_name):
+                    expected = cnt
+                    break
+            if expected is not None and observed != expected:
+                # flag all rows in df with this (comp, mday)
+                mask = df[
+                    df.get("Competition", "").astype(str).str.strip().str.lower() == comp
+                ]["Competition"].notna()
+                # append a remark for each row in this group
+                for idx in df[
+                    (df.get("Competition", "").astype(str).str.strip().str.lower() == comp) &
+                    (df.get("Matchday", "").astype(str).str.strip().str.lower() == mday)
+                ].index:
+                    prev = df.at[idx, "Event_Matchday_Competition_Remark"]
+                    extra = f"Mismatch matches per matchday: expected {expected}, found {observed}"
+                    df.at[idx, "Event_Matchday_Competition_Remark"] = (prev + "; " + extra) if prev else extra
+                    df.at[idx, "Event_Matchday_Competition_OK"] = False
+
+    # --- Debug prints (first few rows) ---
+    print("=== Event/Matchday/Competition QC summary (first rows) ===")
+    for idx in range(min(debug_rows, len(df))):
+        r = df.iloc[idx]
+        print(f"[Row {idx}] Competition='{r.get('Competition','')}' | Event='{r.get('Event','')}' | Matchday='{r.get('Matchday','')}' | "
+              f"Home='{r.get('Home Team', r.get('Home', ''))}' Away='{r.get('Away Team', r.get('Away', ''))}' | "
+              f"OK={r['Event_Matchday_Competition_OK']} | Remark={r['Event_Matchday_Competition_Remark']}")
+    print("=== End summary ===\n")
+
     return df
 
 #-------------- 9️⃣ Market / Channel /  Consistency Check -----------------
@@ -1150,87 +1250,69 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
 
 # -----------------------------------------------------------
 # 13️⃣ Country & Channel IDs Check
-def country_channel_id_check(df, bsr_cols):
+def country_channel_id_check(df):
     """
-    Check consistency of channel IDs per (market, channel) pair.
-
-    - Rows get Market_Channel_ID_OK (bool) and Market_Channel_ID_Remark (str).
-    - Same channel name across different markets is allowed.
-    - Inconsistent when the same (market, channel) pair maps to multiple channel_id values
-      or when the single channel_id for that pair is blank.
+    Ensures that each channel and market is mapped to a single, consistent ID.
+    Outputs two columns:
+      - Market_Channel_ID_OK (True/False)
+      - Market_Channel_ID_Remark (string)
     """
-    df["Market_Channel_ID_OK"] = True
-    df["Market_Channel_ID_Remark"] = "OK"
 
-    ch_col = _find_column(df, bsr_cols.get("tv_channel"))
-    ch_id_col = _find_column(df, bsr_cols.get("channel_id"))
-    mkt_col = _find_column(df, bsr_cols.get("market"))
-
-    if not all([ch_col, ch_id_col, mkt_col]):
-        logging.warning("ID Check: Missing one or more required columns (market/channel/channel_id). Skipping.")
-        df["Market_Channel_ID_OK"] = False
-        df["Market_Channel_ID_Remark"] = "Check skipped: required columns not found"
-        return df
+    df_result = df.copy()
+    df_result["Market_Channel_ID_OK"] = True
+    df_result["Market_Channel_ID_Remark"] = ""
 
     def norm(x):
         return str(x).strip() if pd.notna(x) else ""
 
-    # Build grouping by (market, channel)
-    # We'll collect: set of channel_ids and list of indices for each (market, channel) key
-    pair_ids = {}   # (market,channel) -> set(channel_id)
-    pair_idxs = {}  # (market,channel) -> list of dataframe indices
+    # Maps to track consistency
+    channel_id_map = {}
+    market_id_map = {}
 
-    for idx, row in df.iterrows():
-        market = norm(row.get(mkt_col))
-        channel = norm(row.get(ch_col))
-        channel_id = norm(row.get(ch_id_col))
+    for idx, row in df_result.iterrows():
+        channel = norm(row.get("TV-Channel"))
+        channel_id = norm(row.get("Channel ID"))
+        market = norm(row.get("Market"))
+        market_id = norm(row.get("Market ID"))
 
-        # Use empty strings for missing values; still record them
-        key = (market, channel)
-        pair_ids.setdefault(key, set()).add(channel_id)
-        pair_idxs.setdefault(key, []).append(idx)
+        remarks = []
+        ok = True
 
-    # Evaluate each (market, channel) pair
-    for key, ids in pair_ids.items():
-        idxs = pair_idxs.get(key, [])
-        unique_ids = set(ids)  # may contain "" for blanks
-
-        # default assumption
-        inconsistent = False
-        remark = "OK"
-
-        if len(idxs) > 1:
-            # pair appears multiple times
-            if len(unique_ids) > 1:
-                inconsistent = True
-                # present distinct ids, show "<BLANK>" for empty strings
-                ids_list = [i if i != "" else "<BLANK>" for i in sorted(unique_ids)]
-                remark = f"Duplicate (market,channel) with multiple channel IDs: {', '.join(ids_list)}"
+        # ✅ Check 1 – Same channel shouldn't have multiple Channel IDs
+        if channel:
+            if channel in channel_id_map and channel_id_map[channel] != channel_id:
+                remarks.append(
+                    f"Channel '{channel}' has multiple IDs ({channel_id_map[channel]} vs {channel_id})"
+                )
+                ok = False
             else:
-                # single unique id across duplicates
-                only_id = next(iter(unique_ids))
-                if only_id == "":
-                    inconsistent = True
-                    remark = "Duplicate (market,channel) with missing channel ID"
-                else:
-                    inconsistent = False
-                    remark = "OK"
-        else:
-            # appears only once
-            only_id = next(iter(unique_ids))
-            if only_id == "":
-                inconsistent = True
-                remark = "Missing channel ID"
+                channel_id_map[channel] = channel_id
+
+        # ✅ Check 2 – Same market shouldn't have multiple Market IDs
+        if market:
+            if market in market_id_map and market_id_map[market] != market_id:
+                remarks.append(
+                    f"Market '{market}' has multiple IDs ({market_id_map[market]} vs {market_id})"
+                )
+                ok = False
             else:
-                inconsistent = False
-                remark = "OK"
+                market_id_map[market] = market_id
 
-        # Apply results to all rows for this pair
-        for i in idxs:
-            df.at[i, "Market_Channel_ID_OK"] = not inconsistent
-            df.at[i, "Market_Channel_ID_Remark"] = remark
+        # ✅ Check 3 – Same Channel ID shouldn't be used for multiple channels
+        if channel_id and list(channel_id_map.values()).count(channel_id) > 1:
+            remarks.append(f"Channel ID '{channel_id}' assigned to multiple channels")
+            ok = False
 
-    return df
+        # ✅ Check 4 – Same Market ID shouldn't be used for multiple markets
+        if market_id and list(market_id_map.values()).count(market_id) > 1:
+            remarks.append(f"Market ID '{market_id}' assigned to multiple markets")
+            ok = False
+
+        # ✅ Write results
+        df_result.at[idx, "Market_Channel_ID_OK"] = ok
+        df_result.at[idx, "Market_Channel_ID_Remark"] = "; ".join(remarks) if remarks else "OK"
+
+    return df_result
 
 # -----------------------------------------------------------
 # Excel Coloring for True/False checks
