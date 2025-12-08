@@ -175,7 +175,7 @@ def detect_header_row(bsr_path, bsr_cols):
         key_cols = ['market','channel','date','start']
     key_cols = [str(k).lower() for k in key_cols if k]
     for i, row in df_sample.iterrows():
-        row_str = " ".join(row.dropna().astype(str).tolist()).lower()
+        row_str = " ".join(str(x) for x in row.dropna().tolist()).lower()
         match_count = sum(1 for col in key_cols if col in row_str)
         if match_count >= 2:
             return i
