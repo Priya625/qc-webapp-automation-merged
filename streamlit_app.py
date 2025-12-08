@@ -399,10 +399,10 @@ with main_qc_tab:
                         )
                 except Exception as e:
                     st.error(f" An error occurred during General QC: {e}")
-
-    if os.path.exists("qc_debug.log"):
-        with open("qc_debug.log", "rb") as log_file:
-            st.download_button("📥 Download Debug Log", log_file, "qc_debug.log")
+                    
+        if os.path.exists("qc_debug.log"):
+            with open("qc_debug.log", "rb") as log_file:
+                st.download_button("📥 Download Debug Log", log_file, "qc_debug.log")
 
 
 # -----------------------------------------------------------
