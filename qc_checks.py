@@ -199,8 +199,21 @@ def detect_header_row(df, bsr_cols):
     return 0
 
 def load_bsr(bsr_path, bsr_cols):
-    header_row = detect_header_row(bsr_path, bsr_cols)
-    df = pd.read_excel(bsr_path, header=header_row)
+    # Load the BSR file without a header initially, reading only the first 50 rows
+    # to efficiently detect where the actual header is.
+    try:
+        temp_df = pd.read_excel(bsr_path, header=None, nrows=50, dtype=str)
+    except Exception as e:
+        logging.error(f"Error reading BSR file for header detection: {e}")
+        raise
+
+    # Pass the temporary DataFrame to detect the header row index
+    header_row_index = detect_header_row(temp_df, bsr_cols)
+
+    # Load the final DataFrame using the detected header row index
+    df = pd.read_excel(bsr_path, header=header_row_index)
+    
+    # Clean up columns as before
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
