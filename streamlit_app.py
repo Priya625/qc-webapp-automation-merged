@@ -483,8 +483,8 @@ with laliga_qc_tab:
                     df = qc_general.country_channel_id_check(df)
                     
                     # Run the 2 Laliga-Specific Checks (NOTE: These functions are not in the provided minimal qc_checks.py, so they are commented out or will fail)
-                    # df = qc_general.domestic_market_check(df, col_map["bsr"], project.get("monitoring_start_date"), debug=True)
-                    # df = qc_general.duplicated_market_check(df, macro_path, project, col_map, file_rules, debug=True)
+                    df = qc_general.domestic_market_check(df, col_map["bsr"], project.get("monitoring_start_date"), debug=True)
+                    df = qc_general.duplicated_market_check(df, macro_path, project, col_map, file_rules, debug=True)
 
                     # --- Generate Output File ---
                     output_file = f"Laliga_QC_Result_{os.path.splitext(laliga_bsr_file.name)[0]}.xlsx"

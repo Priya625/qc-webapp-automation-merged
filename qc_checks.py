@@ -688,32 +688,55 @@ def market_channel_program_duration_check(df_worksheet, reference_df=None, debug
 
 # -----------------------------------------------------------
 # 10️⃣ Domestic Market Coverage Check
-def domestic_market_coverage_check(df_worksheet, reference_df=None, debug_rows=10):
+def domestic_market_check(df_worksheet, bsr_cols, monitoring_start_date=None, debug=False):
     df = df_worksheet.copy()
     df["Domestic_Market_Coverage_OK"] = True
     df["Domestic_Market_Remark"] = ""
-
+    col_comp = _find_column(df, bsr_cols.get('competition', ['Competition']))
+    col_mkt = _find_column(df, bsr_cols.get('market', ['Market']))
+    col_date = _find_column(df, bsr_cols.get('date', ['Date']))
+    col_prog_type = _find_column(df, bsr_cols.get('type_of_program', ['Type of Program']))
+    if not all([col_comp, col_mkt, col_date, col_prog_type]):
+        df["Domestic_Market_Coverage_OK"] = False
+        df["Domestic_Market_Remark"] = "Skipped: Missing core BSR columns in file/config."
+        return df
     DOMESTIC_MAP = {
-        "bundesliga": ["germany", "deutschland"],
         "premier league": ["united kingdom", "england"],
+        "epl": ["united kingdom", "england"],
         "la liga": ["spain"],
+        "bundesliga": ["germany", "deutschland"],
         "serie a": ["italy"],
-        "ligue 1": ["france"],
+        "ligue 1": ["france"]
     }
-
+    monitoring_start = None
+    if monitoring_start_date is not None:
+        try:
+            monitoring_start = pd.to_datetime(monitoring_start_date).date()
+        except Exception:
+            monitoring_start = None
     for idx, row in df.iterrows():
-        comp = str(row.get("Competition", "")).lower()
-        market = str(row.get("Market", "")).lower()
-        progtype = str(row.get("Type of Program", "")).lower()
-
+        comp = str(row.get(col_comp, "")).strip().lower()
+        market = str(row.get(col_mkt, "")).strip().lower()
+        date_raw = row.get(col_date)
+        try:
+            row_date = pd.to_datetime(date_raw).date()
+        except Exception:
+            row_date = None
+        if monitoring_start and row_date and row_date < monitoring_start:
+            continue
         domestic_markets = []
-        for key, vals in DOMESTIC_MAP.items():
-            if key in comp:
-                domestic_markets = vals
+        for comp_kw, markets in DOMESTIC_MAP.items():
+            if comp_kw in comp:
+                domestic_markets = markets
                 break
-        if domestic_markets and any(k in progtype for k in ["live", "broadcast", "direct"]) and market not in domestic_markets:
+        if not domestic_markets:
+            continue
+        market_ok = any(dm in market for dm in domestic_markets)
+        if not market_ok:
             df.at[idx, "Domestic_Market_Coverage_OK"] = False
-            df.at[idx, "Domestic_Market_Remark"] = f"Missing domestic live coverage for {market}"
+            df.at[idx, "Domestic_Market_Remark"] = f"Missing domestic coverage. Expected one of: {domestic_markets}"
+        else:
+            df.at[idx, "Domestic_Market_Remark"] = "OK"
     return df
 
 # -----------------------------------------------------------
