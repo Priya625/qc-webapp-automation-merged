@@ -8,6 +8,12 @@ from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 from openpyxl.utils.dataframe import dataframe_to_rows
 
+logging.basicConfig(
+    filename="qc_debug.log",
+    level=logging.WARNING,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+
 DATE_FORMAT = "%Y-%m-%d"
 
 GREEN_FILL = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
@@ -210,21 +216,29 @@ def detect_header_row(df, bsr_cols):
             if x:
                 key_cols.append(x.lower())
 
+    logging.warning("🔎 detect_header_row() DEBUG:")
+    logging.warning(f"  raw_keys = {raw_keys}")
+    logging.warning(f"  key_cols = {key_cols}")
+
     # If nothing usable, fallback row 0
     if not key_cols:
         return 0
 
-    # ---------- Header detection loop ----------
+    # ---------- Header detection loop ----------      
     for i in range(min(50, len(df))):
         try:
             row_str = " ".join(str(v).lower() for v in df.iloc[i].tolist())
         except:
-            continue
+            row_str = ""
+        
+    logging.warning(f"Row {i}: row_str = {row_str[:200]}")
+    logging.warning(f"Comparing against key_cols = {key_cols}")
 
+    match_count = sum(1 for c in key_cols if c in row_str)
         # Here c is ALWAYS a string → cannot raise the error anymore
-        match_count = sum(1 for c in key_cols if c in row_str)
+    match_count = sum(1 for c in key_cols if c in row_str)
 
-        if match_count >= 2:
+    if match_count >= 2:
             return i
 
     return 0
