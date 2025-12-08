@@ -16,17 +16,41 @@ HEADER_FILL = PatternFill(start_color="BDD7EE", end_color="BDD7EE", fill_type="s
 
 # ----------------------------- Helpers -----------------------------
 def _find_column(df, candidates):
+    """
+    Safely find a matching column from a list or single string.
+    Prevents list-in-string comparison errors by fully flattening
+    the candidates into simple lowercase strings.
+    """
+
     if df is None:
         return None
-    if not isinstance(candidates, list):
-        candidates = [candidates]
-    cols_lower = {str(c).lower().strip(): c for c in df.columns}
-    for cand in candidates:
-        if cand is None:
-            continue
-        k = str(cand).lower().strip()
-        if k in cols_lower:
-            return cols_lower[k]
+
+    # --- 1️⃣ Always turn candidates into a flat list of strings ---
+    flat = []
+
+    if isinstance(candidates, list):
+        for c in candidates:
+            if isinstance(c, (list, tuple, set)):
+                flat.extend([str(x).strip() for x in c])
+            else:
+                flat.append(str(c).strip())
+    else:
+        flat = [str(candidates).strip()] if candidates is not None else []
+
+    # --- 2️⃣ Normalize list (lowercase, strip, drop blanks) ---
+    flat = [str(c).lower().strip() for c in flat if c is not None and str(c).strip()]
+
+    if not flat:
+        return None
+
+    # --- 3️⃣ Build lowercase lookup of df columns ---
+    df_cols = {str(col).lower().strip(): col for col in df.columns}
+
+    # --- 4️⃣ Try exact matches ---
+    for cand in flat:
+        if cand in df_cols:
+            return df_cols[cand]
+
     return None
 
 def _is_present(val):
@@ -162,23 +186,31 @@ def detect_period_from_rosco(rosco_path):
 # ----------------------------- 2️⃣ Load BSR -----------------------------
 def detect_header_row(bsr_path, bsr_cols):
     df_sample = pd.read_excel(bsr_path, header=None, nrows=200)
-    # construct possible key tokens (lowercased)
-    key_cols = []
-    # bsr_cols is expected to be a dict mapping logical names to lists of candidates
-    try:
-        key_cols.append(bsr_cols.get('market', ['market'])[0])
-        key_cols.append(bsr_cols.get('tv_channel', ['channel'])[0])
-        key_cols.append(bsr_cols.get('date', ['date'])[0])
-        key_cols.append(bsr_cols.get('start_time', ['start'])[0])
-    except Exception:
-        # fallback
-        key_cols = ['market','channel','date','start']
-    key_cols = [str(k).lower() for k in key_cols if k]
+
+    def safe_first(val, default):
+        if isinstance(val, list) and val:
+            return str(val[0])
+        if isinstance(val, str):
+            return val
+        return default
+
+    # Extract first candidate safely
+    key_cols = [
+        safe_first(bsr_cols.get('market'), 'market'),
+        safe_first(bsr_cols.get('tv_channel'), 'channel'),
+        safe_first(bsr_cols.get('date'), 'date'),
+        safe_first(bsr_cols.get('start_time'), 'start'),
+    ]
+
+    # Normalize to lowercase strings
+    key_cols = [str(k).lower().strip() for k in key_cols if k]
+
     for i, row in df_sample.iterrows():
         row_str = " ".join(row.dropna().astype(str).tolist()).lower()
-        match_count = sum(1 for col in key_cols if col in row_str)
+        match_count = sum(1 for keyword in key_cols if keyword in row_str)
         if match_count >= 2:
             return i
+
     raise ValueError("Could not detect header row in BSR file.")
 
 def load_bsr(bsr_path, bsr_cols):
@@ -583,7 +615,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     df["Program_Category_Expected"] = pd.NA
     df["Program_Category_Remark"] = ""
 
-    LIVE_TOL = rules.get("live_tolerance_min", 30)
+    LIVE_TOL = rules.get("live_tolerance_min", 35)
 
     # ---------- MAIN LOOP ----------
     for idx, row in df.iterrows():
@@ -689,7 +721,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                 continue
             else:
                 df.at[idx, "Program_Category_Expected"] = pd.NA
-                df.at[idx, "Program_Category_Remark"] = "Earliest broadcast not after fixture start"
+                df.at[idx, "Program_Category_Remark"] = "Broadcast recieved before the fixture start"
                 continue
         else:
             # not earliest -> repeat
@@ -712,13 +744,17 @@ def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules
     def norm_strip(x):
         if pd.isna(x): return ""
         return re.sub(r"[^\w\s]", " ", str(x)).strip()
+
     reference_comps = set()
     df_data = None
+    
+    # --- 1. Load Fixture/Data Sheet to build Competition Reference List ---
     if bsr_path is not None:
         try:
             xls = pd.ExcelFile(bsr_path, sheet_name=None)
             fixture_keyword = file_rules.get("fixture_sheet_keyword", "fixture")
             fixture_sheet = next((s for s in xls.keys() if fixture_keyword in s.lower()), None)
+            
             if fixture_sheet:
                 df_data = xls[fixture_sheet]
             else:
@@ -729,17 +765,22 @@ def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules
                         break
         except Exception:
             pass
+            
     if isinstance(df_data, pd.DataFrame) and not df_data.empty:
+        # Use .apply(norm_strip) instead of applymap for better column-wise handling if needed,
+        # but applymap is used to process every cell.
         tmp = df_data.astype(str).applymap(lambda v: norm_strip(v).lower())
         for col in tmp.columns:
             for val in tmp[col].unique():
                 v = str(val).strip()
+                # Exclude common non-competition identifiers
                 if v and v not in ["0", "nan", "-", "none"]:
+                    # Exclude pure numbers
                     if not re.fullmatch(r"^\d+$", v):
                         reference_comps.add(v.lower())
-    # If still empty, also attempt to use competition column values from the main worksheet itself:
+                        
+    # --- 2. Fallback: Use BSR Competition Column if reference list is empty ---
     if not reference_comps:
-        # attempt to extract competition names from the worksheet directly
         try:
             b = col_map.get("bsr", {})
             comp_col_name = _find_column(df_worksheet, b.get("competition", ["competition"]))
@@ -750,15 +791,20 @@ def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules
                         reference_comps.add(v)
         except Exception:
             pass
+            
+    # --- 3. Default Competition list (if all else fails) ---
     if not reference_comps:
         reference_comps = set([
             "bundesliga", "2. bundesliga", "dfb-pokal", "dfl supercup",
             "premier league", "epl", "la liga", "serie a", "champions league"
         ])
+        
     reference_comps_lower = set(x.lower() for x in reference_comps)
+    
     df = df_worksheet.copy()
     df["Event_Matchday_Competition_OK"] = False
     df["Event_Matchday_Competition_Remark"] = ""
+    
     b = col_map["bsr"]
     col_comp = _find_column(df, b.get("competition", ["Competition"]))
     col_evt = _find_column(df, b.get("event", ["Event"]))
@@ -767,9 +813,13 @@ def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules
     col_away = _find_column(df, b.get("away_team", ["Away Team"]))
     col_title = _find_column(df, b.get("program_title", ["Program Title"]))
     col_combined = _find_column(df, b.get("combined", ["Combined"]))
+
     def get_val(row, col_name, default=""):
         return norm_strip(row.get(col_name)) if col_name else default
+
     grouped_counts = {}
+    
+    # --- 4. Main QC Loop ---
     for idx, row in df.iterrows():
         competition = get_val(row, col_comp)
         event = get_val(row, col_evt)
@@ -778,6 +828,8 @@ def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules
         away = get_val(row, col_away)
         remarks = []
         ok = True
+
+        # Check for presence of key fields
         if not competition or competition.strip().lower() in ["-", "nan", "none", ""]:
             ok = False
             remarks.append("Missing Competition")
@@ -787,6 +839,8 @@ def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules
         if not matchday or matchday.strip().lower() in ["-", "nan", "none", ""]:
             ok = False
             remarks.append("Missing Matchday")
+
+        # Check for Home/Away (try parsing from text if missing)
         if not (home and away):
             match_text = (get_val(row, col_title) or get_val(row, col_combined) or "")
             if " vs " in match_text.lower() or " v " in match_text.lower():
@@ -797,37 +851,51 @@ def check_event_matchday_competition(df_worksheet, bsr_path, col_map, file_rules
                         away = parts[1].strip()
                 except Exception:
                     pass
+
             if not (home and away):
                 ok = False
                 remarks.append("Missing Home/Away or Match field")
-        # Validate competition against reference list using normalized matching
+
+        # Validate competition against reference list (FIX APPLIED HERE)
         comp_l = (competition or "").lower().strip()
         # strip punctuation for comp_l for robust matching
         comp_l_simple = re.sub(r"[^\w\s]", " ", comp_l)
-        comp_matches_reference = any(rc and (rc in comp_l_simple or comp_l_simple in rc) for rc in reference_comps_lower)
+        
+        # FIX: Explicitly cast rc to string to prevent 'in <string>' requires string, not list error
+        comp_matches_reference = any(
+            rc and (str(rc) in comp_l_simple or comp_l_simple in str(rc)) 
+            for rc in reference_comps_lower
+        )
+        
         if not comp_matches_reference:
             ok = False
             remarks.append("Competition not in reference list")
+            
+        # Validate Matchday format
         if matchday:
             if not re.search(r"(matchday|md|round|rd|r|matchday)\s*\d+", matchday.lower()):
                 if matchday.lower() not in ["final", "finals", "semi", "semifinal", "quarterfinal", "playoffs", "-"]:
                     remarks.append("Unusual matchday format")
+
         comp_key = (competition.strip().lower() if competition else "", matchday.strip().lower() if matchday else "")
         grouped_counts.setdefault(comp_key, 0)
         grouped_counts[comp_key] += 1
+        
         df.at[idx, "Event_Matchday_Competition_OK"] = ok
         df.at[idx, "Event_Matchday_Competition_Remark"] = "; ".join(remarks) if remarks else "OK"
-    # Debug summary
+
+    # --- 5. Debug Summary ---
     try:
         print("=== Event/Matchday/Competition QC summary (first rows) ===")
         for idx in range(min(debug_rows, len(df))):
             r = df.iloc[idx]
             print(f"[Row {idx}] Competition='{get_val(r, col_comp)}' | Event='{get_val(r, col_evt)}' | Matchday='{get_val(r, col_mday)}' | "
-                  f"Home='{get_val(r, col_home)}' Away='{get_val(r, col_away)}' | "
-                  f"OK={r['Event_Matchday_Competition_OK']} | Remark={r['Event_Matchday_Competition_Remark']}")
+                    f"Home='{get_val(r, col_home)}' Away='{get_val(r, col_away)}' | "
+                    f"OK={r['Event_Matchday_Competition_OK']} | Remark={r['Event_Matchday_Competition_Remark']}")
         print("=== End summary ===\n")
     except Exception:
         pass
+        
     return df
 
 #-------------- 9️⃣ Market / Channel /  Consistency Check -----------------
