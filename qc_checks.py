@@ -166,31 +166,34 @@ def detect_header_row(df, bsr_cols):
     Fixes: "truth value of an array is ambiguous"
     by avoiding `a or b` when a/b may be lists/Series/arrays.
     """
-
-    # Helper: safely extract first usable string
+    # --- Safe extractor: ALWAYS returns a string ---
     def first_str(x):
         if x is None:
             return ""
         if isinstance(x, list):
-            for i in x:
-                if i and str(i).strip():
-                    return str(i).strip()
+            for item in x:
+                if item and str(item).strip():
+                    return str(item).strip()
             return ""
         if isinstance(x, (pd.Series, np.ndarray)):
             try:
-                x = x.dropna() if hasattr(x, "dropna") else x
-                return str(x[0]).strip() if len(x) > 0 else ""
+                if hasattr(x, "dropna"):
+                    xx = x.dropna()
+                    if len(xx) > 0:
+                        return str(xx.iloc[0]).strip()
+                else:
+                    if len(x) > 0:
+                        return str(x[0]).strip()
             except:
                 return ""
         return str(x).strip()
 
-# ---- SAFE retrieval of matchday (no OR on arrays!) ----
+    # ----- SAFE retrieval of matchday -----
     md = bsr_cols.get("matchday", None)
     if md is None:
         md = bsr_cols.get("match_day", None)
 
-    key_cols = [c for c in key_cols if isinstance(c, str)]
-    # Collect key header identifiers
+    # ----- Build key list (raw) -----
     key_cols = [
         first_str(bsr_cols.get("market")),
         first_str(bsr_cols.get("tv_channel")),
@@ -198,9 +201,25 @@ def detect_header_row(df, bsr_cols):
         first_str(bsr_cols.get("aud_estimates"))
     ]
 
-    # ---- Try first 50 rows to find header ----
+    # ----- Mandatory cleanup BEFORE any usage -----
+    safe_key_cols = []
+    for c in key_cols:
+        if isinstance(c, str) and c.strip():
+            safe_key_cols.append(c.lower())
+
+    key_cols = safe_key_cols  # always a clean list of strings
+
+    # If no valid key columns → fallback
+    if not key_cols:
+        return 0
+
+    # ----- Try first 50 rows -----
     for i in range(min(50, len(df))):
-        row_str = " ".join([str(x).lower() for x in df.iloc[i].tolist()])
+        try:
+            row_str = " ".join([str(x).lower() for x in df.iloc[i].tolist()])
+        except Exception:
+            continue
+
         match_count = sum(1 for c in key_cols if c in row_str)
 
         if match_count >= 2:
