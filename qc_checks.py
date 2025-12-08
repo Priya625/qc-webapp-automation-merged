@@ -252,52 +252,270 @@ def overlap_duplicate_daybreak_check(df):
 
 
 # ----------------------------- 6️⃣ Program Category Check -----------------------------
-def program_category_check(df):
-    prog_col = next((c for c in df.columns if "type" in str(c).lower() and "program" in str(c).lower()), None)
-    dur_col = next((c for c in df.columns if "duration" in str(c).lower()), None)
-    if prog_col is None or dur_col is None:
-        df["Program_Category_OK"] = True
-        df["Program_Category_Remark"] = ""
+def program_category_check(bsr_path, df, col_map, rules, file_rules):
+    # ---------- Load fixture sheet ----------
+    xl = pd.ExcelFile(bsr_path)
+    fixture_keyword = file_rules.get("fixture_sheet_keyword", "fixture")
+    fixture_sheet = next((s for s in xl.sheet_names if fixture_keyword in s.lower()), None)
+
+    if not fixture_sheet:
+        df["Program_Category_Expected"] = pd.NA
+        df["Program_Category_Actual"] = ""
+        df["Program_Category_OK"] = False
+        df["Program_Category_Remark"] = "Fixture sheet missing"
         return df
 
-    def parse_duration(val):
-        if pd.isna(val):
-            return None
-        val_str = str(val).strip()
+    df_fix = xl.parse(fixture_sheet)
+
+    # ---------- Column detection ----------
+    b = col_map["bsr"]
+    f = col_map["fixture"]
+
+    col_home_bsr = _find_column(df, b.get("home_team"))
+    col_away_bsr = _find_column(df, b.get("away_team"))
+    col_date_bsr = _find_column(df, b.get("date"))
+    col_start_bsr = _find_column(df, b.get("start_time"))
+    col_progtype = _find_column(df, b.get("type_of_program"))
+    col_broadcaster = _find_column(df, b.get("broadcaster"))
+
+    col_combined = _find_column(df, b.get("combined"))
+    col_prog_desc = _find_column(df, b.get("program_description"))
+    col_prog_title = _find_column(df, b.get("program_title"))
+    col_duration = _find_column(df, b.get("duration"))
+
+    col_home_fix = _find_column(df_fix, f.get("home_team"))
+    col_away_fix = _find_column(df_fix, f.get("away_team"))
+    col_date_fix = _find_column(df_fix, f.get("date"))
+    col_start_fix = _find_column(df_fix, f.get("start_time"))
+
+    # ---------- Required columns check ----------
+    req = [col_home_bsr, col_away_bsr, col_date_bsr, col_start_bsr]
+    if any(c is None for c in req):
+        df["Program_Category_Expected"] = pd.NA
+        df["Program_Category_Actual"] = df[col_progtype] if col_progtype else ""
+        df["Program_Category_OK"] = False
+        df["Program_Category_Remark"] = "Missing required columns for LIVE check"
+        return df
+
+    # ---------- Helpers ----------
+    def clean(x):
+        if pd.isna(x):
+            return ""
+        x = str(x).strip().lower()
+        x = re.sub(r"[^\w\s&]", " ", x)  # keep & since "Magazine & Support" uses it
+        return re.sub(r"\s+", " ", x).strip()
+
+    def parse_datetime(d, t):
         try:
-            if ":" in val_str:
-                t = pd.to_datetime(val_str, errors="coerce").time()
-                return t.hour * 60 + t.minute
-            else:
-                return float(val_str)
-        except Exception:
+            return combine_parse(d, t)
+        except:
+            return pd.NaT
+
+    def parse_duration_minutes(x):
+        if pd.isna(x):
             return None
+        try:
+            num = float(x)
+            if 0 <= num <= 10000:
+                return int(num)
+        except Exception:
+            pass
+        s = str(x).strip().lower()
+        m = re.match(r"^(\d+):(\d+)(?::(\d+))?$", s)
+        if m:
+            parts = [int(p) for p in m.groups() if p is not None]
+            if len(parts) == 2:
+                h_or_m, m_or_s = parts
+                if h_or_m > 5:
+                    return h_or_m * 60 + m_or_s
+                else:
+                    return int(round((h_or_m * 60 + m_or_s) / 60.0))
+            elif len(parts) == 3:
+                h, mm, ss = parts
+                return h * 60 + mm + round(ss / 60)
+        m2 = re.search(r"(\d+)", s)
+        if m2:
+            return int(m2.group(1))
+        return None
 
-    def expected_category(duration_min):
-        if duration_min is None:
-            return "unknown"
-        if duration_min >= 120:
-            return "live"
-        elif 60 <= duration_min < 120:
-            return "repeat"
-        elif 30 <= duration_min < 60:
-            return "highlights"
-        elif 0 < duration_min < 30:
-            return "support"
+    def contains_any_keyword(text, keywords):
+        if not text:
+            return False
+        txt = clean(text)
+        for kw in keywords:
+            k = re.sub(r"[^\w\s&]", " ", str(kw)).strip().lower()
+            if not k:
+                continue
+            if re.search(rf"\b{re.escape(k)}\b", txt):
+                return True
+        return False
+
+    # ---------- Prepare fixture lookup ----------
+    df_fix["_home"] = df_fix[col_home_fix].map(clean)
+    df_fix["_away"] = df_fix[col_away_fix].map(clean)
+    df_fix["_date"] = pd.to_datetime(df_fix[col_date_fix], errors="coerce").dt.date
+    df_fix["_start"] = [
+        parse_datetime(df_fix.at[i, col_date_fix], df_fix.at[i, col_start_fix])
+        for i in df_fix.index
+    ]
+
+    # ---------- Prepare BSR ----------
+    df["_home"] = df[col_home_bsr].map(clean)
+    df["_away"] = df[col_away_bsr].map(clean)
+    df["_event_key"] = df["_home"] + "||" + df["_away"]
+    df["_date"] = pd.to_datetime(df[col_date_bsr], errors="coerce").dt.date
+    df["_start"] = [
+        parse_datetime(df.at[i, col_date_bsr], df.at[i, col_start_bsr])
+        for i in df.index
+    ]
+    df["_broad"] = df[col_broadcaster].astype(str).str.lower().str.strip() if col_broadcaster else ""
+
+    # normalize actual to lower-case comparable form
+    df["Program_Category_Actual"] = (
+        df[col_progtype].astype(str).str.lower().str.strip() if col_progtype else ""
+    )
+
+    # combined text for keyword searches
+    def get_combined_text(row):
+        parts = []
+        for c in (col_combined, col_prog_desc, col_prog_title):
+            if c and pd.notna(row.get(c, "")):
+                parts.append(str(row[c]))
+        return " ".join(parts).strip()
+
+    df["_combined_text"] = df.apply(get_combined_text, axis=1).astype(str)
+    df["_duration_min"] = df[col_duration].apply(parse_duration_minutes) if col_duration else None
+
+    # keywords & bounds
+    highlights_keywords = ["hits", "highlights", "post", "review", "overview", "recap", "summary"]
+    magazine_keywords = ["pre", "post", "studio", "interview", "analysis", "previo"]
+    dur_min_bound, dur_max_bound = rules.get("flag_duration_min", 10), rules.get("flag_duration_max", 50)
+
+    df["Program_Category_Expected"] = pd.NA
+    df["Program_Category_Remark"] = ""
+
+    LIVE_TOL = rules.get("live_tolerance_min", 35)
+
+    # ---------- MAIN LOOP ----------
+    for idx, row in df.iterrows():
+        ev_key = row["_event_key"]
+        h = row["_home"]
+        a = row["_away"]
+        d = row["_date"]
+        bsr_start = row["_start"]
+        actual = row["Program_Category_Actual"]
+        combined_text = row["_combined_text"]
+        dur_min = row["_duration_min"] if col_duration else None
+
+        # ---------- 1) HIGHLIGHTS / MAGAZINE & SUPPORT - OVERRIDE (must NOT use fixture) ----------
+        dur_ok = True
+        if col_duration:
+            if dur_min is None:
+                dur_ok = False
+            else:
+                dur_ok = (dur_min_bound <= dur_min <= dur_max_bound)
+
+        # If actual explicitly labels it, respect that first (normalized)
+        if isinstance(actual, str) and actual == "highlights":
+            df.at[idx, "Program_Category_Expected"] = "highlights"
+            df.at[idx, "Program_Category_Remark"] = "Detected as Highlights (Program type)"
+            # override everything else
+            continue
+
+        if isinstance(actual, str) and actual in ("magazine", "magazine & support", "magazine & support".lower()):
+            # set expected exactly to the normalized form used by actual when present
+            df.at[idx, "Program_Category_Expected"] = "magazine & support"
+            df.at[idx, "Program_Category_Remark"] = "Detected as Magazine & Support (Program type)"
+            continue
+
+        # Keyword+duration based detection (also overrides)
+        if dur_ok and contains_any_keyword(combined_text, highlights_keywords):
+            df.at[idx, "Program_Category_Expected"] = "highlights"
+            df.at[idx, "Program_Category_Remark"] = f"Detected as Highlights (duration {dur_min} min & keyword match)"
+            continue
+
+        if dur_ok and contains_any_keyword(combined_text, magazine_keywords):
+            df.at[idx, "Program_Category_Expected"] = "magazine & support"
+            df.at[idx, "Program_Category_Remark"] = f"Detected as Magazine & Support (duration {dur_min} min & keyword match)"
+            continue
+
+        # ---------- 2) REPEAT LOGIC (runs before fixture/live/delayed) ----------
+        if actual == "repeat":
+            same_event = df[df["_event_key"] == ev_key]
+            earlier = same_event[
+                pd.to_datetime(same_event["_start"], errors="coerce") <
+                pd.to_datetime(bsr_start, errors="coerce")
+            ]
+            if not earlier.empty:
+                first_time = pd.to_datetime(earlier["_start"], errors="coerce").min()
+                diff = (bsr_start - first_time).total_seconds() / 60
+                df.at[idx, "Program_Category_Expected"] = "repeat"
+                df.at[idx, "Program_Category_Remark"] = f"Repeat (earlier BSR broadcast exists, {diff:.1f} min earlier)"
+                continue
+            else:
+                df.at[idx, "Program_Category_Expected"] = pd.NA
+                df.at[idx, "Program_Category_Remark"] = "Repeat flagged but no earlier BSR broadcast found"
+                continue
+
+        # ---------- 3) FIXTURE LOOKUP (only used for live/delayed/repeat) ----------
+        fixture_rows = df_fix[
+            (df_fix["_home"] == h)
+            & (df_fix["_away"] == a)
+            & (df_fix["_date"] == d)
+        ]
+
+        # If no fixture, do NOT set "No matching fixture found" — leave Expected as NA and blank remark
+        if fixture_rows.empty:
+            # leave Program_Category_Expected as pd.NA (unless set earlier)
+            # do not set remark to "No matching fixture"
+            continue
+
+        # fixture exists -> evaluate live/delayed/repeat
+        fix_start = fixture_rows["_start"].iloc[0]
+        if pd.isna(bsr_start) or pd.isna(fix_start):
+            df.at[idx, "Program_Category_Expected"] = pd.NA
+            df.at[idx, "Program_Category_Remark"] = "Invalid datetime"
+            continue
+
+        diff_min = abs((bsr_start - fix_start).total_seconds() / 60)
+
+        # LIVE
+        if diff_min <= LIVE_TOL:
+            df.at[idx, "Program_Category_Expected"] = "live"
+            df.at[idx, "Program_Category_Remark"] = f"Live (within ±{LIVE_TOL} min)"
+            continue
+
+        # DELAYED: only if this is the earliest BSR for the event AND occurs after fixture start
+        same_event = df[df["_event_key"] == ev_key]
+        earliest = pd.to_datetime(same_event["_start"], errors="coerce").min()
+
+        if pd.to_datetime(bsr_start, errors="coerce") == earliest:
+            # ensure it's after fixture start
+            if (bsr_start - fix_start).total_seconds() > 0:
+                df.at[idx, "Program_Category_Expected"] = "delayed"
+                remark = f"Delayed (first telecast outside window; diff {diff_min:.1f} min)"
+                if actual != "delayed":
+                    remark = remark + f"; note: Program_Type actual='{actual}'"
+                df.at[idx, "Program_Category_Remark"] = remark
+                continue
+            else:
+                df.at[idx, "Program_Category_Expected"] = pd.NA
+                df.at[idx, "Program_Category_Remark"] = "Broadcast recieved before the fixture start"
+                continue
         else:
-            return "unknown"
+            # not earliest -> repeat
+            df.at[idx, "Program_Category_Expected"] = "repeat"
+            later_diff = (bsr_start - earliest).total_seconds() / 60
+            df.at[idx, "Program_Category_Remark"] = f"Repeat (first telecast was {later_diff:.1f} min earlier)"
+            continue
 
-    results, remarks = [], []
-    for _, row in df.iterrows():
-        prog_val = str(row[prog_col]).strip().lower()
-        dur_min = parse_duration(row[dur_col])
-        expected = expected_category(dur_min)
-        ok = expected in prog_val or prog_val in expected
-        results.append(ok)
-        remarks.append("" if ok else f"Program type '{prog_val}' does not match duration category '{expected}'")
+    # ---------- FINAL OK ----------
+    df["Program_Category_OK"] = df["Program_Category_Actual"] == df["Program_Category_Expected"]
 
-    df["Program_Category_OK"] = results
-    df["Program_Category_Remark"] = remarks
+    # cleanup internal cols
+    df.drop(columns=["_home", "_away", "_event_key", "_date", "_start", "_broad", "_combined_text", "_duration_min"],
+            errors="ignore", inplace=True)
+
     return df
 
 # 8️⃣ Event / Matchday / Competition Check

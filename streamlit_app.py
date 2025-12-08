@@ -378,7 +378,7 @@ with main_qc_tab:
                     df = qc_general.overlap_duplicate_daybreak_check(df) 
                     
                     # 5. FIX: Simplified to match new signature
-                    df = qc_general.program_category_check(df) 
+                    df = qc_general.program_category_check(bsr_path, df, col_map, rules["program_category"], file_rules) 
                     
                     # 6. FIX: Simplified signature - assuming helper functions inside qc_checks.py now handle the file loading based on paths
                     df = qc_general.check_event_matchday_competition(df, rosco_path=rosco_path)
@@ -473,13 +473,13 @@ with laliga_qc_tab:
                     df = qc_general.overlap_duplicate_daybreak_check(df) 
                     
                     # 5. FIX: Simplified to match new signature
-                    df = qc_general.program_category_check(df)
+                    df = qc_general.program_category_check(bsr_path, df, col_map, rules["program_category"], file_rules)
                     
                     # 6. FIX: Simplified signature - assuming helper functions inside qc_checks.py now handle the file loading based on paths
                     df = qc_general.check_event_matchday_competition(df, rosco_path=rosco_path)
                     
                     df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
-                    
+
                     # 7. FIX: Changed to a similar available function
                     df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
                     
