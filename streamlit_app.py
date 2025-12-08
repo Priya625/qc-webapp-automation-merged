@@ -375,7 +375,7 @@ with main_qc_tab:
                     df = qc_general.completeness_check(df) 
                     
                     # 4. FIX: Removed col_map["bsr"] and rules[...]
-                    df = qc_general.overlap_duplicate_daybreak_check(df) 
+                    df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules["overlap_check"]) 
                     
                     # 5. FIX: Simplified to match new signature
                     df = qc_general.program_category_check(bsr_path, df, col_map, rules["program_category"], file_rules) 
@@ -470,7 +470,7 @@ with laliga_qc_tab:
                     df = qc_general.completeness_check(df) 
                     
                     # 4. FIX: Removed col_map["bsr"] and rules[...]
-                    df = qc_general.overlap_duplicate_daybreak_check(df) 
+                    df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules["overlap_check"]) 
                     
                     # 5. FIX: Simplified to match new signature
                     df = qc_general.program_category_check(bsr_path, df, col_map, rules["program_category"], file_rules)
