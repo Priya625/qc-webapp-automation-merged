@@ -187,15 +187,58 @@ def period_check(df, start_date, end_date):
 
 
 # ----------------------------- 4️⃣ Completeness Check -----------------------------
-def completeness_check(df):
-    keywords = ["channel", "aud", "price", "match"]
-    matched_cols = [col for col in df.columns if any(kw in str(col).lower() for kw in keywords)]
-    if not matched_cols:
-        df["Completeness_OK"] = True
-        df["Completeness_Remark"] = ""
-        return df
-    df["Completeness_OK"] = df[matched_cols].notna().all(axis=1)
-    df["Completeness_Remark"] = df["Completeness_OK"].apply(lambda x: "" if x else "Missing key fields")
+def completeness_check(df, bsr_cols, rules):
+    colmap = {
+        "tv_channel": _find_column(df, bsr_cols['tv_channel']),
+        "channel_id": _find_column(df, bsr_cols.get('channel_id')),
+        "type_of_program": _find_column(df, bsr_cols.get('type_of_program')),
+        "match_day": _find_column(df, bsr_cols.get('matchday') or bsr_cols.get('match_day', [])),
+        "home_team": _find_column(df, bsr_cols.get('home_team')),
+        "away_team": _find_column(df, bsr_cols.get('away_team')),
+        "aud_estimates": _find_column(df, bsr_cols.get('aud_estimates')),
+        "aud_metered": _find_column(df, bsr_cols.get('aud_metered')),
+        "source": _find_column(df, bsr_cols.get('source'))
+    }
+    df["Completeness_OK"] = True
+    df["Completeness_Remark"] = ""
+    live_types = set(rules.get('live_types', ['live', 'repeat', 'delayed']))
+    relaxed_types = set(rules.get('relaxed_types', ['highlights']))
+    for idx, row in df.iterrows():
+        missing = []
+        for logical, display in [("tv_channel", "TV Channel"), ("channel_id", "Channel ID"),
+                                 ("match_day", "Match Day"), ("source", "Source")]:
+            colname = colmap.get(logical)
+            if colname is None:
+                missing.append(f"{display} (column not found)")
+            elif not _is_present(row.get(colname)):
+                missing.append(display)
+        aud_est_col = colmap.get("aud_estimates")
+        aud_met_col = colmap.get("aud_metered")
+        if not aud_est_col and not aud_met_col:
+            missing.append("Audience (Estimates/Metered) (columns not found)")
+        else:
+            est_present = _is_present(row.get(aud_est_col)) if aud_est_col else False
+            met_present = _is_present(row.get(aud_met_col)) if aud_met_col else False
+            if not est_present and not met_present:
+                missing.append("Both Audience fields are empty")
+            elif est_present and met_present:
+                missing.append("Both Audience fields are filled")
+        type_col = colmap.get("type_of_program")
+        prog_type = str(row.get(type_col) or "").strip().lower() if type_col else ""
+        home_col, away_col = colmap.get("home_team"), colmap.get("away_team")
+        if prog_type in live_types:
+            if not home_col: missing.append("Home Team (column not found)")
+            elif not _is_present(row.get(home_col)): missing.append("Home Team")
+            if not away_col: missing.append("Away Team (column not found)")
+            elif not _is_present(row.get(away_col)): missing.append("Away Team")
+        elif prog_type not in relaxed_types:
+            if home_col and not _is_present(row.get(home_col)): missing.append("Home Team")
+            if away_col and not _is_present(row.get(away_col)): missing.append("Away Team")
+        if missing:
+            df.at[idx, "Completeness_OK"] = False
+            df.at[idx, "Completeness_Remark"] = "; ".join(missing)
+        else:
+            df.at[idx, "Completeness_Remark"] = "All key fields present"
     return df
 
 
