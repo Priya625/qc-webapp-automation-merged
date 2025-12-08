@@ -384,7 +384,7 @@ with main_qc_tab:
                     df = qc_general.check_event_matchday_competition(df, rosco_path=rosco_path)
                     
                     # 7. FIX: Changed to a similar available function (your provided code did not have rates_and_ratings_check(df, bsr_cols))
-                    df = qc_general.rates_and_ratings_check(df)
+                    df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
                     
                     # 8. FIX: Changed to a similar available function
                     df = qc_general.country_channel_id_check(df)
@@ -477,7 +477,7 @@ with laliga_qc_tab:
                     df = qc_general.check_event_matchday_competition(df, rosco_path=rosco_path)
                     
                     # 7. FIX: Changed to a similar available function
-                    df = qc_general.rates_and_ratings_check(df)
+                    df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
                     
                     # 8. FIX: Changed to a similar available function
                     df = qc_general.country_channel_id_check(df)
