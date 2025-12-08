@@ -167,17 +167,9 @@ def detect_header_row(df, bsr_cols):
     """
     # Helper: pick first string from list
     def first_str(x):
-        # 💡 FIX: Handle Pandas Series/Numpy arrays before standard list/item checks
-        if isinstance(x, (pd.Series, np.ndarray)):
-            # If the Series is entirely empty (all NaN/None)
-            if x.isnull().all():
-                return ""
-            # Pick the first non-NaN/non-None value
-            x = x.dropna().iloc[0] if not x.dropna().empty else x.iloc[0]
-            
+        # Handle None or NaN
         if x is None or pd.isna(x):
             return ""
-        
         # If it's a list, try to get the first non-empty string element
         if isinstance(x, list):
             for item in x:
@@ -185,7 +177,6 @@ def detect_header_row(df, bsr_cols):
                 if s:
                     return s
             return ""
-        
         # If it's a single item (int, float, string), convert and clean
         return str(x).strip() if x else ""
 
