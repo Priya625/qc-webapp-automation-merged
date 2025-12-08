@@ -255,8 +255,20 @@ def overlap_duplicate_daybreak_check(df):
 def program_category_check(bsr_path, df, col_map, rules, file_rules):
     # ---------- Load fixture sheet ----------
     xl = pd.ExcelFile(bsr_path)
-    fixture_keyword = file_rules.get("fixture_sheet_keyword", "fixture")
-    fixture_sheet = next((s for s in xl.sheet_names if fixture_keyword in s.lower()), None)
+    # 1. Get keyword(s) from config (which might be a list)
+    fixture_keywords = file_rules.get("fixture_sheet_keyword", ["fixture"])
+    
+    # Ensure fixture_keywords is always a list for iteration
+    if not isinstance(fixture_keywords, list):
+        fixture_keywords = [fixture_keywords]
+    
+    # 2. Iterate through all keywords to find a matching sheet
+    fixture_sheet = None
+    for s in xl.sheet_names:
+        s_lower = s.lower()
+        if any(kw.lower() in s_lower for kw in fixture_keywords):
+            fixture_sheet = s
+            break
 
     if not fixture_sheet:
         df["Program_Category_Expected"] = pd.NA
