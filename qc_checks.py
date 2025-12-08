@@ -164,16 +164,23 @@ def detect_header_row(bsr_path, bsr_cols):
     df_sample = pd.read_excel(bsr_path, header=None, nrows=200)
     # construct possible key tokens (lowercased)
     key_cols = []
+
+    def safe_first(x,default):
+        if isinstance(x, list) and x:
+            return str(x[0])
+        if isinstance(x, str):
+            return x
+        return default
     # bsr_cols is expected to be a dict mapping logical names to lists of candidates
     try:
-        key_cols.append(bsr_cols.get('market', ['market'])[0])
-        key_cols.append(bsr_cols.get('tv_channel', ['channel'])[0])
-        key_cols.append(bsr_cols.get('date', ['date'])[0])
-        key_cols.append(bsr_cols.get('start_time', ['start'])[0])
+        key_cols.append(bsr_cols.get('market', ['market']))
+        key_cols.append(bsr_cols.get('tv_channel', ['channel']))
+        key_cols.append(bsr_cols.get('date', ['date']))
+        key_cols.append(bsr_cols.get('start_time', ['start']))
     except Exception:
         # fallback
-        key_cols = ['market','channel','date','start']
-    key_cols = [str(k).lower() for k in key_cols if k]
+        #key_cols = ['market','channel','date','start']
+        key_cols = [str(k).lower().strip() for k in key_cols]
     for i, row in df_sample.iterrows():
         row_str = " ".join(row.dropna().astype(str).tolist()).lower()
         match_count = sum(1 for col in key_cols if col in row_str)
@@ -1152,45 +1159,73 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
 # -----------------------------------------------------------
 # 13️⃣ Country & Channel IDs Check
 def country_channel_id_check(df, bsr_cols):
+    """
+    Ensures: For each (Market, TV-Channel) pair → only ONE unique Channel ID.
+    Same TV-Channel across different markets is allowed.
+    Only the combination matters.
+    """
+
     df["Market_Channel_ID_OK"] = True
     df["Market_Channel_ID_Remark"] = "OK"
-    ch_col = _find_column(df, bsr_cols.get('tv_channel'))
-    ch_id_col = _find_column(df, bsr_cols.get('channel_id'))
-    mkt_col = _find_column(df, bsr_cols.get('market'))
-    mkt_id_col = _find_column(df, bsr_cols.get('market_id'))
-    if not all([ch_col, ch_id_col, mkt_col, mkt_id_col]):
-        logging.warning("ID Check: Missing one or more ID columns. Skipping.")
+
+    # Resolve columns
+    ch_col      = _find_column(df, bsr_cols.get('tv_channel'))
+    ch_id_col   = _find_column(df, bsr_cols.get('channel_id'))
+    mkt_col     = _find_column(df, bsr_cols.get('market'))
+
+    if not all([ch_col, ch_id_col, mkt_col]):
+        logging.warning("ID Check: Missing required columns. Skipping.")
         df["Market_Channel_ID_OK"] = False
-        df["Market_Channel_ID_Remark"] = "Check skipped: ID columns not found"
+        df["Market_Channel_ID_Remark"] = "Check skipped: required columns not found"
         return df
+
+    # Normalize values safely (avoids list error)
     def norm(x):
-        return str(x).strip() if pd.notna(x) else ""
-    channel_id_map = {}
-    market_id_map = {}
+        if isinstance(x, (list, tuple, set)):
+            return " ".join([str(i).strip() for i in x if pd.notna(i)])
+        if pd.isna(x):
+            return ""
+        return str(x).strip()
+
+    # Build mapping: (market, channel) → set(channel_ids)
+    pair_channel_ids = {}
+    pair_idxs = {}
+
     for idx, row in df.iterrows():
-        channel = norm(row.get(ch_col))
+        market     = norm(row.get(mkt_col))
+        channel    = norm(row.get(ch_col))
         channel_id = norm(row.get(ch_id_col))
-        market = norm(row.get(mkt_col))
-        market_id = norm(row.get(mkt_id_col))
-        if channel and channel_id and channel not in channel_id_map:
-            channel_id_map[channel] = channel_id
-        if market and market_id and market not in market_id_map:
-            market_id_map[market] = market_id
-    for idx, row in df.iterrows():
-        channel = norm(row.get(ch_col))
-        channel_id = norm(row.get(ch_id_col))
-        market = norm(row.get(mkt_col))
-        market_id = norm(row.get(mkt_id_col))
-        remarks = []
+
+        key = (market, channel)
+        pair_channel_ids.setdefault(key, set()).add(channel_id)
+        pair_idxs.setdefault(key, []).append(idx)
+
+    # Evaluate consistency
+    for key, id_set in pair_channel_ids.items():
+        idxs = pair_idxs[key]
+
+        non_blank_ids = {cid for cid in id_set if cid != ""}
+
+        # Default
         ok = True
-        if channel and channel_id_map.get(channel) != channel_id:
-            remarks.append(f"Channel '{channel}' has multiple IDs")
+        remark = "OK"
+
+        # Rule 1 — Cannot have 0 IDs
+        if len(non_blank_ids) == 0:
             ok = False
-        if market and market_id_map.get(market) != market_id:
-            remarks.append(f"Market '{market}' has multiple IDs")
+            remark = "Missing channel ID"
+
+        # Rule 2 — Cannot have multiple IDs for same (market, channel)
+        elif len(non_blank_ids) > 1:
             ok = False
-        df.at[idx, "Market_Channel_ID_OK"] = ok
-        df.at[idx, "Market_Channel_ID_Remark"] = "; ".join(remarks) if remarks else "OK"
+            sorted_ids = sorted([cid if cid != "" else "<BLANK>" for cid in id_set])
+            remark = f"Multiple Channel IDs for same (market,channel): {', '.join(sorted_ids)}"
+
+        # Apply results to all rows for that pair
+        for i in idxs:
+            df.at[i, "Market_Channel_ID_OK"] = ok
+            df.at[i, "Market_Channel_ID_Remark"] = remark
+
     return df
 
 # -----------------------------------------------------------
