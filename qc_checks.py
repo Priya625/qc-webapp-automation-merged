@@ -18,15 +18,30 @@ HEADER_FILL = PatternFill(start_color="BDD7EE", end_color="BDD7EE", fill_type="s
 def _find_column(df, candidates):
     if df is None:
         return None
-    if not isinstance(candidates, list):
-        candidates = [candidates]
+
+    # Always work with a flat list of strings
+    flat_candidates = []
+
+    if isinstance(candidates, list):
+        for c in candidates:
+            if isinstance(c, list):   # flatten nested lists
+                flat_candidates.extend(c)
+            else:
+                flat_candidates.append(c)
+    else:
+        flat_candidates = [candidates]
+
+    # Normalize the DF columns
     cols_lower = {str(c).lower().strip(): c for c in df.columns}
-    for cand in candidates:
+
+    # Try matching each candidate
+    for cand in flat_candidates:
         if cand is None:
             continue
         k = str(cand).lower().strip()
         if k in cols_lower:
             return cols_lower[k]
+
     return None
 
 def _is_present(val):
@@ -1151,75 +1166,43 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
 
 # -----------------------------------------------------------
 # 13️⃣ Country & Channel IDs Check
-def country_channel_id_check(df, bsr_cols):
+def check_market_channel_id(df):
     """
-    Ensures: For each (Market, TV-Channel) pair → only ONE unique Channel ID.
-    Same TV-Channel across different markets is allowed.
-    Only the combination matters.
+    Validates that each (Market, TV-Channel) pair has exactly ONE unique Channel ID.
+    If the same pair has multiple Channel IDs → Error.
     """
 
-    df["Market_Channel_ID_OK"] = True
-    df["Market_Channel_ID_Remark"] = "OK"
+    errors = []
 
-    # Resolve columns
-    ch_col      = _find_column(df, bsr_cols.get('tv_channel'))
-    ch_id_col   = _find_column(df, bsr_cols.get('channel_id'))
-    mkt_col     = _find_column(df, bsr_cols.get('market'))
+    # Group by Market + TV-Channel and count unique Channel IDs
+    grouped = (
+        df.groupby(["Market", "TV-Channel"])["Channel ID"]
+          .nunique()
+          .reset_index(name="unique_ids")
+    )
 
-    if not all([ch_col, ch_id_col, mkt_col]):
-        logging.warning("ID Check: Missing required columns. Skipping.")
-        df["Market_Channel_ID_OK"] = False
-        df["Market_Channel_ID_Remark"] = "Check skipped: required columns not found"
-        return df
+    # Filter invalid pairs (more than 1 unique ID)
+    invalid_pairs = grouped[grouped["unique_ids"] > 1]
 
-    # Normalize values safely (avoids list error)
-    def norm(x):
-        if isinstance(x, (list, tuple, set)):
-            return " ".join([str(i).strip() for i in x if pd.notna(i)])
-        if pd.isna(x):
-            return ""
-        return str(x).strip()
+    for _, row in invalid_pairs.iterrows():
+        market = row["Market"]
+        channel = row["TV-Channel"]
 
-    # Build mapping: (market, channel) → set(channel_ids)
-    pair_channel_ids = {}
-    pair_idxs = {}
+        # Get all conflicting IDs for reporting
+        ids = df[
+            (df["Market"] == market) &
+            (df["TV-Channel"] == channel)
+        ]["Channel ID"].unique().tolist()
 
-    for idx, row in df.iterrows():
-        market     = norm(row.get(mkt_col))
-        channel    = norm(row.get(ch_col))
-        channel_id = norm(row.get(ch_id_col))
+        errors.append(
+            f"❌ Market '{market}' + TV-Channel '{channel}' has multiple Channel IDs: {ids}"
+        )
 
-        key = (market, channel)
-        pair_channel_ids.setdefault(key, set()).add(channel_id)
-        pair_idxs.setdefault(key, []).append(idx)
-
-    # Evaluate consistency
-    for key, id_set in pair_channel_ids.items():
-        idxs = pair_idxs[key]
-
-        non_blank_ids = {cid for cid in id_set if cid != ""}
-
-        # Default
-        ok = True
-        remark = "OK"
-
-        # Rule 1 — Cannot have 0 IDs
-        if len(non_blank_ids) == 0:
-            ok = False
-            remark = "Missing channel ID"
-
-        # Rule 2 — Cannot have multiple IDs for same (market, channel)
-        elif len(non_blank_ids) > 1:
-            ok = False
-            sorted_ids = sorted([cid if cid != "" else "<BLANK>" for cid in id_set])
-            remark = f"Multiple Channel IDs for same (market,channel): {', '.join(sorted_ids)}"
-
-        # Apply results to all rows for that pair
-        for i in idxs:
-            df.at[i, "Market_Channel_ID_OK"] = ok
-            df.at[i, "Market_Channel_ID_Remark"] = remark
-
-    return df
+    # Final result
+    if errors:
+        return False, errors
+    else:
+        return True, ["✔ All (Market + TV-Channel) pairs have exactly one unique Channel ID."]
 
 # -----------------------------------------------------------
 # Excel Coloring for True/False checks
