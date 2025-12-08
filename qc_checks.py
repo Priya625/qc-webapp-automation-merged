@@ -211,11 +211,7 @@ def detect_header_row(df, bsr_cols):
     ]
 
     # Normalize: keep only REAL strings
-    safe_key_cols = []
-    for c in key_cols:
-        if isinstance(c, str) and c.strip():
-         safe_key_cols.append(c.lower())
-    key_cols = safe_key_cols
+    key_cols = [c.lower() for c in key_cols if isinstance(c, str) and c.strip()]
 
     if not key_cols:
         return 0  # fallback
@@ -269,7 +265,7 @@ def completeness_check(df, bsr_cols, rules):
         "tv_channel": _find_column(df, bsr_cols['tv_channel']),
         "channel_id": _find_column(df, bsr_cols.get('channel_id')),
         "type_of_program": _find_column(df, bsr_cols.get('type_of_program')),
-        "match_day": _find_column(df, bsr_cols.get('matchday') or bsr_cols.get('match_day')),
+        "match_day": _find_column(df, bsr_cols.get('matchday') or bsr_cols.get('match_day', [])),
         "home_team": _find_column(df, bsr_cols.get('home_team')),
         "away_team": _find_column(df, bsr_cols.get('away_team')),
         "aud_estimates": _find_column(df, bsr_cols.get('aud_estimates')),
