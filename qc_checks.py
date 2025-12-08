@@ -187,7 +187,7 @@ def detect_header_row(df, bsr_cols):
     key_cols.append(first_str(bsr_cols.get("aud_estimates")))
 
     # Normalize
-    key_cols = [c for c in key_cols if c]
+    key_cols = [str(c) for c in key_cols if c]
 
     for i in range(min(50, len(df))):
         row_str = " ".join([str(x).lower() for x in df.iloc[i].tolist()])
