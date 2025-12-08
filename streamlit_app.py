@@ -137,7 +137,7 @@ with home_page_tab:
         <style>
             /* Ensure the overall background color is applied */
             .stApp {
-                background-color:  #DCD2FF; 
+                background-color:  #FFFFFF; 
             }
 
             .stApp > header {
