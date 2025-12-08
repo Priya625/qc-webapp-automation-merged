@@ -372,7 +372,7 @@ with main_qc_tab:
                     df = qc_general.period_check(df, start_date, end_date) 
                     
                     # 3. FIX: Removed col_map["bsr"] and rules[...]
-                    df = qc_general.completeness_check(df) 
+                    df = qc_general.completeness_check(df, col_map["bsr"], rules["program_category"]) 
                     
                     # 4. FIX: Removed col_map["bsr"] and rules[...]
                     df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules["overlap_check"]) 
@@ -467,7 +467,7 @@ with laliga_qc_tab:
                     df = qc_general.period_check(df, start_date, end_date)
                     
                     # 3. FIX: Removed col_map["bsr"] and rules[...]
-                    df = qc_general.completeness_check(df) 
+                    df = qc_general.completeness_check(df, col_map["bsr"], rules["program_category"]) 
                     
                     # 4. FIX: Removed col_map["bsr"] and rules[...]
                     df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules["overlap_check"]) 
