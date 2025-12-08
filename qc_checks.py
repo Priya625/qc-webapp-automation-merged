@@ -778,68 +778,6 @@ def country_channel_id_check(df):
     return df_result
 
 # -----------------------------------------------------------
-# 14️⃣ Client Data / LSTV / OTT Check (corrected)
-def client_lstv_ott_check(df_worksheet, project_config=None):
-    """
-    Checks:
-      - Market and Channel ID consistency
-      - Inclusion of Client Data, LSTV, OTT sources
-    Returns:
-      df with:
-        - Client_LSTV_OTT_OK (True/False)
-        - Client_LSTV_OTT_Remark
-    """
-
-    df = df_worksheet.copy()
-    df["Client_LSTV_OTT_OK"] = True
-    df["Client_LSTV_OTT_Remark"] = ""
-
-    # --- 1️⃣ Market / Channel ID consistency ---
-    if "Market ID" in df.columns and "Channel ID" in df.columns:
-        # Identify Channel IDs belonging to multiple Market IDs
-        multi_market = df.groupby("Channel ID")["Market ID"].nunique()
-        multi_market_channels = multi_market[multi_market > 1].index.tolist()
-
-        # Identify Market IDs belonging to multiple Channel IDs
-        multi_channel = df.groupby("Market ID")["Channel ID"].nunique()
-        multi_channel_ids = multi_channel[multi_channel > 1].index.tolist()
-    else:
-        multi_market_channels = []
-        multi_channel_ids = []
-
-    # --- 2️⃣ Client / LSTV / OTT inclusion ---
-    pay_free_col = "Pay/Free TV" if "Pay/Free TV" in df.columns else None
-
-    # Define expected sources
-    expected_sources = ["lstv", "client", "ott"]
-
-    for idx, row in df.iterrows():
-        remarks = []
-        ok = True
-
-        # Market / Channel mapping issues
-        if row.get("Channel ID") in multi_market_channels:
-            ok = False
-            remarks.append("Channel assigned to multiple Market IDs")
-
-        if row.get("Market ID") in multi_channel_ids:
-            ok = False
-            remarks.append("Market ID assigned to multiple Channel IDs")
-
-        # Client / LSTV / OTT source checks
-        if pay_free_col:
-            val = str(row.get(pay_free_col, "")).strip().lower()
-            # Only mark False if none of the expected sources are present
-            if not any(source in val for source in expected_sources):
-                ok = False
-                remarks.append(f"Missing required source (Client/LSTV/OTT): {row.get(pay_free_col, '')}")
-
-        # Write results
-        df.at[idx, "Client_LSTV_OTT_OK"] = ok
-        df.at[idx, "Client_LSTV_OTT_Remark"] = "; ".join(remarks) if remarks else "OK"
-
-    return df
-# -----------------------------------------------------------
 # ✅ Excel Coloring for True/False checks
 def color_excel(output_path, df):
     from openpyxl import load_workbook
