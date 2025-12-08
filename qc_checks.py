@@ -162,67 +162,65 @@ def detect_period_from_rosco(rosco_path):
 # ----------------------------- 2️⃣ Load BSR -----------------------------
 def detect_header_row(df, bsr_cols):
     """
-    Robust header row detection.
-    Fixes: "truth value of an array is ambiguous"
-    by avoiding `a or b` when a/b may be lists/Series/arrays.
+    Detect the header row using known column candidate lists.
+    Ensures only STRINGS are used for 'in' comparisons.
     """
-
-    # Helper: safely extract first usable string
+    # Helper: pick first string from list
     def first_str(x):
-        # Handle Pandas Series / numpy arrays
+        # 💡 FIX: Handle Pandas Series/Numpy arrays before standard list/item checks
         if isinstance(x, (pd.Series, np.ndarray)):
-            try:
-                if hasattr(x, "dropna"):
-                    x = x.dropna()
-                    if len(x) == 0:
-                        return ""
-                    return str(x.iloc[0]).strip()
-                else:
-                    if len(x) > 0:
-                        return str(x[0]).strip()
-            except:
+            # If the Series is entirely empty (all NaN/None)
+            if x.isnull().all():
                 return ""
-
+            # Pick the first non-NaN/non-None value
+            x = x.dropna().iloc[0] if not x.dropna().empty else x.iloc[0]
+            
         if x is None or pd.isna(x):
             return ""
-
-        # If list → return first non-empty
+        
+        # If it's a list, try to get the first non-empty string element
         if isinstance(x, list):
             for item in x:
                 s = str(item).strip()
                 if s:
                     return s
             return ""
+        
+        # If it's a single item (int, float, string), convert and clean
+        return str(x).strip() if x else ""
 
-        # Simple item (str/int/etc.)
-        return str(x).strip()
+    key_cols = []
 
-    # ---- SAFE retrieval of matchday (no OR on arrays!) ----
-    md = bsr_cols.get("matchday", None)
-    if md is None:
-        md = bsr_cols.get("match_day", None)
+    # Market
+    key_cols.append(first_str(bsr_cols.get("market")))
 
-    # Collect key header identifiers
-    key_cols = [
-        first_str(bsr_cols.get("market")),
-        first_str(bsr_cols.get("tv_channel")),
-        first_str(md),
-        first_str(bsr_cols.get("aud_estimates"))
-    ]
+    # TV Channel
+    key_cols.append(first_str(bsr_cols.get("tv_channel")))
 
-    # Normalize: keep only REAL strings
-    key_cols = [c.lower() for c in key_cols if isinstance(c, str) and c.strip()]
+    # Match Day
+    md = bsr_cols.get("matchday") or bsr_cols.get("match_day")
+    key_cols.append(first_str(md))
+
+    # Audience
+    key_cols.append(first_str(bsr_cols.get("aud_estimates")))
+
+    # Normalize: Ensure every element is a non-empty, lower-cased string
+    # This is the key line to eliminate any remaining lists or empty strings.
+    key_cols = [c.lower() for c in key_cols if c]
 
     if not key_cols:
-        return 0  # fallback
+        return 0 # Cannot detect header, return default
 
-    # ---- Try first 50 rows to find header ----
     for i in range(min(50, len(df))):
+        # Prepare the row content for matching, converting all values to lower-cased strings
         row_str = " ".join([str(x).lower() for x in df.iloc[i].tolist()])
-        match_count = sum(1 for c in key_cols if c in row_str)
+        
+        # Check if enough key columns are present in the row string
+        # Since key_cols are now all lower-case strings, the comparison is safe.
+        match_count = sum(1 for col in key_cols if col in row_str)
 
         if match_count >= 2:
-            return i
+            return i  # header row index
 
     return 0
 
