@@ -424,14 +424,11 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 def program_category_check(bsr_path, df, col_map, rules, file_rules):
     # ---------- Load fixture sheet ----------
     xl = pd.ExcelFile(bsr_path)
-    # 1. Get keyword(s) from config (which might be a list)
     fixture_keywords = file_rules.get("fixture_sheet_keyword", ["fixture"])
-    
-    # Ensure fixture_keywords is always a list for iteration
+
     if not isinstance(fixture_keywords, list):
         fixture_keywords = [fixture_keywords]
-    
-    # 2. Iterate through all keywords to find a matching sheet
+
     fixture_sheet = None
     for s in xl.sheet_names:
         s_lower = s.lower()
@@ -446,7 +443,11 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         df["Program_Category_Remark"] = "Fixture sheet missing"
         return df
 
+
     df_fix = xl.parse(fixture_sheet)
+
+    # ---------- Column detection ----------
+     df_fix = xl.parse(fixture_sheet)
 
     # ---------- Column detection ----------
     b = col_map["bsr"]
@@ -543,20 +544,30 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     # ---------- Prepare BSR ----------
     df["_home"] = df[col_home_bsr].map(clean)
     df["_away"] = df[col_away_bsr].map(clean)
-    df["_event_key"] = df["_home"] + "||" + df["_away"]
+
+    # NEW: market-aware event grouping
+    col_market = _find_column(df, bsr_cols.get("market"))
+    df["_market"] = (
+        df[col_market].astype(str).str.strip().str.lower()
+        if col_market else "nomarket"
+    )
+    df["_event_key"] = df["_market"] + "||" + df["_home"] + "||" + df["_away"]
+
     df["_date"] = pd.to_datetime(df[col_date_bsr], errors="coerce").dt.date
     df["_start"] = [
         parse_datetime(df.at[i, col_date_bsr], df.at[i, col_start_bsr])
         for i in df.index
     ]
-    df["_broad"] = df[col_broadcaster].astype(str).str.lower().str.strip() if col_broadcaster else ""
-
-    # normalize actual to lower-case comparable form
-    df["Program_Category_Actual"] = (
-        df[col_progtype].astype(str).str.lower().str.strip() if col_progtype else ""
+    df["_broad"] = (
+        df[col_broadcaster].astype(str).str.lower().str.strip()
+        if col_broadcaster else ""
     )
 
-    # combined text for keyword searches
+    df["Program_Category_Actual"] = (
+        df[col_progtype].astype(str).str.lower().str.strip()
+        if col_progtype else ""
+    )
+
     def get_combined_text(row):
         parts = []
         for c in (col_combined, col_prog_desc, col_prog_title):
@@ -565,9 +576,11 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         return " ".join(parts).strip()
 
     df["_combined_text"] = df.apply(get_combined_text, axis=1).astype(str)
-    df["_duration_min"] = df[col_duration].apply(parse_duration_minutes) if col_duration else None
+    df["_duration_min"] = (
+        df[col_duration].apply(parse_duration_minutes)
+        if col_duration else None
+    )
 
-    # keywords & bounds
     highlights_keywords = ["hits", "highlights", "post", "review", "overview", "recap", "summary"]
     magazine_keywords = ["pre", "post", "studio", "interview", "analysis", "previo"]
     dur_min_bound, dur_max_bound = rules.get("flag_duration_min", 10), rules.get("flag_duration_max", 50)
