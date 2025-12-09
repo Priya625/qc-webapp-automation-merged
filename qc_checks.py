@@ -447,9 +447,6 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     df_fix = xl.parse(fixture_sheet)
 
     # ---------- Column detection ----------
-     df_fix = xl.parse(fixture_sheet)
-
-    # ---------- Column detection ----------
     b = col_map["bsr"]
     f = col_map["fixture"]
 
