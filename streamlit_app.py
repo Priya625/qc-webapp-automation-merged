@@ -708,64 +708,7 @@ with epl_tab:
         st.checkbox(all_market_check_keys_epl["audit_channel_line_item_count"], key="audit_channel_line_item_count")
         st.checkbox(all_market_check_keys_epl["check_combined_archive_status"], key="check_combined_archive_status")
         st.checkbox(all_market_check_keys_epl["suppress_duplicated_audience"], key="suppress_duplicated_audience")
-       # --- Tooltip + Alignment CSS ---
-        st.markdown("""
-        <style>
-        .epl-check-row {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .epl-label {
-            margin-top: -2px;     /* FIX vertical misalignment */
-            font-size: 16px;
-        }
-
-        .tooltiptext {
-            visibility: hidden;
-            width: 260px;
-            background-color: #4f4f4f;
-            color: #fff;
-            text-align: left;
-            border-radius: 6px;
-            padding: 8px;
-            position: absolute;
-            z-index: 1;
-        }
-
-        .tooltip:hover .tooltiptext {
-            visibility: visible;
-        }
-
-        .tooltip {
-            position: relative;
-            display: inline-block;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-
-
-        # --- Perfect one-line checkbox row ---
-        colA, colB = st.columns([0.05, 0.95])
-
-        with colA:
-            st.checkbox("", key="filter_short_programs")   # Checkbox ONLY
-
-        with colB:
-            st.markdown(
-                """
-                <div class="epl-check-row">
-                    <div class="tooltip epl-label">
-                        Filter short programs
-                        <span class="tooltiptext">
-                            Removes program where duration is <5 mins except Austria and New Zealand
-                        </span>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
+        st.checkbox(all_market_check_keys_epl["filter_short_programs"], key="filter_short_programs")
         st.checkbox(all_market_check_keys_epl["sa_nielsen_inclusion_check"], key="sa_nielsen_inclusion_check")
         st.checkbox(all_market_check_keys_epl["epl_live_vs_delay_validation"], key="epl_live_vs_delay_validation")
         st.checkbox(all_market_check_keys_epl["pl_magazine_highlights_classification"], key="pl_magazine_highlights_classification")
