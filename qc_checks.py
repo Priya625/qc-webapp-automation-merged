@@ -431,8 +431,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
     fixture_sheet = None
     for s in xl.sheet_names:
-        s_lower = s.lower()
-        if any(kw.lower() in s_lower for kw in fixture_keywords):
+        if any(kw.lower() in s.lower() for kw in fixture_keywords):
             fixture_sheet = s
             break
 
@@ -443,11 +442,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         df["Program_Category_Remark"] = "Fixture sheet missing"
         return df
 
-
     df_fix = xl.parse(fixture_sheet)
-
-    # ---------- Column detection ----------
-     df_fix = xl.parse(fixture_sheet)
 
     # ---------- Column detection ----------
     b = col_map["bsr"]
@@ -456,7 +451,22 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     col_home_bsr = _find_column(df, b.get("home_team"))
     col_away_bsr = _find_column(df, b.get("away_team"))
     col_date_bsr = _find_column(df, b.get("date"))
-    col_start_bsr = _find_column(df, b.get("start_time"))
+
+    # ---------- FIXED: always prefer Start (UTC) ----------
+    utc_candidates = ["Start (UTC)", "Start UTC", "Start_UTC", "Start_utc", "start (utc)", "start_utc"]
+    col_start_bsr_utc = None
+    for cand in utc_candidates:
+        tmp = _find_column(df, cand)
+        if tmp:
+            col_start_bsr_utc = tmp
+            break
+
+    # fallback to config mapping if no UTC candidate exists
+    col_start_bsr = col_start_bsr_utc if col_start_bsr_utc else _find_column(df, b.get("start_time"))
+
+    if col_start_bsr_utc:
+        print("Using UTC Start time column:", col_start_bsr_utc)
+
     col_progtype = _find_column(df, b.get("type_of_program"))
     col_broadcaster = _find_column(df, b.get("broadcaster"))
 
@@ -468,7 +478,17 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     col_home_fix = _find_column(df_fix, f.get("home_team"))
     col_away_fix = _find_column(df_fix, f.get("away_team"))
     col_date_fix = _find_column(df_fix, f.get("date"))
-    col_start_fix = _find_column(df_fix, f.get("start_time"))
+
+    # ---------- FIXED: fixture start also UTC-aware ----------
+    fix_start_candidates = ["Start (UTC)", "Start UTC", "Start_UTC"]
+    col_start_fix_utc = None
+    for cand in fix_start_candidates:
+        tmp = _find_column(df_fix, cand)
+        if tmp:
+            col_start_fix_utc = tmp
+            break
+
+    col_start_fix = col_start_fix_utc if col_start_fix_utc else _find_column(df_fix, f.get("start_time"))
 
     # ---------- Required columns check ----------
     req = [col_home_bsr, col_away_bsr, col_date_bsr, col_start_bsr]
@@ -481,109 +501,81 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
     # ---------- Helpers ----------
     def clean(x):
-        if pd.isna(x):
-            return ""
+        if pd.isna(x): return ""
         x = str(x).strip().lower()
-        x = re.sub(r"[^\w\s&]", " ", x)  # keep & since "Magazine & Support" uses it
+        x = re.sub(r"[^\w\s&]", " ", x)
         return re.sub(r"\s+", " ", x).strip()
 
     def parse_datetime(d, t):
         try:
             return combine_parse(d, t)
-        except:
-            return pd.NaT
+        except: return pd.NaT
 
     def parse_duration_minutes(x):
-        if pd.isna(x):
-            return None
+        if pd.isna(x): return None
         try:
             num = float(x)
-            if 0 <= num <= 10000:
-                return int(num)
-        except Exception:
-            pass
+            if 0 <= num <= 10000: return int(num)
+        except: pass
         s = str(x).strip().lower()
         m = re.match(r"^(\d+):(\d+)(?::(\d+))?$", s)
         if m:
-            parts = [int(p) for p in m.groups() if p is not None]
-            if len(parts) == 2:
-                h_or_m, m_or_s = parts
-                if h_or_m > 5:
-                    return h_or_m * 60 + m_or_s
-                else:
-                    return int(round((h_or_m * 60 + m_or_s) / 60.0))
-            elif len(parts) == 3:
-                h, mm, ss = parts
-                return h * 60 + mm + round(ss / 60)
+            parts = [int(p) for p in m.groups() if p]
+            if len(parts)==2:
+                h,m2 = parts
+                return h*60+m2 if h>5 else int(round((h*60+m2)/60))
+            if len(parts)==3:
+                h,mm,ss = parts
+                return h*60+mm+round(ss/60)
         m2 = re.search(r"(\d+)", s)
-        if m2:
-            return int(m2.group(1))
-        return None
+        return int(m2.group(1)) if m2 else None
 
     def contains_any_keyword(text, keywords):
-        if not text:
-            return False
+        if not text: return False
         txt = clean(text)
         for kw in keywords:
             k = re.sub(r"[^\w\s&]", " ", str(kw)).strip().lower()
-            if not k:
-                continue
-            if re.search(rf"\b{re.escape(k)}\b", txt):
+            if k and re.search(rf"\b{re.escape(k)}\b", txt):
                 return True
         return False
 
-    # ---------- Prepare fixture lookup ----------
-    df_fix["_home"] = df_fix[col_home_fix].map(clean)
-    df_fix["_away"] = df_fix[col_away_fix].map(clean)
-    df_fix["_date"] = pd.to_datetime(df_fix[col_date_fix], errors="coerce").dt.date
-    df_fix["_start"] = [
-        parse_datetime(df_fix.at[i, col_date_fix], df_fix.at[i, col_start_fix])
-        for i in df_fix.index
-    ]
+    # ---------- Prepare fixture ----------
+    df_fix["_home"]  = df_fix[col_home_fix].map(clean)
+    df_fix["_away"]  = df_fix[col_away_fix].map(clean)
+    df_fix["_date"]  = pd.to_datetime(df_fix[col_date_fix], errors="coerce").dt.date
+    df_fix["_start"] = [parse_datetime(df_fix.at[i,col_date_fix], df_fix.at[i,col_start_fix]) for i in df_fix.index]
 
     # ---------- Prepare BSR ----------
     df["_home"] = df[col_home_bsr].map(clean)
     df["_away"] = df[col_away_bsr].map(clean)
 
-    # NEW: market-aware event grouping
-    col_market = _find_column(df, bsr_cols.get("market"))
-    df["_market"] = (
-        df[col_market].astype(str).str.strip().str.lower()
-        if col_market else "nomarket"
-    )
+    # prefer market-aware event key
+    col_market = _find_column(df, b.get("market"))
+    df["_market"] = df[col_market].astype(str).str.strip().str.lower() if col_market else "nomarket"
+
     df["_event_key"] = df["_market"] + "||" + df["_home"] + "||" + df["_away"]
 
     df["_date"] = pd.to_datetime(df[col_date_bsr], errors="coerce").dt.date
-    df["_start"] = [
-        parse_datetime(df.at[i, col_date_bsr], df.at[i, col_start_bsr])
-        for i in df.index
-    ]
-    df["_broad"] = (
-        df[col_broadcaster].astype(str).str.lower().str.strip()
-        if col_broadcaster else ""
-    )
+    df["_start"] = [parse_datetime(df.at[i,col_date_bsr], df.at[i,col_start_bsr]) for i in df.index]
 
-    df["Program_Category_Actual"] = (
-        df[col_progtype].astype(str).str.lower().str.strip()
-        if col_progtype else ""
-    )
+    df["_broad"] = df[col_broadcaster].astype(str).str.lower().str.strip() if col_broadcaster else ""
+
+    df["Program_Category_Actual"] = df[col_progtype].astype(str).str.lower().str.strip() if col_progtype else ""
 
     def get_combined_text(row):
-        parts = []
+        pts = []
         for c in (col_combined, col_prog_desc, col_prog_title):
-            if c and pd.notna(row.get(c, "")):
-                parts.append(str(row[c]))
-        return " ".join(parts).strip()
+            if c and pd.notna(row.get(c)):
+                pts.append(str(row[c]))
+        return " ".join(pts).strip()
 
     df["_combined_text"] = df.apply(get_combined_text, axis=1).astype(str)
-    df["_duration_min"] = (
-        df[col_duration].apply(parse_duration_minutes)
-        if col_duration else None
-    )
+    df["_duration_min"] = df[col_duration].apply(parse_duration_minutes) if col_duration else None
 
-    highlights_keywords = ["hits", "highlights", "post", "review", "overview", "recap", "summary"]
-    magazine_keywords = ["pre", "post", "studio", "interview", "analysis", "previo"]
-    dur_min_bound, dur_max_bound = rules.get("flag_duration_min", 10), rules.get("flag_duration_max", 50)
+    highlights_keywords = ["hits","highlights","post","review","overview","recap","summary"]
+    magazine_keywords  = ["pre","post","studio","interview","analysis","previo"]
+
+    dur_min_bound, dur_max_bound = rules.get("flag_duration_min",10), rules.get("flag_duration_max",50)
 
     df["Program_Category_Expected"] = pd.NA
     df["Program_Category_Remark"] = ""
