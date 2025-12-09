@@ -737,17 +737,13 @@ with epl_tab:
 
         with col1:
             st.checkbox("", key="filter_short_programs")   # CHECKBOX ONLY
-
         with col2:
             st.markdown(
-                """
-                <div class="tooltip">
-                    Filter short programs
+                """<div class="tooltip">Filter short programs
                     <span class="tooltiptext">
                         Removes program where duration is <5 mins except Austria and New Zealand
                     </span>
-                </div>
-                """,
+                </div>""",
                 unsafe_allow_html=True
             )
         st.checkbox(all_market_check_keys_epl["sa_nielsen_inclusion_check"], key="sa_nielsen_inclusion_check")
