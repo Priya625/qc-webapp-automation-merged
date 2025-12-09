@@ -420,7 +420,7 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
     )
 
 
-# ----------------------------- 6️⃣ Program Category Check -----------------------------
+# ----------------------------- 6️⃣ Program Category Check (Corrected) -----------------------------
 def program_category_check(bsr_path, df, col_map, rules, file_rules):
     # ---------- Load fixture sheet ----------
     xl = pd.ExcelFile(bsr_path)
@@ -465,7 +465,9 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     col_start_bsr = col_start_bsr_utc if col_start_bsr_utc else _find_column(df, b.get("start_time"))
 
     if col_start_bsr_utc:
-        print("Using UTC Start time column:", col_start_bsr_utc)
+        # print("Using UTC Start time column:", col_start_bsr_utc) # Kept comment to reduce print spam
+
+        pass # Retain the logic for finding the column but remove the print if desired
 
     col_progtype = _find_column(df, b.get("type_of_program"))
     col_broadcaster = _find_column(df, b.get("broadcaster"))
@@ -499,7 +501,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         df["Program_Category_Remark"] = "Missing required columns for LIVE check"
         return df
 
-    # ---------- Helpers ----------
+    # ---------- Helpers (retain existing helpers) ----------
     def clean(x):
         if pd.isna(x): return ""
         x = str(x).strip().lower()
@@ -508,6 +510,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
     def parse_datetime(d, t):
         try:
+            # Assumes combine_parse is available/defined elsewhere in your environment
             return combine_parse(d, t)
         except: return pd.NaT
 
@@ -523,6 +526,9 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             parts = [int(p) for p in m.groups() if p]
             if len(parts)==2:
                 h,m2 = parts
+                # Original logic: return minutes if hours is > 5, otherwise return rounded hours? This looks flawed.
+                # Assuming standard H:MM means H hours + MM minutes, or MM:SS means MM minutes + SS seconds.
+                # The original logic is highly customized, so retaining it.
                 return h*60+m2 if h>5 else int(round((h*60+m2)/60))
             if len(parts)==3:
                 h,mm,ss = parts
@@ -540,10 +546,20 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         return False
 
     # ---------- Prepare fixture ----------
-    df_fix["_home"]  = df_fix[col_home_fix].map(clean)
-    df_fix["_away"]  = df_fix[col_away_fix].map(clean)
-    df_fix["_date"]  = pd.to_datetime(df_fix[col_date_fix], errors="coerce").dt.date
-    df_fix["_start"] = [parse_datetime(df_fix.at[i,col_date_fix], df_fix.at[i,col_start_fix]) for i in df_fix.index]
+    # Check for required fixture columns before proceeding
+    req_fix = [col_home_fix, col_away_fix, col_date_fix, col_start_fix]
+    if all(c is not None for c in req_fix):
+        df_fix["_home"]  = df_fix[col_home_fix].map(clean)
+        df_fix["_away"]  = df_fix[col_away_fix].map(clean)
+        df_fix["_date"]  = pd.to_datetime(df_fix[col_date_fix], errors="coerce").dt.date
+        df_fix["_start"] = [parse_datetime(df_fix.at[i,col_date_fix], df_fix.at[i,col_start_fix]) for i in df_fix.index]
+    else:
+        df["Program_Category_Expected"] = pd.NA
+        df["Program_Category_Actual"] = df[col_progtype] if col_progtype else ""
+        df["Program_Category_OK"] = False
+        df["Program_Category_Remark"] = "Missing required columns in Fixture sheet"
+        return df
+
 
     # ---------- Prepare BSR ----------
     df["_home"] = df[col_home_bsr].map(clean)
@@ -581,6 +597,9 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     df["Program_Category_Remark"] = ""
 
     LIVE_TOL = rules.get("live_tolerance_min", 35)
+    
+    # Add _start_dt column once for efficient access
+    df["_start_dt"] = pd.to_datetime(df["_start"], errors="coerce")
 
     # ---------- MAIN LOOP ----------
     for idx, row in df.iterrows():
@@ -588,10 +607,17 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         h = row["_home"]
         a = row["_away"]
         d = row["_date"]
-        bsr_start = row["_start"]
+        bsr_start_dt = row["_start_dt"]
         actual = row["Program_Category_Actual"]
         combined_text = row["_combined_text"]
         dur_min = row["_duration_min"] if col_duration else None
+
+        # Check for invalid datetime
+        if pd.isna(bsr_start_dt):
+            df.at[idx, "Program_Category_Expected"] = pd.NA
+            df.at[idx, "Program_Category_Remark"] = "Invalid datetime"
+            continue
+
 
         # ---------- 1) HIGHLIGHTS / MAGAZINE & SUPPORT - OVERRIDE (must NOT use fixture) ----------
         dur_ok = True
@@ -605,11 +631,9 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         if isinstance(actual, str) and actual == "highlights":
             df.at[idx, "Program_Category_Expected"] = "highlights"
             df.at[idx, "Program_Category_Remark"] = "Detected as Highlights (Program type)"
-            # override everything else
             continue
 
         if isinstance(actual, str) and actual in ("magazine", "magazine & support", "magazine & support".lower()):
-            # set expected exactly to the normalized form used by actual when present
             df.at[idx, "Program_Category_Expected"] = "magazine & support"
             df.at[idx, "Program_Category_Remark"] = "Detected as Magazine & Support (Program type)"
             continue
@@ -626,77 +650,79 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             continue
 
         # ---------- 2) REPEAT LOGIC (runs before fixture/live/delayed) ----------
-        # Ensure we have datetime objects for reliable comparison
-        try:
-            # create a datetime column for safe comparisons (coerce invalid -> NaT)
-            df["_start_dt"] = pd.to_datetime(df["_start"], errors="coerce")
-            bsr_start_dt = pd.to_datetime(bsr_start, errors="coerce")
-        except Exception:
-            df.at[idx, "Program_Category_Expected"] = pd.NA
-            df.at[idx, "Program_Category_Remark"] = "Invalid datetime"
-            continue
-
+        
         # Build set of same-event rows and their start datetimes
         same_event = df[df["_event_key"] == ev_key].copy()
-        same_event["_start_dt"] = pd.to_datetime(same_event["_start"], errors="coerce")
+        # Filter out the current row by index to avoid comparing row to itself if multiple identical rows exist
+        same_event_other_rows = same_event.drop(idx, errors='ignore')
 
-        # If there exists an earlier broadcast (strictly before current start) -> this is a REPEAT
-        earlier = same_event[same_event["_start_dt"] < bsr_start_dt]
+        # If there exists an earlier broadcast (strictly before current start) in other BSR rows -> this is a REPEAT
+        earlier = same_event_other_rows[same_event_other_rows["_start_dt"] < bsr_start_dt]
 
         if not earlier.empty:
             # The current broadcast is not the earliest -> it's a repeat
             first_time = earlier["_start_dt"].min()
-            # compute minutes difference from the earliest earlier broadcast (positive if current is later)
+            
             try:
+                # compute minutes difference from the earliest earlier broadcast
                 diff = (bsr_start_dt - first_time).total_seconds() / 60.0
                 diff_txt = f"{diff:.1f}"
             except Exception:
                 diff_txt = "unknown"
+                
             df.at[idx, "Program_Category_Expected"] = "repeat"
-            df.at[idx, "Program_Category_Remark"] = f"Repeat (earlier BSR broadcast exists, {diff_txt} min earlier)"
+            df.at[idx, "Program_Category_Remark"] = f"Repeat (earlier BSR broadcast exists, {diff_txt} min later)"
             continue
 
-        # No earlier broadcast exists — current row is the earliest seen in BSR for this event.
-        # Now decide between LIVE and DELAYED (LIVE was already tested earlier using fixture tolerance),
-        # but we still need to detect DELAYED when earliest occurs after fixture start and outside live window.
+        # Current row is the earliest telecast in BSR for this event. Now check against fixture.
+        
+        # Find the fixture start time for this event
+        fixture_match = df_fix[(df_fix["_home"] == h) & (df_fix["_away"] == a) & (df_fix["_date"] == d)]
+        fixture_start = fixture_match["_start"].iloc[0] if not fixture_match.empty else pd.NaT
 
-        earliest_time = same_event["_start_dt"].min() if not same_event.empty else pd.NaT
-
-        # If earliest_time is NaT or bsr_start_dt invalid -> mark as invalid/unknown
-        if pd.isna(earliest_time) or pd.isna(bsr_start_dt):
+        if pd.isna(fixture_start):
             df.at[idx, "Program_Category_Expected"] = pd.NA
-            df.at[idx, "Program_Category_Remark"] = "Invalid datetime (cannot determine earliest/delayed)"
+            df.at[idx, "Program_Category_Remark"] = "Fixture not found for LIVE/DELAYED check"
             continue
 
-        # If this row equals the earliest (should be true because earlier.empty above),
-        # check if it is after fixture start -> DELAYED (if after fixture start), otherwise leave NA
-        # Note: fix_start is already parsed above as a Timestamp (pd.Timestamp or NaT)
-        if pd.to_datetime(bsr_start_dt) == pd.to_datetime(earliest_time):
-            # If broadcast occurs after fixture start -> delayed (first telecast but occurred late)
-            if (bsr_start_dt - col_start_fix).total_seconds() > 0:
-                df.at[idx, "Program_Category_Expected"] = "delayed"
-                remark = f"Delayed (first telecast outside window; diff {diff:.1f} min)"
-                if actual != "delayed":
-                    remark = remark + f"; note: Program_Type actual='{actual}'"
-                df.at[idx, "Program_Category_Remark"] = remark
-                continue
-            else:
-                # earliest equals current but broadcast occurred before fixture start (weird) — treat as NA
-                df.at[idx, "Program_Category_Expected"] = pd.NA
-                df.at[idx, "Program_Category_Remark"] = "Broadcast received before the fixture start"
-                continue
-        else:
-            # Safety fallback: if we somehow get here and current row is not earliest, treat as repeat
-            df.at[idx, "Program_Category_Expected"] = "repeat"
-            df.at[idx, "Program_Category_Remark"] = "Repeat (another broadcast exists for this event)"
+        # Calculate time difference
+        try:
+            diff_seconds = (bsr_start_dt - fixture_start).total_seconds()
+            diff_minutes = diff_seconds / 60.0
+        except Exception:
+            df.at[idx, "Program_Category_Expected"] = pd.NA
+            df.at[idx, "Program_Category_Remark"] = "Error calculating time difference with fixture"
+            continue
+        
+        # New Logic: Determine LIVE or DELAYED based on tolerance from Fixture Start
+        
+        # LIVE: Broadcast is within LIVE_TOL (e.g., -35 min to +35 min) of fixture start
+        if -LIVE_TOL <= diff_minutes <= LIVE_TOL:
+            df.at[idx, "Program_Category_Expected"] = "live"
+            df.at[idx, "Program_Category_Remark"] = f"Live (First telecast, within {LIVE_TOL} min of fixture start, diff {diff_minutes:.1f} min)"
+            continue
+        
+        # DELAYED: Broadcast starts significantly after the fixture start time
+        elif diff_minutes > LIVE_TOL:
+            df.at[idx, "Program_Category_Expected"] = "delayed"
+            remark = f"Delayed (First telecast, started {diff_minutes:.1f} min after fixture start)"
+            if actual != "delayed":
+                remark = remark + f"; note: Program_Type actual='{actual}'"
+            df.at[idx, "Program_Category_Remark"] = remark
+            continue
+            
+        # BEFORE FIXTURE: Broadcast occurs significantly before the fixture start
+        else: # diff_minutes < -LIVE_TOL
+            df.at[idx, "Program_Category_Expected"] = pd.NA
+            df.at[idx, "Program_Category_Remark"] = f"Broadcast received too early before fixture start (diff {diff_minutes:.1f} min)"
             continue
 
     # ---------- FINAL OK ----------
-    df["Program_Category_OK"] = df["Program_Category_Actual"] == df["Program_Category_Expected"]
+    df["Program_Category_OK"] = df["Program_Category_Actual"].str.strip().str.lower() == df["Program_Category_Expected"]
 
     # cleanup internal cols
-    df.drop(columns=["_home", "_away", "_event_key", "_date", "_start", "_broad", "_combined_text", "_duration_min"],
-            errors="ignore", inplace=True)
+    df.drop(columns=["_home", "_away", "_event_key", "_date", "_start", "_broad", "_combined_text", "_duration_min", "_market", "_start_dt"],
+             errors="ignore", inplace=True)
 
     return df
 
