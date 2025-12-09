@@ -717,7 +717,6 @@ with epl_tab:
                         }
                         </style>
                         """, unsafe_allow_html=True)
-
         st.markdown("""
             <div class="tooltip">
                 <span style="font-size:16px;">Filter short programs</span>
@@ -725,7 +724,6 @@ with epl_tab:
                         </div>""",
                             unsafe_allow_html=True
                         )
-
         st.checkbox("", key="filter_short_programs")
         st.checkbox(all_market_check_keys_epl["sa_nielsen_inclusion_check"], key="sa_nielsen_inclusion_check")
         st.checkbox(all_market_check_keys_epl["epl_live_vs_delay_validation"], key="epl_live_vs_delay_validation")
