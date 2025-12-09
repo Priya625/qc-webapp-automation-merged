@@ -243,7 +243,7 @@ def run_qc_checks(  # <-- CHANGED from async def to def
 
 # -------------------- 🌍 F1 MARKET CHECK ENDPOINT (MODIFIED FOR CONCURRENCY) --------------------
 
-EPL_CHECK_KEYS = {
+EPL_CHECK_KEYS  =     {
     "impute_lt_live_status",
     "consolidate_gillete_soccer",
     "check_sky_showcase_live",
@@ -255,7 +255,12 @@ EPL_CHECK_KEYS = {
     "check_live_broadcast_uniqueness",
     "audit_channel_line_item_count",
     "check_combined_archive_status",
-    "suppress_duplicated_audience"
+    "suppress_duplicated_audience",
+    "harmonize_uk_ire_program_descriptions_strict",
+    "check_game_of_the_day_match",
+    "check_non_metered_primary_market_audience",
+    "check_legacy_mapping",
+    "check_premier_league_october_obligation"
     } 
 
 @app.post("/api/market_check_and_process", response_model=None)
@@ -264,7 +269,8 @@ def market_check_and_process(
     obligation_file: Optional[UploadFile] = File(None, description="F1 Obligation file for broadcaster checks"), 
     overnight_file: Optional[UploadFile] = File(None, description="Overnight Audience file for upscale/integrity check"),
     macro_file: Optional[UploadFile] = File(None, description="Macro BSA Market Duplicator file"),
-    checks: List[str] = Form(..., description="List of selected check keys (e.g., 'remove_andorra')")
+    checks: List[str] = Form(..., description="List of selected check keys (e.g., 'remove_andorra')"),
+    check_configs: str = Form("{}", description="JSON string of runtime configurations")
 ):
     bsr_file_path = os.path.join(UPLOAD_FOLDER, bsr_file.filename)
     obligation_path, overnight_path, macro_path = None, None, None
@@ -277,6 +283,13 @@ def market_check_and_process(
     df_processed = None 
     
     try:
+        # 1. Parse Configuration
+        try:
+            config_dict = json.loads(check_configs)
+        except json.JSONDecodeError:
+            print("Warning: Failed to parse check_configs JSON. Using empty config.")
+            config_dict = {}
+            
         # 1. Save all files synchronously
         # Save BSR file
         with open(bsr_file_path, "wb") as buffer:
