@@ -626,73 +626,69 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             continue
 
         # ---------- 2) REPEAT LOGIC (runs before fixture/live/delayed) ----------
-        if actual == "repeat":
-            same_event = df[df["_event_key"] == ev_key]
-            earlier = same_event[
-                pd.to_datetime(same_event["_start"], errors="coerce") <
-                pd.to_datetime(bsr_start, errors="coerce")
-            ]
-            if not earlier.empty:
-                first_time = pd.to_datetime(earlier["_start"], errors="coerce").min()
-                diff = (bsr_start - first_time).total_seconds() / 60
-                df.at[idx, "Program_Category_Expected"] = "repeat"
-                df.at[idx, "Program_Category_Remark"] = f"Repeat (earlier BSR broadcast exists, {diff:.1f} min earlier)"
-                continue
-            else:
-                df.at[idx, "Program_Category_Expected"] = pd.NA
-                df.at[idx, "Program_Category_Remark"] = "Repeat flagged but no earlier BSR broadcast found"
-                continue
-
-        # ---------- 3) FIXTURE LOOKUP (only used for live/delayed/repeat) ----------
-        fixture_rows = df_fix[
-            (df_fix["_home"] == h)
-            & (df_fix["_away"] == a)
-            & (df_fix["_date"] == d)
-        ]
-
-        # If no fixture, do NOT set "No matching fixture found" — leave Expected as NA and blank remark
-        if fixture_rows.empty:
-            # leave Program_Category_Expected as pd.NA (unless set earlier)
-            # do not set remark to "No matching fixture"
-            continue
-
-        # fixture exists -> evaluate live/delayed/repeat
-        fix_start = fixture_rows["_start"].iloc[0]
-        if pd.isna(bsr_start) or pd.isna(fix_start):
+        # Ensure we have datetime objects for reliable comparison
+        try:
+            # create a datetime column for safe comparisons (coerce invalid -> NaT)
+            df["_start_dt"] = pd.to_datetime(df["_start"], errors="coerce")
+            bsr_start_dt = pd.to_datetime(bsr_start, errors="coerce")
+        except Exception:
             df.at[idx, "Program_Category_Expected"] = pd.NA
             df.at[idx, "Program_Category_Remark"] = "Invalid datetime"
             continue
 
-        diff_min = abs((bsr_start - fix_start).total_seconds() / 60)
+        # Build set of same-event rows and their start datetimes
+        same_event = df[df["_event_key"] == ev_key].copy()
+        same_event["_start_dt"] = pd.to_datetime(same_event["_start"], errors="coerce")
 
-        # LIVE
-        if diff_min <= LIVE_TOL:
-            df.at[idx, "Program_Category_Expected"] = "live"
-            df.at[idx, "Program_Category_Remark"] = f"Live (within ±{LIVE_TOL} min)"
+        # If there exists an earlier broadcast (strictly before current start) -> this is a REPEAT
+        earlier = same_event[same_event["_start_dt"] < bsr_start_dt]
+
+        if not earlier.empty:
+            # The current broadcast is not the earliest -> it's a repeat
+            first_time = earlier["_start_dt"].min()
+            # compute minutes difference from the earliest earlier broadcast (positive if current is later)
+            try:
+                diff = (bsr_start_dt - first_time).total_seconds() / 60.0
+                diff_txt = f"{diff:.1f}"
+            except Exception:
+                diff_txt = "unknown"
+            df.at[idx, "Program_Category_Expected"] = "repeat"
+            df.at[idx, "Program_Category_Remark"] = f"Repeat (earlier BSR broadcast exists, {diff_txt} min earlier)"
             continue
 
-        # DELAYED: only if this is the earliest BSR for the event AND occurs after fixture start
-        same_event = df[df["_event_key"] == ev_key]
-        earliest = pd.to_datetime(same_event["_start"], errors="coerce").min()
+        # No earlier broadcast exists — current row is the earliest seen in BSR for this event.
+        # Now decide between LIVE and DELAYED (LIVE was already tested earlier using fixture tolerance),
+        # but we still need to detect DELAYED when earliest occurs after fixture start and outside live window.
 
-        if pd.to_datetime(bsr_start, errors="coerce") == earliest:
-            # ensure it's after fixture start
-            if (bsr_start - fix_start).total_seconds() > 0:
+        earliest_time = same_event["_start_dt"].min() if not same_event.empty else pd.NaT
+
+        # If earliest_time is NaT or bsr_start_dt invalid -> mark as invalid/unknown
+        if pd.isna(earliest_time) or pd.isna(bsr_start_dt):
+            df.at[idx, "Program_Category_Expected"] = pd.NA
+            df.at[idx, "Program_Category_Remark"] = "Invalid datetime (cannot determine earliest/delayed)"
+            continue
+
+        # If this row equals the earliest (should be true because earlier.empty above),
+        # check if it is after fixture start -> DELAYED (if after fixture start), otherwise leave NA
+        # Note: fix_start is already parsed above as a Timestamp (pd.Timestamp or NaT)
+        if pd.to_datetime(bsr_start_dt) == pd.to_datetime(earliest_time):
+            # If broadcast occurs after fixture start -> delayed (first telecast but occurred late)
+            if (bsr_start_dt - col_start_fix).total_seconds() > 0:
                 df.at[idx, "Program_Category_Expected"] = "delayed"
-                remark = f"Delayed (first telecast outside window; diff {diff_min:.1f} min)"
+                remark = f"Delayed (first telecast outside window; diff {diff:.1f} min)"
                 if actual != "delayed":
                     remark = remark + f"; note: Program_Type actual='{actual}'"
                 df.at[idx, "Program_Category_Remark"] = remark
                 continue
             else:
+                # earliest equals current but broadcast occurred before fixture start (weird) — treat as NA
                 df.at[idx, "Program_Category_Expected"] = pd.NA
-                df.at[idx, "Program_Category_Remark"] = "Broadcast recieved before the fixture start"
+                df.at[idx, "Program_Category_Remark"] = "Broadcast received before the fixture start"
                 continue
         else:
-            # not earliest -> repeat
+            # Safety fallback: if we somehow get here and current row is not earliest, treat as repeat
             df.at[idx, "Program_Category_Expected"] = "repeat"
-            later_diff = (bsr_start - earliest).total_seconds() / 60
-            df.at[idx, "Program_Category_Remark"] = f"Repeat (first telecast was {later_diff:.1f} min earlier)"
+            df.at[idx, "Program_Category_Remark"] = "Repeat (another broadcast exists for this event)"
             continue
 
     # ---------- FINAL OK ----------
