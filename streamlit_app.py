@@ -675,7 +675,7 @@ with epl_tab:
     st.header(" EPL Specific Checks")
     st.markdown("Upload the required files here to perform and log manual checks.")
 
-    # --- Dedicated Upload for Manual Checks ---
+    # --- Dedicated Upload for Manual Checks (MODIFIED) ---
     col_file1, col_file2, col_file3,col_file4 = st.columns(4)
     with col_file1:
         epl_bsr_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="epl_market_check_file")
@@ -693,37 +693,32 @@ with epl_tab:
         if key not in st.session_state:
             st.session_state[key] = False
 
-    # --- Checkbox UI generation (MODIFIED for single check testing and help text) ---
-    with st.expander("1. Single Check Testing Mode", expanded=True):
-        st.subheader("General Market Checks (Only one check is active)")
-        
-        TARGET_CHECK_KEY = "pl_magazine_highlights_classification"
-        
-        # 1. Ensure the target check's state is set to True (for ease of testing)
-        if TARGET_CHECK_KEY not in st.session_state or not st.session_state[TARGET_CHECK_KEY]:
-             st.session_state[TARGET_CHECK_KEY] = True
+    # --- Checkbox UI generation (unchanged) ---
+    with st.expander("1. Channel and Territory Review", expanded=True):
+        st.subheader("General Market Checks")
+        st.checkbox(all_market_check_keys_epl["impute_lt_live_status"], key="impute_lt_live_status")
+        st.checkbox(all_market_check_keys_epl["consolidate_gillete_soccer"], key="consolidate_gillete_soccer")
+        st.checkbox(all_market_check_keys_epl["check_sky_showcase_live"], key="check_sky_showcase_live")
+        st.checkbox(all_market_check_keys_epl["standardize_uk_ire_region"], key="standardize_uk_ire_region")
+        st.checkbox(all_market_check_keys_epl["check_fixture_vs_case"], key="check_fixture_vs_case")
+        st.checkbox(all_market_check_keys_epl["check_pan_balkans_serbia_parity"], key="check_pan_balkans_serbia_parity")
+        st.checkbox(all_market_check_keys_epl["audit_multi_match_status"], key="audit_multi_match_status")
+        st.checkbox(all_market_check_keys_epl["check_date_time_format_integrity"], key="check_date_time_format_integrity")
+        st.checkbox(all_market_check_keys_epl["check_live_broadcast_uniqueness"], key="check_live_broadcast_uniqueness")
+        st.checkbox(all_market_check_keys_epl["audit_channel_line_item_count"], key="audit_channel_line_item_count")
+        st.checkbox(all_market_check_keys_epl["check_combined_archive_status"], key="check_combined_archive_status")
+        st.checkbox(all_market_check_keys_epl["suppress_duplicated_audience"], key="suppress_duplicated_audience")
+        st.checkbox(all_market_check_keys_epl["filter_short_programs"], key="filter_short_programs")
+        st.checkbox(all_market_check_keys_epl["sa_nielsen_inclusion_check"], key="sa_nielsen_inclusion_check")
+        st.checkbox(all_market_check_keys_epl["epl_live_vs_delay_validation"], key="epl_live_vs_delay_validation")
+        st.checkbox(all_market_check_keys_epl["pl_magazine_highlights_classification"], key="pl_magazine_highlights_classification")
 
-        # 2. Display ONLY the target check, with the hover-over text
-        st.checkbox(
-            all_market_check_keys_epl[TARGET_CHECK_KEY], 
-            key=TARGET_CHECK_KEY,
-            value=st.session_state[TARGET_CHECK_KEY], # Ensure the state is reflected
-            help=EPL_CHECK_DESCRIPTIONS.get(TARGET_CHECK_KEY, "Target Check.") # <-- HOVER-OVER TEXT
-        )
         
-        st.info("⚠️ All other checks are hidden and deactivated to isolate the target check. Click 'EPL Apply Selected Checks' to run the test.")
 
-        # 3. Explicitly set all other keys to False in session state when the button is pressed
-        # This prevents accidental run of multiple checks from previous sessions.
-        for key in all_market_check_keys_epl.keys():
-             if key != TARGET_CHECK_KEY:
-                  if st.session_state[key]:
-                       st.session_state[key] = False
-                      
     st.write("---")
 
 
-    # --- Run Processing Button ---
+    # --- Run Processing Button (UNTOUCHED) ---
     if st.button(" EPL Apply Selected Checks"):
         
         active_checks = [key for key in all_market_check_keys_epl.keys() if st.session_state[key]]
