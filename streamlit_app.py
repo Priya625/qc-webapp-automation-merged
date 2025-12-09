@@ -708,14 +708,9 @@ with epl_tab:
         st.checkbox(all_market_check_keys_epl["audit_channel_line_item_count"], key="audit_channel_line_item_count")
         st.checkbox(all_market_check_keys_epl["check_combined_archive_status"], key="check_combined_archive_status")
         st.checkbox(all_market_check_keys_epl["suppress_duplicated_audience"], key="suppress_duplicated_audience")
-        # --- Tooltip CSS ---
+       # --- Tooltip CSS ---
         st.markdown("""
         <style>
-        .tooltip-container {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
         .tooltiptext {
             visibility: hidden;
             width: 260px;
@@ -726,7 +721,6 @@ with epl_tab:
             padding: 8px;
             position: absolute;
             z-index: 1;
-            margin-left: 5px;
         }
         .tooltip:hover .tooltiptext {
             visibility: visible;
@@ -738,21 +732,20 @@ with epl_tab:
         </style>
         """, unsafe_allow_html=True)
 
-        # --- ONE LINE: checkbox + label + tooltip ---
-        colA, colB = st.columns([0.1, 0.9])   # checkbox small, label big
+        # --- Force in ONE line ---
+        col1, col2 = st.columns([0.07, 0.93])
 
-        with colA:
-            st.checkbox("", key="filter_short_programs")
-        with colB:
+        with col1:
+            st.checkbox("", key="filter_short_programs")   # CHECKBOX ONLY
+
+        with col2:
             st.markdown(
                 """
-                <div class="tooltip-container">
-                    <div class="tooltip">
-                        Filter short programs
-                        <span class="tooltiptext">
-                            Removes program where duration is <5 mins except Austria and New Zealand
-                        </span>
-                    </div>
+                <div class="tooltip">
+                    Filter short programs
+                    <span class="tooltiptext">
+                        Removes program where duration is <5 mins except Austria and New Zealand
+                    </span>
                 </div>
                 """,
                 unsafe_allow_html=True
