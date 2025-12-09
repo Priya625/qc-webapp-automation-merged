@@ -708,23 +708,55 @@ with epl_tab:
         st.checkbox(all_market_check_keys_epl["audit_channel_line_item_count"], key="audit_channel_line_item_count")
         st.checkbox(all_market_check_keys_epl["check_combined_archive_status"], key="check_combined_archive_status")
         st.checkbox(all_market_check_keys_epl["suppress_duplicated_audience"], key="suppress_duplicated_audience")
-        st.markdown("""<style>.tooltip {position: relative;display: inline-block;}.tooltip .tooltiptext {
-                        visibility: hidden;width: 260px;background-color: #4f4f4f;color: #fff;
-                        text-align: left;border-radius: 6px; padding: 8px;position: absolute;z-index: 1;
-                        top: -5px;left: 110%;
-                        }.tooltip:hover .tooltiptext {
-                        visibility: visible;
-                        }
-                        </style>
-                        """, unsafe_allow_html=True)
+        # --- Tooltip CSS ---
         st.markdown("""
-            <div class="tooltip">
-                <span style="font-size:16px;">Filter short programs</span>
-                        <span class="tooltiptext">Removes program where duration is <5 mins except Austria and New Zealand</span>
-                        </div>""",
-                            unsafe_allow_html=True
-                        )
-        st.checkbox("", key="filter_short_programs")
+        <style>
+        .tooltip-container {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .tooltiptext {
+            visibility: hidden;
+            width: 260px;
+            background-color: #4f4f4f;
+            color: #fff;
+            text-align: left;
+            border-radius: 6px;
+            padding: 8px;
+            position: absolute;
+            z-index: 1;
+            margin-left: 5px;
+        }
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+        }
+        .tooltip {
+            position: relative;
+            display: inline-block;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+        # --- ONE LINE: checkbox + label + tooltip ---
+        colA, colB = st.columns([0.1, 0.9])   # checkbox small, label big
+
+        with colA:
+            st.checkbox("", key="filter_short_programs")
+        with colB:
+            st.markdown(
+                """
+                <div class="tooltip-container">
+                    <div class="tooltip">
+                        Filter short programs
+                        <span class="tooltiptext">
+                            Removes program where duration is <5 mins except Austria and New Zealand
+                        </span>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
         st.checkbox(all_market_check_keys_epl["sa_nielsen_inclusion_check"], key="sa_nielsen_inclusion_check")
         st.checkbox(all_market_check_keys_epl["epl_live_vs_delay_validation"], key="epl_live_vs_delay_validation")
         st.checkbox(all_market_check_keys_epl["pl_magazine_highlights_classification"], key="pl_magazine_highlights_classification")
