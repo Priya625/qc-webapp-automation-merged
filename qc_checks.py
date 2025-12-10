@@ -530,21 +530,56 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     # ---------- Prepare fixture lookup ----------
     df_fix["_home"] = df_fix[col_home_fix].map(clean)
     df_fix["_away"] = df_fix[col_away_fix].map(clean)
-    df_fix["_date"] = pd.to_datetime(df_fix[col_date_fix], errors="coerce").dt.date
+
+    # Apply the same zero-date handling to the fixture data
+    df_fix["_date_raw"] = pd.to_datetime(df_fix[col_date_fix], errors="coerce")
+    df_fix["_date"] = df_fix["_date_raw"].dt.date
+    df_fix.loc[df_fix["_date"] == excel_zero_date, "_date"] = pd.NaT
+
     df_fix["_start"] = [
-        parse_datetime(df_fix.at[i, col_date_fix], df_fix.at[i, col_start_fix])
+        safe_parse_datetime(df_fix.at[i, col_date_fix], df_fix.at[i, col_start_fix])
         for i in df_fix.index
     ]
+    df_fix.drop(columns=["_date_raw"], errors="ignore", inplace=True)
 
     # ---------- Prepare BSR ----------
     df["_home"] = df[col_home_bsr].map(clean)
     df["_away"] = df[col_away_bsr].map(clean)
     df["_event_key"] = df["_home"] + "||" + df["_away"]
-    df["_date"] = pd.to_datetime(df[col_date_bsr], errors="coerce").dt.date
+
+    # 1. Handle Excel Zero Date in Date column and coerce to date
+    df["_date_raw"] = pd.to_datetime(df[col_date_bsr], errors="coerce")
+    # Replace '1899-12-31' date (Excel zero date) with NaT
+    excel_zero_date = pd.to_datetime('1899-12-31').date()
+    df["_date"] = df["_date_raw"].dt.date
+    df.loc[df["_date"] == excel_zero_date, "_date"] = pd.NaT # Treat Excel zero date as NaT
+
+    # 2. Safely parse combined datetime
+    def safe_parse_datetime(d_raw, t_raw):
+        # If the date is already known to be invalid (from the zero date check)
+        if pd.isna(d_raw) or (isinstance(d_raw, pd.Timestamp) and d_raw.date() == excel_zero_date):
+            return pd.NaT
+        # If the time is a numeric value that's very small/negative (like -0.104...), treat as NaT
+        try:
+            if isinstance(t_raw, (int, float)) and abs(t_raw) < 0.0001:
+                t_raw = "00:00:00" # Assume a numeric 0/near 0 means midnight
+            elif isinstance(t_raw, (int, float)) and t_raw < 0:
+                return pd.NaT # Drop negative time values
+        except:
+            pass # Not a numeric, continue parsing
+
+        # Use the original parse_datetime, which presumably uses combine_parse
+        try:
+            return parse_datetime(d_raw, t_raw)
+        except:
+            return pd.NaT
+
     df["_start"] = [
-        parse_datetime(df.at[i, col_date_bsr], df.at[i, col_start_bsr])
+        safe_parse_datetime(df.at[i, col_date_bsr], df.at[i, col_start_bsr])
         for i in df.index
     ]
+    df.drop(columns=["_date_raw"], errors="ignore", inplace=True)
+        
     df["_broad"] = df[col_broadcaster].astype(str).str.lower().str.strip() if col_broadcaster else ""
 
     # normalize actual to lower-case comparable form
