@@ -84,7 +84,8 @@ class EPLValidator:
         "filter_short_programs": self._filter_short_programs,
         "sa_nielsen_inclusion_check": self._sa_nielsen_inclusion_check,
         "epl_live_vs_delay_validation": self._epl_live_vs_delay_validation,
-        "pl_magazine_highlights_classification": self._pl_magazine_highlights_classification
+        "pl_magazine_highlights_classification": self._pl_magazine_highlights_classification,
+        "dedicated_program_duration_allignments": self._dedicated_program_duration_allignments
         # Future EPL checks would be added here
     }
 
@@ -1546,19 +1547,23 @@ class EPLValidator:
 
     def _pl_magazine_highlights_classification(self):
         """
-        PL Magazine / Highlights Classification Check
+        EPL: PL Magazine / Highlights Classification
 
-        - Applies only to rows where Program Type is 'Highlights' or 'Magazine'
-        - Uses Program Description to classify the correct PL sub-category:
-            'Netbusters', 'Reload', 'Review', 'Highlights' etc.
-        - Creates a new column: PL_Magazine_Highlights_Category
-        - Creates separate report: self.pl_mag_highlights_df
+        Logic:
+        - Only classify when Type of program ∈ ['Magazine & Support', 'Highlights']
+        - Look inside Combined column for keywords (case-insensitive)
+        - Assign proper PL category
+        - Default:
+            Magazine & Support → PL Magazine
+            Highlights → PL Highlights
+        - Output column: PL_Magazine_Highlights_Category
+        - Report sheet: self.pl_mag_highlights_df
         """
 
         df = self.df.copy()
 
         # Required columns
-        required_cols = ["Type of Program", "Program Description"]
+        required_cols = ["Type of program", "Combined"]
         missing = [c for c in required_cols if c not in df.columns]
         if missing:
             return {
@@ -1568,63 +1573,54 @@ class EPLValidator:
                 "details": {}
             }
 
-        # New output column
-        df["PL_Magazine_Highlights_Category"] = ""
+        # Output column
+        CATEGORY_COL = "PL_Magazine_Highlights_Category"
+        df[CATEGORY_COL] = ""
 
-        # Filter only Highlights / Magazine
-        mask = df["Program Type"].str.strip().str.lower().isin(["highlights", "magazine"])
-        target_df = df[mask].copy()
+        # Normalize type
+        type_norm = df["Type of program"].astype(str).str.lower().str.strip()
+        combined_norm = df["Combined"].astype(str).str.lower()
 
-        if target_df.empty:
-            self.pl_mag_highlights_df = pd.DataFrame()
-            self.df = df
-            return {
-                "check_key": "pl_magazine_highlights_classification",
-                "status": "Completed",
-                "description": "No Highlight/Magazine rows found.",
-                "details": {}
-            }
+        # -----------------------------------------------------
+        # 1️⃣  MAGAZINE & SUPPORT LOGIC
+        # -----------------------------------------------------
+        mag_mask = type_norm == "magazine & support"
 
-        # Normalize description
-        desc = target_df["Program Description"].astype(str).str.lower()
+        df.loc[mag_mask & combined_norm.str.contains("vault"), CATEGORY_COL] = "PL Magazine"
+        df.loc[mag_mask & combined_norm.str.contains("stories"), CATEGORY_COL] = "PL Stories"
+        df.loc[mag_mask & combined_norm.str.contains("preview"), CATEGORY_COL] = "PL Preview"
+        df.loc[mag_mask & combined_norm.str.contains("the big interview"), CATEGORY_COL] = "PL The Big Interview"
 
-        # Classification logic
-        conditions = [
-            desc.str.contains("netbusters"),
-            desc.str.contains("reload"),
-            desc.str.contains("review") & ~desc.str.contains("preview"),
-            desc.str.contains("highlight") | desc.str.contains("more view") | desc.str.contains("hl show")
-        ]
+        # Default for magazine if still blank
+        df.loc[mag_mask & (df[CATEGORY_COL] == ""), CATEGORY_COL] = "PL Magazine"
 
-        categories = [
-            "PL Netbusters",
-            "PL Reload",
-            "PL Review",
-            "PL Highlights"
-        ]
+        # -----------------------------------------------------
+        # 2️⃣  HIGHLIGHTS LOGIC
+        # -----------------------------------------------------
+        high_mask = type_norm == "highlights"
 
-        # Apply classification
-        import numpy as np
-        target_df.loc[:, "PL_Magazine_Highlights_Category"] = np.select(
-            conditions,
-            categories,
-            default=""
-        )
+        df.loc[high_mask & combined_norm.str.contains("netbusters"), CATEGORY_COL] = "PL Netbusters"
+        df.loc[high_mask & combined_norm.str.contains("reload"), CATEGORY_COL] = "PL Reload"
+        df.loc[high_mask & combined_norm.str.contains("review"), CATEGORY_COL] = "PL Review"
+        df.loc[high_mask & combined_norm.str.contains("match of the day"), CATEGORY_COL] = "PL Match Of The Day"
 
-        # Save only classified rows
-        self.pl_mag_highlights_df = target_df[
-            target_df["PL_Magazine_Highlights_Category"] != ""
-        ].copy()
+        # Default for highlights if still blank
+        df.loc[high_mask & (df[CATEGORY_COL] == ""), CATEGORY_COL] = "PL Highlights"
 
-        # Assign results back to main DF
-        df.update(target_df)
+        # -----------------------------------------------------
+        # Prepare report tab
+        # -----------------------------------------------------
+        report_df = df[df[CATEGORY_COL] != ""].copy()
+        self.pl_mag_highlights_df = report_df
+
+        # Push back to main DF
         self.df = df
 
         return {
             "check_key": "pl_magazine_highlights_classification",
             "status": "Completed",
-            "description": f"Classified {len(self.pl_mag_highlights_df)} rows.",
-            "details": {"rows_classified": len(self.pl_mag_highlights_df)}
+            "description": f"Classified {len(report_df)} rows.",
+            "details": {"rows_classified": len(report_df)}
         }
 
 
