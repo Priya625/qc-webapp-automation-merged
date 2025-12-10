@@ -127,7 +127,7 @@ all_market_check_keys_epl = {
     "sa_nielsen_inclusion_check": "South Africa Nielsen Inclusion Check",
     "epl_live_vs_delay_validation": "Live vs Delay Validation",
     "pl_magazine_highlights_classification": "PL Magazine/Highlights Classification",
-    "dedicated_program_duration_allignments": "Dedicated Program Duration Alignments"
+    #"dedicated_program_duration_allignments": "Dedicated Program Duration Alignments"
 }
 
 
@@ -694,7 +694,7 @@ with epl_tab:
         st.checkbox(all_market_check_keys_epl["sa_nielsen_inclusion_check"], key="sa_nielsen_inclusion_check")
         st.checkbox(all_market_check_keys_epl["epl_live_vs_delay_validation"], key="epl_live_vs_delay_validation")
         st.checkbox(all_market_check_keys_epl["pl_magazine_highlights_classification"], key="pl_magazine_highlights_classification")
-        st.checkbox(all_market_check_keys_epl["dedicated_program_duration_allignments"], key="dedicated_program_duration_allignments")
+        #st.checkbox(all_market_check_keys_epl["dedicated_program_duration_allignments"], key="dedicated_program_duration_allignments")
         
 
     st.write("---")
