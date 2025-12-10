@@ -773,12 +773,14 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             & (df_fix["_date"] == d)
         ]
 
-        # If no fixture, leave NA (same as original)
+        # If no fixture, do NOT set "No matching fixture found" — leave Expected as NA and blank remark
         if fixture_rows.empty:
+            # leave Program_Category_Expected as pd.NA (unless set earlier)
+            # do not set remark to "No matching fixture"
             continue
 
         # fixture exists -> evaluate live/delayed/repeat
-        fix_start = fixture_rows["_start"].iloc[0] if len(fixture_rows) > 0 else pd.NaT
+        fix_start = fixture_rows["_start"].iloc[0]
         if pd.isna(bsr_start) or pd.isna(fix_start):
             df.at[idx, "Program_Category_Expected"] = pd.NA
             df.at[idx, "Program_Category_Remark"] = "Invalid datetime"
