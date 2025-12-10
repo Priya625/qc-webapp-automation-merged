@@ -757,9 +757,16 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         == df["Program_Category_Expected"].astype(str).astype(str).str.strip().str.lower()
     )
 
-    # drop helper cols but KEEP parse_status/_raw for debugging if you want them in output (optional)
-    # If you prefer to keep them, comment out the next line.
-    # df.drop(columns=["_raw_date_time", "_parse_status", "_start"], errors="ignore", inplace=True)
+    # ---------- FINAL OK ----------
+    df["Program_Category_OK"] = df["Program_Category_Actual"] == df["Program_Category_Expected"]
+
+    # --- REMOVE TIMEZONE BEFORE EXPORTING TO EXCEL ---
+    for col in df.select_dtypes(include=["datetime64[ns, UTC]"]).columns:
+        df[col] = df[col].dt.tz_localize(None)
+
+    # cleanup internal cols
+    df.drop(columns=["_home", "_away", "_event_key", "_date", "_start", "_broad", "_combined_text", "_duration_min"],
+            errors="ignore", inplace=True)
 
     return df
 
