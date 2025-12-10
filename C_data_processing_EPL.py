@@ -38,8 +38,35 @@ class EPLValidator:
     DATE_COLUMN = 'Date'
     SESSION_COMPETITION_COLUMN = 'Competition'
 
-    def __init__(self, bsr_path: str, obligation_path: str = None, overnight_path: str = None, macro_path: str = None):
-        # self.df = df        
+    def _define_check_defaults(self):
+        """Defines the default parameters. These are used if the user doesn't provide input."""
+        return {
+            "impute_lt_live_status": {
+                "market": "INDIA",
+                "keyword": "L/T",
+                "required_cols": ["Combined", "Type of program", "Market"]
+            },
+            "consolidate_gillete_soccer": {
+                "keyword": "GILLETE SOCCER",
+                "max_gap_minutes": 30,
+                "required_cols": ["Combined", "Date", "Start", "End", "Market", "TV-Channel"]
+            }
+        }
+
+    def _merge_configs(self, defaults, user_inputs):
+        """Smartly merges user inputs over the defaults."""
+        merged = defaults.copy()
+        for check_key, user_config in user_inputs.items():
+            if check_key in merged and isinstance(user_config, dict):
+                # Update specific keys (e.g. just change 'market' but keep 'keyword')
+                merged[check_key].update(user_config)
+            elif check_key in merged:
+                merged[check_key] = user_config
+        return merged
+
+    def __init__(self, df: pd.DataFrame, bsr_path: str, obligation_path: str = None, overnight_path: str = None, macro_path: str = None, check_configs: Dict[str, Any] = None):
+    # def __init__(self, bsr_path: str, obligation_path: str = None, overnight_path: str = None, macro_path: str = None):
+        self.df = df        
         self.bsr_path = bsr_path
         self.df = self._load_bsr()
         # New: Store the obligation path, but don't load the full DF yet
@@ -50,6 +77,11 @@ class EPLValidator:
         self.macro_path = macro_path
         # 🚨 NEW: Load and store the duplication rules DataFrame
         self.dup_rules_df = self._load_and_filter_macro_rules()
+
+         # 🚨 CONFIG SETUP: Merge Defaults + User Inputs
+        default_configs = self._define_check_defaults()
+        # If check_configs is None, use empty dict
+        self.config = self._merge_configs(default_configs, check_configs or {})
 
         # ✅ FIX: Load the DataFrame immediately using the path
         # try:
@@ -81,6 +113,11 @@ class EPLValidator:
         "audit_channel_line_item_count" : self._audit_channel_line_item_count,
         "check_combined_archive_status": self._check_combined_archive_status,
         "suppress_duplicated_audience" : self._suppress_duplicated_audience,
+        "harmonize_uk_ire_program_descriptions_strict" : self._harmonize_uk_ire_program_descriptions_simple,
+        "check_game_of_the_day_match" : self._check_game_of_the_day_match,
+        "check_non_metered_primary_market_audience" : self._check_non_metered_primary_market_audience,
+        "check_legacy_mapping" : self._check_legacy_mapping,
+        "check_premier_league_october_obligation" : self._check_premier_league_october_obligation,
         "filter_short_programs": self._filter_short_programs,
         "sa_nielsen_inclusion_check": self._sa_nielsen_inclusion_check,
         "epl_live_vs_delay_validation": self._epl_live_vs_delay_validation,
@@ -125,81 +162,47 @@ class EPLValidator:
 
     # --- Private Loading/Parsing Methods (from old qc_checks.py) ---
     def _load_overnight_data(self):
+        """ Loads the CDT/Overnight file, handling the specific header offset (Row 9)
+        and standardizing columns for the Game of the Day check.
         """
-        Loads, standardizes, filters, and prepares the overnight audience file 
-        for merging with the BSR data. The Grand Prix filter is applied immediately 
-        after initial column mapping for maximum efficiency.
-        """
-        # Complex rule defined locally for clarity
-        DATE_SWAP_RULES = {
-            pd.to_datetime('2025-08-30'): pd.to_datetime('2025-07-05'),
-            pd.to_datetime('2025-08-31'): pd.to_datetime('2025-07-06'),
-            pd.to_datetime('2025-07-06'): pd.to_datetime('2025-07-06') 
-        }
-
-        if not self.overnight_path:
-            return None
-            
+        if not self.overnight_path: return None
+        
+        # Constants for the CDT/OVN File Structure
+        OVN_HEADER_ROW = 8 # Row 9 in Excel is Index 8 in Pandas
+        
+        # Columns we need to extract
+        # Mapping: 'Date' -> Date, 'Start Time' -> Start, 'Matchweek' -> Matchday Source, 'Programme Title' -> Desc Source
+        OVN_USE_COLS = ['Date', 'Start Time', 'End Time', 'Matchweek', 'Programme Title', 'Broadcaster']
+        
         try:
-            OVERNIGHT_COLS_RAW = ['Country', 'Channel', 'Date', 'Session', 'Grand Prix', self.OVERNIGHT_AUDIENCE_COL]
+            # Load with specific header row
+            df_ovn = pd.read_excel(self.overnight_path, sheet_name=0, header=OVN_HEADER_ROW)
             
-            # Load data using raw column names
-            df_overnight = pd.read_excel(self.overnight_path, sheet_name=self.OVERNIGHT_SHEET, header=0, usecols=OVERNIGHT_COLS_RAW)
-            df_overnight.columns = [str(c).strip() for c in df_overnight.columns]
+            # Normalize headers (strip spaces) to ensure we find the right columns
+            df_ovn.columns = [str(c).strip() for c in df_ovn.columns]
             
-            # --- Initial Renaming (Country -> Market, Channel -> TV-Channel) ---
-            if 'Country' in df_overnight.columns:
-                df_overnight = df_overnight.rename(columns={'Country': self.COUNTRY_COLUMN}, errors='ignore')
-            if 'Channel' in df_overnight.columns:
-                df_overnight = df_overnight.rename(columns={'Channel': self.CHANNEL_COLUMN}, errors='ignore')
+            # Filter for required columns if they exist
+            existing_cols = [c for c in OVN_USE_COLS if c in df_ovn.columns]
+            df_ovn = df_ovn[existing_cols].copy()
             
-            # --- CRITICAL FILTERING STEP (STEP B) ---
-            # Apply the Grand Prix filter immediately after renaming columns
-            if self.GP_FILTER_COL in df_overnight.columns:
-                df_overnight = df_overnight[df_overnight[self.GP_FILTER_COL] == self.GP_FILTER_VALUE].copy()
+            # --- Standardization ---
             
-            # ⭐ NEW PRINT STATEMENT ⭐
-            print("\n--- OVERNIGHT DF STATE (Post-GP Filter, Pre-Transformation) ---")
-            print(f"Rows after filtering '{self.GP_FILTER_VALUE}': {len(df_overnight)}")
-            print(f"Columns (Raw): {df_overnight.columns.tolist()}")
-            print("---------------------------------------------------------------")
+            # 1. Date Parsing
+            if 'Date' in df_ovn.columns:
+                df_ovn['Date_Clean'] = pd.to_datetime(df_ovn['Date'], errors='coerce').dt.strftime('%Y-%m-%d')
+                
+            # 2. Time Parsing (using helper)
+            if 'Start Time' in df_ovn.columns:
+                df_ovn['Start_Time_Clean'] = self._safe_get_time_string(df_ovn['Start Time'])
             
-            if df_overnight.empty:
-                print(f"Warning: Overnight data is empty after filtering for '{self.GP_FILTER_VALUE}'.")
-                return None
-
-            # --- Standardize and Clean ---
-            
-            # Standardize String Columns (using the BSR's names)
-            for col in [self.COUNTRY_COLUMN, self.CHANNEL_COLUMN, 'Session', self.GP_FILTER_COL]:
-                if col in df_overnight.columns:
-                    df_overnight[col] = df_overnight[col].astype(str).str.strip().str.upper()
-
-            if self.DATE_COLUMN in df_overnight.columns:
-                df_overnight[self.DATE_COLUMN] = pd.to_datetime(df_overnight[self.DATE_COLUMN], errors='coerce')
-
-            # --- STEP A: APPLY DATE SWAP LOGIC ---
-            for original_date, target_date in DATE_SWAP_RULES.items():
-                if self.DATE_COLUMN in df_overnight.columns:
-                    df_overnight.loc[df_overnight[self.DATE_COLUMN] == original_date, self.DATE_COLUMN] = target_date
-
-            # --- STEP C & D: FORCE SESSION ALIGNMENT & Rename ---
-            TARGET_DATE_QUALIFYING = pd.to_datetime('2025-07-05')
-            TARGET_DATE_RACE = pd.to_datetime('2025-07-06')
-            SESSION_COL_NAME = 'Session'
-            
-            if self.DATE_COLUMN in df_overnight.columns and SESSION_COL_NAME in df_overnight.columns:
-                df_overnight.loc[df_overnight[self.DATE_COLUMN] == TARGET_DATE_QUALIFYING, SESSION_COL_NAME] = 'QUALIFYING'
-                df_overnight.loc[df_overnight[self.DATE_COLUMN] == TARGET_DATE_RACE, SESSION_COL_NAME] = 'RACE'
-
-            df_overnight = df_overnight.rename(columns={'Session': self.SESSION_COMPETITION_COLUMN}, errors='ignore')
-            df_overnight[self.OVERNIGHT_AUDIENCE_COL] = pd.to_numeric(df_overnight[self.OVERNIGHT_AUDIENCE_COL], errors='coerce')
-
-            FINAL_COLS = [self.COUNTRY_COLUMN, self.CHANNEL_COLUMN, self.DATE_COLUMN, self.SESSION_COMPETITION_COLUMN, self.OVERNIGHT_AUDIENCE_COL]
-            return df_overnight[FINAL_COLS]
+            # 3. Create a Unique Key for Matching: Date + Start Time
+            if 'Date_Clean' in df_ovn.columns and 'Start_Time_Clean' in df_ovn.columns:
+                df_ovn['Match_Key'] = df_ovn['Date_Clean'] + '|' + df_ovn['Start_Time_Clean']
+                
+            return df_ovn
             
         except Exception as e:
-            print(f"Error loading and preparing overnight file: {e}")
+            print(f"Error loading Overnight/CDT file: {e}")
             return None
 
     def _update_audience_from_overnight(self) -> Dict[str, Any]:
@@ -299,43 +302,76 @@ class EPLValidator:
         }
 
     # New Private Method to load the full obligation sheet once
-    def _load_full_obligation_data(self) -> pd.DataFrame:
-        """
-        Loads the F1 Obligation sheet and filters it to include ONLY the '15_Dutch GP' 
-        event data, storing the filtered DataFrame in self.full_obligation_df.
-        """
-        if self.full_obligation_df is not None:
-            return self.full_obligation_df
+    # def _load_full_obligation_data(self) -> pd.DataFrame:
+    #     """
+    #     Loads the F1 Obligation sheet and filters it to include ONLY the '15_Dutch GP' 
+    #     event data, storing the filtered DataFrame in self.full_obligation_df.
+    #     """
+    #     if self.full_obligation_df is not None:
+    #         return self.full_obligation_df
 
-        if not self.obligation_path:
-            return pd.DataFrame()
+    #     if not self.obligation_path:
+    #         return pd.DataFrame()
             
-        TARGET_GP = '15_Dutch GP' # <-- Define the target GP here
+    #     TARGET_GP = '15_Dutch GP' # <-- Define the target GP here
+        
+    #     try:
+    #         # Load the entire obligation sheet
+    #         df_obl = pd.read_excel(
+    #             self.obligation_path, 
+    #             sheet_name="F1 - Broadcaster Obligations",
+    #         )
+    #         df_obl.columns = [str(c).strip() for c in df_obl.columns]
+            
+    #         # --- CRITICAL FILTERING STEP ---
+    #         # Filter the loaded DataFrame for the specific GP
+    #         df_obl_filtered = df_obl[df_obl.get('GP') == TARGET_GP].copy()
+
+    #         print(f"Obligation data loaded and filtered for: {TARGET_GP}. Rows found: {len(df_obl_filtered)}")
+            
+    #         # Store and return the filtered DataFrame
+    #         self.full_obligation_df = df_obl_filtered
+    #         return df_obl_filtered
+            
+    #     except FileNotFoundError:
+    #         print(f"Error: Obligation file not found at {self.obligation_path}")
+    #         return pd.DataFrame()
+    #     except Exception as e:
+    #         print(f"Error loading/filtering obligation sheet: {e}")
+    #         return pd.DataFrame()
+
+    def _load_full_obligation_data(self):
+        """
+        Loads the Legacy Mapping sheet, handling the specific two-row header structure
+        (Row 1 = Categories, Row 2 = Columns).
+        """
+        if not self.obligation_path:
+            return None
+            
+        # Assuming the sheet name is 'Legacy Mapping' or similar. 
+        # You might need to adjust this if the sheet has a specific name in the file.
+        LEGACY_SHEET_NAME = "BC Log Channels list" 
         
         try:
-            # Load the entire obligation sheet
-            df_obl = pd.read_excel(
+            # Load with header=[0, 1] to create a MultiIndex columns object
+            # This captures 'Original details' -> 'Market' hierarchy
+            df_legacy = pd.read_excel(
                 self.obligation_path, 
-                sheet_name="F1 - Broadcaster Obligations",
+                sheet_name=LEGACY_SHEET_NAME, 
+                header=[0, 1] 
             )
-            df_obl.columns = [str(c).strip() for c in df_obl.columns]
             
-            # --- CRITICAL FILTERING STEP ---
-            # Filter the loaded DataFrame for the specific GP
-            df_obl_filtered = df_obl[df_obl.get('GP') == TARGET_GP].copy()
-
-            print(f"Obligation data loaded and filtered for: {TARGET_GP}. Rows found: {len(df_obl_filtered)}")
+            # Check if the expected top-level headers exist
+            if 'Original details' not in df_legacy.columns.get_level_values(0):
+                print(f"Error: 'Original details' header not found in {LEGACY_SHEET_NAME}")
+                return None
+                
+            return df_legacy
             
-            # Store and return the filtered DataFrame
-            self.full_obligation_df = df_obl_filtered
-            return df_obl_filtered
-            
-        except FileNotFoundError:
-            print(f"Error: Obligation file not found at {self.obligation_path}")
-            return pd.DataFrame()
         except Exception as e:
-            print(f"Error loading/filtering obligation sheet: {e}")
-            return pd.DataFrame()
+            # Fallback: Try loading by index if name fails, or just print error
+            print(f"Error loading Legacy Mapping sheet: {e}")
+            return None
 
     def _detect_header_row(self, sheet_name=0):
         """
@@ -414,75 +450,79 @@ class EPLValidator:
 
     def _impute_lt_live_status(self) -> Dict[str, Any]:
         """
-        If 'L/T' is found in the Combined column, classifies the program as Live 
-        and adds a flag indicating the recommended status, without modifying 
-        the original 'Type of program' column.
+        Classifies program as Live based on 'L/T' keyword in Combined column.
+        Uses CONFIGURABLE market and keyword.
         """
         initial_rows = len(self.df)
-        
-        # The output column for the recommended status/flag
         FLAG_COLUMN = 'QC_Recommended_Program_Type' 
         
-        # 1. Initialization and Checks
+        #  READ FROM CONFIG
+        chk_config = self.config.get("impute_lt_live_status", {})
+        TARGET_MARKET = chk_config.get("market", "INDIA")
+        KEYWORD = chk_config.get("keyword", "L/T")
+        
+        # FIX: Check for the specific spelling variant in your file
+        TYPE_COL_NAME = 'Type of program'
+        if 'Type of programme' in self.df.columns:
+            TYPE_COL_NAME = 'Type of programme'
+            
+        REQUIRED_COLS = ['Combined', TYPE_COL_NAME, 'Market']
+
         self.df[FLAG_COLUMN] = 'Current Status OK'
-        REQUIRED_COLS = ['Combined', 'Type of program']
         
         if not all(col in self.df.columns for col in REQUIRED_COLS):
-            return {
-                "check_key": "impute_lt_live_status", "status": "Skipped",
-                "action": "L/T Live Imputation", 
-                "description": "Skipped: Missing required BSR columns.",
-                "details": {"rows_flagged": 0}
-            }
+             missing = [c for c in REQUIRED_COLS if c not in self.df.columns]
+             return {
+                 "check_key": "impute_lt_live_status", 
+                 "status": "Skipped", 
+                 "description": f"Missing columns: {missing}", 
+                 "details": {}
+             }
 
-        # Prepare normalized columns
+        # Normalize
         combined_norm = self.df['Combined'].astype(str).str.upper()
-        type_of_program_norm = self.df['Type of program'].astype(str).str.lower()
+        # Use the dynamic column name found above
+        type_of_program_norm = self.df[TYPE_COL_NAME].astype(str).str.lower()
+        market_norm = self.df['Market'].astype(str).str.upper().str.strip()
 
-        # 2. Identify Target Rows for Classification
+        # Filter by Configured Market
+        market_mask = market_norm == TARGET_MARKET.upper()
         
-        # Mask A: Rows where 'L/T' keyword is present (case-insensitive regex search)
-        is_lt_present_mask = combined_norm.str.contains(r'L/T', na=False)
+        # Filter by Configured Keyword
+        is_lt_present_mask_global = combined_norm.str.contains(re.escape(KEYWORD), na=False)
+        is_lt_present_mask = is_lt_present_mask_global & market_mask
         
-        # 3. Apply Classification and Flag
-        
-        # Apply the recommended status to all rows where 'L/T' is present
+        # Apply Logic
         self.df.loc[is_lt_present_mask, FLAG_COLUMN] = 'Recommended: Live'
 
-        # Now, audit the rows that already had a non-live status but should be Live.
-        
-        # Anomalous Mask: L/T is present AND the original status is NOT 'Live'
         is_not_live_mask = type_of_program_norm != 'live'
         anomalous_flag_mask = is_lt_present_mask & is_not_live_mask
-        
-        # Update the flag column for the specific anomaly (overwriting "Recommended: Live")
         self.df.loc[anomalous_flag_mask, FLAG_COLUMN] = 'ANOMALY: Should be Live (L/T Present)'
-        
-        rows_flagged_anomaly = anomalous_flag_mask.sum()
         
         return {
             "check_key": "impute_lt_live_status",
-            "status": "Flagged" if rows_flagged_anomaly > 0 else "Completed",
-            "action": "L/T Live Imputation & Anomaly Check", 
-            "description": f"Audited L/T status. Flagged {rows_flagged_anomaly} rows where 'L/T' was present but 'Type of program' was not 'Live'.",
-            "details": {
-                "rows_flagged_anomaly": int(rows_flagged_anomaly),
-                "total_lt_programs": int(is_lt_present_mask.sum())
-            }
+            "status": "Flagged" if anomalous_flag_mask.sum() > 0 else "Completed",
+            "description": f"Audited {KEYWORD} status in {TARGET_MARKET}. Flagged {anomalous_flag_mask.sum()} anomalies.",
+            "details": {"rows_flagged": int(anomalous_flag_mask.sum()), "market": TARGET_MARKET, "keyword": KEYWORD}
         }
 
     def _consolidate_gillette_soccer_programs(self) -> Dict[str, Any]:
         """
         Identifies sequential 'Gillete Soccer' programs where the gap between the 
         End Time of the first and the Start Time of the second is 30 minutes or less.
+        
+        RESTRICTION: Applies ONLY to 'United Kingdom' and 'Ireland' markets.
         The second, later row is flagged for consolidation with a reference to the preceding row.
         """
         initial_rows = len(self.df)
         FLAG_COLUMN = 'QC_Consolidate_Gillete_Soccer'
-        KEYWORD = 'GILLETE SOCCER'
-        MAX_GAP_MINUTES = 30
         
-        # Define required columns for time, content, and grouping
+        # --- ACCESS CONFIGURATION (or use defaults) ---
+        # Using internal defaults here based on the prompt, but can use self.config if preferred
+        KEYWORD = "GILLETE SOCCER"
+        MAX_GAP_MINUTES = 30
+        TARGET_MARKETS = ['UNITED KINGDOM', 'UK', 'IRELAND'] # <--- NEW RESTRICTION
+
         REQUIRED_COLS = ['Combined', 'Date', 'Start', 'End', 'Market', 'TV-Channel']
         if not all(col in self.df.columns for col in REQUIRED_COLS):
             return {
@@ -494,13 +534,17 @@ class EPLValidator:
 
         self.df[FLAG_COLUMN] = 'OK'
         
-        # 2. Prepare Timestamps (using safe parsing logic)
+        # 1. Prepare Data & Timestamps
         try:
-            # Create robust datetime objects. Assume 'Date' represents the start date of the program.
+            # Normalize columns for filtering
+            combined_norm = self.df['Combined'].astype(str).str.upper()
+            market_norm = self.df['Market'].astype(str).str.strip().str.upper()
+            
+            # Create robust datetime objects
             date_key = self.df['Date'].astype(str).str[:10]
             self.df['Start_DT'] = pd.to_datetime(date_key + ' ' + self.df['Start'].astype(str), errors='coerce')
             
-            # Adjust End_DT for programs that cross midnight.
+            # Adjust End_DT for midnight crossover
             end_times = self.df['End'].astype(str)
             base_end_dt = pd.to_datetime(date_key + ' ' + end_times, errors='coerce')
             rollover_mask = (base_end_dt < self.df['Start_DT']) & base_end_dt.notna()
@@ -515,72 +559,70 @@ class EPLValidator:
                 "details": {"rows_flagged": 0}
             }
 
+        # 2. Create Filters
+        # Filter A: Keyword Match
+        gillete_mask = combined_norm.str.contains(re.escape(KEYWORD), na=False)
+        
+        # Filter B: Market Match (UK or Ireland) <--- NEW
+        market_mask = market_norm.isin(TARGET_MARKETS)
+        
+        # Filter C: Valid Times
+        valid_time_mask = self.df['Start_DT'].notna() & self.df['End_DT'].notna()
+
         # 3. Filter and Sort Candidates
+        # Combine all masks to select rows
+        df_candidates = self.df[gillete_mask & market_mask & valid_time_mask].copy()
         
-        # Filter for candidates that are NOT missing time data
-        gillete_mask = self.df['Combined'].astype(str).str.upper().str.contains(KEYWORD, na=False)
-        df_candidates = self.df[gillete_mask & self.df['Start_DT'].notna() & self.df['End_DT'].notna()].copy()
-        
-        # Preserve original index for final flagging
         df_candidates['Original_Index'] = df_candidates.index
-        
-        # Grouping by Market and Channel only
         GROUP_COLS = ['Market', 'TV-Channel']
+        
+        # Sort globally by grouping cols and time to ensure correct sequence
         df_candidates = df_candidates.sort_values(by=GROUP_COLS + ['Start_DT'])
 
-        # 4. Perform Sequential Gap Check (Now grouping only by Market and Channel)
-        
-        # Dictionary to store complex flags: {original_index_to_flag: message}
+        # 4. Perform Sequential Gap Check
         complex_flags = {}
         
         for _, group in df_candidates.groupby(GROUP_COLS):
-            # Calculate the gap in minutes
-            time_gap_minutes = (group['Start_DT'] - group['End_DT'].shift(1)) / timedelta(minutes=1)
+            # Calculate gap: Start of Current - End of Previous
+            time_gap = (group['Start_DT'] - group['End_DT'].shift(1)) / timedelta(minutes=1)
             
-            # Get the original index of the PRECEDING row (Row A)
             preceding_original_indices = group['Original_Index'].shift(1)
             
-            # Identify the second row in the sequence where gap is valid
-            consolidation_mask = (time_gap_minutes <= MAX_GAP_MINUTES) & (time_gap_minutes >= 0)
+            # Identify consolidation candidates (gap is positive but small)
+            consolidation_mask = (time_gap <= MAX_GAP_MINUTES) & (time_gap >= 0)
             
-            # Filter down to the indices that meet the consolidation criteria
-            indices_to_flag_now = group[consolidation_mask]['Original_Index']
-            preceding_indices_now = preceding_original_indices[consolidation_mask]
+            indices_now = group[consolidation_mask]['Original_Index']
+            preceding_indices = group['Original_Index'].shift(1)[consolidation_mask]
 
-            # Construct the detailed flag message for each flagged row
-            for idx_to_flag, idx_preceding in zip(indices_to_flag_now, preceding_indices_now):
+            # Construct detailed flags
+            for curr_idx, prev_idx in zip(indices_now, preceding_indices):
+                # Use .iloc[0] on the looked-up value to ensure we get a scalar string
+                prev_start_val = self.df.loc[prev_idx, 'Start']
                 
-                # Look up the Start Time of the preceding row (Row A) using its original index
-                # Assuming 'Start' column is a readable string/object
-                preceding_start_time = self.df.loc[idx_preceding, 'Start']
-                
-                # Construct the descriptive flag message
-                flag_message = (f"Consolidate with program starting at {preceding_start_time} "
-                                f"(Original Index: {idx_preceding}, Gap <= {MAX_GAP_MINUTES}min)")
-                
-                complex_flags[idx_to_flag] = flag_message
+                msg = (f"Consolidate with program starting at {prev_start_val} "
+                       f"(Original Index: {int(prev_idx)}, Gap <= {MAX_GAP_MINUTES}min)")
+                complex_flags[curr_idx] = msg
 
         rows_flagged = len(complex_flags)
         
-        # 5. Apply Flag to Original DataFrame (Uses the dictionary mapping)
+        # 5. Apply Flag to Original DataFrame
         if rows_flagged > 0:
-            # Create a pandas Series from the dictionary {original_index: message}
             flag_series = pd.Series(complex_flags)
-            
-            # Apply the messages directly to the original DataFrame using .loc
             self.df.loc[flag_series.index, FLAG_COLUMN] = flag_series
-            
-            # Final cleanup of temporary columns in self.df
-            self.df.drop(columns=['Start_DT', 'End_DT'], inplace=True, errors='ignore')
+
+        # Final cleanup
+        self.df.drop(columns=['Start_DT', 'End_DT'], inplace=True, errors='ignore')
 
         return {
             "check_key": "consolidate_gillete_soccer",
             "status": "Flagged" if rows_flagged > 0 else "Completed",
             "action": "Program Consolidation Check", 
-            "description": f"Flagged {rows_flagged} sequential 'Gillete Soccer' rows for consolidation (gap <= 30 min).",
+            "description": f"Flagged {rows_flagged} sequential '{KEYWORD}' rows for consolidation in UK/Ireland (gap <= {MAX_GAP_MINUTES} min).",
             "details": {
                 "rows_flagged": int(rows_flagged),
-                "max_gap_minutes": MAX_GAP_MINUTES
+                "max_gap_minutes": MAX_GAP_MINUTES,
+                "target_keyword": KEYWORD,
+                "target_markets": TARGET_MARKETS
             }
         }
 
@@ -1018,121 +1060,125 @@ class EPLValidator:
                 "columns_checked": DATE_TIME_COLS_TO_CHECK
             }
         }
-    #Need to check the logic once agin 
+
     def _check_live_broadcast_uniqueness(self) -> Dict[str, Any]:
-        """
-        Implements a Channel Capacity Check: Ensures no two LIVE programs overlap 
-        on the same Market/Channel ID/Time Slot, as a single channel cannot carry 
-        multiple simultaneous feeds.
-        """
-        initial_rows = len(self.df)
-        FLAG_COLUMN = 'QC_Channel_Capacity_Conflict_Flag' # Renamed flag for clarity
-        
-        # --- Define the Grouping Key for Channel Capacity ---
-        # We rely on the time slot: Market, Channel ID, Start_DT, End_DT
-        # NOTE: Since the time windows (Start/End) are the variables being checked, 
-        # we cannot use them in the fixed GROUPING_KEY_COLS for the groupby operation.
-        
-        # We use a reduced, minimal grouping key to bring all simultaneous broadcasts together.
-        CAPACITY_GROUPING_KEY = ['Market', 'Channel ID', 'Date (UTC/GMT)','Combined']
-        
-        LIVE_PROGRAM_TYPE = 'LIVE'
-        
-        REQUIRED_COLS = ['Market', 'Channel ID', 'Type of program', 'Date (UTC/GMT)', 'Start (UTC)', 'End (UTC)', 'Home Team', 'Away Team']
-        if not all(col in self.df.columns for col in REQUIRED_COLS):
-            return {"check_key": "check_live_broadcast_uniqueness", "status": "Skipped", "action": "Live Overlap Check", "description": "Skipped: Missing required BSR columns.", "details": {"rows_flagged": 0}}
-
-        self.df[FLAG_COLUMN] = 'OK'
-        
-        # --- 1. Prepare Data and Timestamps (Handling midnight rollover) ---
-        try:
-            date_key = self.df['Date (UTC/GMT)'].astype(str).str[:10]
-            self.df['Start_DT'] = pd.to_datetime(date_key + ' ' + self.df['Start (UTC)'].astype(str), errors='coerce')
-            base_end_dt = pd.to_datetime(date_key + ' ' + self.df['End (UTC)'].astype(str), errors='coerce')
-            rollover_mask = (base_end_dt < self.df['Start_DT']) & base_end_dt.notna()
-            base_end_dt.loc[rollover_mask] += timedelta(days=1)
-            self.df['End_DT'] = base_end_dt
+            """
+            Ensures that a specific live broadcast slot (defined by Market, TV-Channel, 
+            and the specific Fixture Description) has no time overlap with itself 
+            (i.e., checks for duplicate Live entries for the same match).
+            """
+            initial_rows = len(self.df)
+            FLAG_COLUMN = 'QC_Live_Overlap_Flag'
             
-        except Exception as e:
+            # --- Define the Grouping Key ---
+            # We group by Market, Channel, and the specific Fixture description.
+            GROUPING_KEY_COLS = ['Market', 'TV-Channel', 'Phase / Fixture / Episode Desc.']
+            
+            LIVE_PROGRAM_TYPE = 'LIVE'
+            
+            # FIX: Updated column name to match your file ('Type of programme')
+            TYPE_COL = 'Type of programme' 
+            
+            REQUIRED_COLS = GROUPING_KEY_COLS + [TYPE_COL, 'Date (UTC/GMT)', 'Start (UTC)', 'End (UTC)']
+            
+            # DEBUG: Print missing columns if any
+            missing = [c for c in REQUIRED_COLS if c not in self.df.columns]
+            if missing:
+                return {
+                    "check_key": "check_live_broadcast_uniqueness", "status": "Skipped", 
+                    "action": "Live Overlap Check", 
+                    "description": f"Skipped: Missing columns: {missing}", 
+                    "details": {"rows_flagged": 0}
+                }
+
+            self.df[FLAG_COLUMN] = 'OK'
+            
+            # --- 1. Prepare Data and Timestamps ---
+            try:
+                date_key = self.df['Date (UTC/GMT)'].astype(str).str[:10]
+                self.df['Start_DT'] = pd.to_datetime(date_key + ' ' + self.df['Start (UTC)'].astype(str), errors='coerce')
+                base_end_dt = pd.to_datetime(date_key + ' ' + self.df['End (UTC)'].astype(str), errors='coerce')
+                
+                # Handle midnight rollover
+                rollover_mask = (base_end_dt < self.df['Start_DT']) & base_end_dt.notna()
+                base_end_dt.loc[rollover_mask] += timedelta(days=1)
+                self.df['End_DT'] = base_end_dt
+                
+            except Exception as e:
+                self.df.drop(columns=['Start_DT', 'End_DT'], inplace=True, errors='ignore')
+                return {"check_key": "check_live_broadcast_uniqueness", "status": "Failed", "action": "Live Overlap Check", "description": f"Failed to parse Date/Time columns: {e}", "details": {"rows_flagged": 0}}
+                
+            # Standardize grouping columns
+            for col in GROUPING_KEY_COLS:
+                self.df[col] = self.df[col].astype(str).str.strip().str.upper().str.replace(r'[^A-Z0-9\s\.\-]', '', regex=True).fillna('NAN')
+
+            # Filter for LIVE programs only (Using the correct column name)
+            live_mask = self.df[TYPE_COL].astype(str).str.upper().str.strip() == LIVE_PROGRAM_TYPE
+            
+            df_live_candidates = self.df[live_mask].copy()
+            
+            # Sort by Grouping Key + Start Time
+            df_live_candidates = df_live_candidates.sort_values(by=GROUPING_KEY_COLS + ['Start_DT'])
+            
+            # --- 2. Overlap Detection Logic ---
+            
+            conflict_details = {} 
+            
+            # Group by the 3-part key
+            for key_tuple, group in df_live_candidates.groupby(GROUPING_KEY_COLS):
+                if len(group) < 2:
+                    continue
+                    
+                lagged_end_dt = group['End_DT'].shift(1)
+                
+                # Overlap occurs if Start Time < Previous End Time
+                overlap_start_mask = group['Start_DT'] < lagged_end_dt
+                
+                if overlap_start_mask.any():
+                    
+                    current_overlap_indices = group[overlap_start_mask].index.tolist()
+                    preceding_overlap_indices = group[overlap_start_mask].shift(1).index.dropna().astype(int)
+
+                    all_conflict_indices = set(current_overlap_indices).union(set(preceding_overlap_indices))
+                    
+                    # Format the detailed conflict message
+                    conflict_log = []
+                    
+                    for idx in sorted(list(all_conflict_indices)):
+                        row = self.df.loc[idx]
+                        log_entry = (f"Index {idx} | "
+                                    f"Date: {row['Date (UTC/GMT)'].strftime('%Y-%m-%d')} | "
+                                    f"Times: {row['Start (UTC)']} - {row['End (UTC)']}")
+                        conflict_log.append(log_entry)
+                    
+                    key_id = "|".join([str(k) for k in key_tuple]) 
+                    conflict_message = f"DUPLICATION ERROR: Fixture '{key_id}' has overlapping LIVE entries. Rows: " + " || ".join(conflict_log)
+
+                    for idx in all_conflict_indices:
+                        conflict_details[idx] = conflict_message
+            
+
+            # --- 3. Apply Flag to Original DataFrame ---
+            rows_flagged = len(conflict_details)
+            
+            if rows_flagged > 0:
+                flag_series = pd.Series(conflict_details)
+                self.df.loc[flag_series.index, FLAG_COLUMN] = flag_series
+
+            # Final cleanup
             self.df.drop(columns=['Start_DT', 'End_DT'], inplace=True, errors='ignore')
-            return {"check_key": "check_live_broadcast_uniqueness", "status": "Failed", "action": "Live Overlap Check", "description": f"Failed to parse Date/Time columns: {e}", "details": {"rows_flagged": 0}}
-            
-        # Standardize grouping columns
-        for col in ['Market', 'Channel ID']:
-            self.df[col] = self.df[col].astype(str).str.strip().str.upper().str.replace(r'[^A-Z0-9\s\.\-]', '', regex=True).fillna('NAN')
 
-        live_mask = self.df['Type of program'].astype(str).str.upper().str.strip() == LIVE_PROGRAM_TYPE
-        
-        df_live_candidates = self.df[live_mask].copy()
-        
-        # --- 2. Overlap Detection Logic (Grouping by Capacity Slot) ---
-        
-        conflict_details = {} 
-        
-        # Sort by the CAPACITY key and Start_DT
-        df_live_candidates = df_live_candidates.sort_values(by=CAPACITY_GROUPING_KEY + ['Start_DT'])
-        
-        # Group by the CAPACITY SLOT (Market, Channel ID, Date)
-        for key_tuple, group in df_live_candidates.groupby(CAPACITY_GROUPING_KEY):
-            if len(group) < 2:
-                continue
-                
-            lagged_end_dt = group['End_DT'].shift(1)
-            overlap_start_mask = group['Start_DT'] < lagged_end_dt
-            
-            # Check if any overlap exists in this specific group
-            if overlap_start_mask.any():
-                
-                current_overlap_indices = group[overlap_start_mask].index.tolist()
-                preceding_overlap_indices = group[overlap_start_mask].shift(1).index.dropna().astype(int)
-
-                all_conflict_indices = set(current_overlap_indices).union(set(preceding_overlap_indices))
-                
-                # Format the detailed conflict message for this group
-                conflict_log = []
-                
-                for idx in sorted(list(all_conflict_indices)):
-                    row = self.df.loc[idx]
-                    
-                    # Retrieve all relevant info for diagnosis
-                    team_info = f"{row['Home Team']} vs {row['Away Team']}"
-                    
-                    log_entry = (f"Index {idx} | Fixture: {team_info} | "
-                                f"Times: {row['Start (UTC)']} - {row['End (UTC)']}")
-                    conflict_log.append(log_entry)
-                
-                # Key tuple contains: (Market, Channel ID, Date)
-                key_id = "|".join([str(k) for k in key_tuple]) 
-                
-                conflict_message = f"CAPACITY CONFLICT: Channel Slot ({key_id}) has overlapping LIVE feeds. Conflicting slots: " + " || ".join(conflict_log)
-
-                # Apply the SAME detailed message to ALL rows involved in this specific conflict group
-                for idx in all_conflict_indices:
-                    conflict_details[idx] = conflict_message
-        
-
-        # --- 3. Apply Flag to Original DataFrame ---
-        rows_flagged = len(conflict_details)
-        
-        if rows_flagged > 0:
-            flag_series = pd.Series(conflict_details)
-            
-            self.df.loc[flag_series.index, FLAG_COLUMN] = flag_series
-
-        # Final cleanup of temporary columns in self.df
-        self.df.drop(columns=['Start_DT', 'End_DT'], inplace=True, errors='ignore')
-
-        # 4. Final Summary
-        return {
-            "check_key": "check_live_broadcast_uniqueness",
-            "status": "Flagged" if rows_flagged > 0 else "Completed",
-            "action": "Channel Capacity Check", 
-            "description": f"Flagged {rows_flagged} rows involved in a simultaneous live broadcast conflict.",
-            "details": {
-                "rows_flagged": int(rows_flagged),
-                "uniqueness_key_components": CAPACITY_GROUPING_KEY
+            # 4. Final Summary
+            return {
+                "check_key": "check_live_broadcast_uniqueness",
+                "status": "Flagged" if rows_flagged > 0 else "Completed",
+                "action": "Live Uniqueness Check", 
+                "description": f"Flagged {rows_flagged} rows where the same fixture was listed as Live multiple times overlapping.",
+                "details": {
+                    "rows_flagged": int(rows_flagged),
+                    "grouping_keys": GROUPING_KEY_COLS
+                }
             }
-        }
     
     def _audit_channel_line_item_count(self) -> Dict[str, Any]:
         """
@@ -1300,6 +1346,829 @@ class EPLValidator:
                 "target_columns_checked": TARGET_AUDIENCE_COLS
             }
         }
+
+    # --- HELPER FUNCTION: CHANNEL CLASSIFICATION (Outside the main function) ---
+
+    # def _get_uk_ire_channel_map(self):
+    #     """
+    #     Defines and processes the specific rules for mapping UK and Ireland channels 
+    #     to their unique identifiers.
+    #     """
+    #     # Channel list and counts provided by the user
+    #     RAW_CHANNELS_LIST = {
+    #         'BBC1': 2, 'BBC2': 2, 'Channel 4': 2, 'Premier Sports 1 IRE': 1,
+    #         'Premier Sports 1 UK': 1, 'Quest': 2, 'Sky Mix': 2, 'Sky News': 1,
+    #         'Sky News UK': 1, 'Sky Showcase IRE': 1, 'Sky Showcase UK': 1, 
+    #         'Sky Sports Football': 2, 'Sky Sports Golf': 1, 'Sky Sports Golf UK': 1,
+    #         'Sky Sports Main Event': 2, 'Sky Sports News': 1, 'Sky Sports News UK': 1,
+    #         'Sky Sports Premier League': 1, 'Sky Sports Premier League UK': 1,
+    #         'Sky Sports Racing': 2, 'Sky Sports Tennis IRE': 1, 
+    #         'Sky Sports Tennis UK': 1, 'TNT Sports 1': 2, 'U+Dave': 2
+    #     }
+
+    #     # Channels that default to Ireland if no suffix is found
+    #     IRELAND_DEFAULT_CHANNELS = {
+    #         'SKY NEWS', 'SKY SPORTS GOLF', 'SKY SPORTS NEWS', 'SKY SPORTS PREMIER LEAGUE',
+    #     }
+
+    #     # 1. Create a definitive mapping for (Normalized Channel Name, Market) -> Canonical Channel ID
+    #     channel_map = {}
+        
+    #     for raw_name, count in RAW_CHANNELS_LIST.items():
+    #         # Standardize the base name (remove suffixes for core identity)
+    #         base_name = raw_name.replace(' IRE', '').replace(' UK', '').strip().upper()
+            
+    #         if count == 2:
+    #             # Rule 1: Dual-Market Channels (Same name in both)
+    #             # The core identity is the channel name itself (e.g., 'BBC1')
+    #             channel_map[base_name] = base_name 
+            
+    #         elif count == 1:
+    #             # Rule 2: Single-Market Channels (Requires suffix)
+                
+    #             # Extract market suffix if present
+    #             market_suffix = 'IRE' if 'IRE' in raw_name else ('UK' if 'UK' in raw_name else None)
+                
+    #             # Check for the channels that default to Ireland if no suffix is found
+    #             if not market_suffix and base_name in IRELAND_DEFAULT_CHANNELS:
+    #                 market_suffix = 'IRE'
+                
+    #             if market_suffix:
+    #                 canonical_id = f"{base_name}_{market_suffix}"
+                    
+    #                 # Check for the core channel name without the suffix in the map
+    #                 if base_name not in channel_map:
+    #                     channel_map[base_name] = canonical_id
+                    
+    #     return channel_map
+
+    # def _safe_get_time_string(self, series):
+    #     """Safely extracts time string from mixed data types, enforcing string conversion."""
+        
+    #     # CRITICAL FIX: Convert the series to string format FIRST to handle float/NaN corruption
+    #     series_str = series.astype(str) 
+        
+    #     # Attempt to convert to datetime, coercing errors to NaT
+    #     # Note: We must also handle non-time string data (like '00:00:00') that can result from NaT conversion.
+        
+    #     dt_series = pd.to_datetime(series_str, errors='coerce', format='mixed')
+        
+    #     # Format valid times, replacing NaT (failed parses) with a safe value like '00:00:00'
+    #     time_series = dt_series.dt.strftime('%H:%M:%S').fillna('00:00:00')
+        
+    #     return time_series
+
+    # def _harmonize_uk_ire_program_descriptions_strict(self) -> Dict[str, Any]:
+        """
+        Harmonizes Program Description from IRELAND (Source) to UK (Target) for matching 
+        time slots, using the 3-minute delta and complex channel matching rules.
+        """
+        initial_rows = len(self.df)
+        FLAG_COLUMN = 'QC_UK_IRE_Harmonization_Flag'
+        TIME_TOLERANCE_MINUTES = 3 
+        
+        # Define Source and Target Markets (Normalized names)
+        UK_MARKETS = ['UNITED KINGDOM', 'UK'] # Target of correction
+        IRELAND_MARKET = 'IRELAND'            # Source of accurate description
+
+        # Get the static channel classification map
+        CHANNEL_MAP = self._get_uk_ire_channel_map()
+        
+        # 1. Initialization and Checks
+        self.df[FLAG_COLUMN] = 'OK'
+        REQUIRED_COLS = ['Market', 'Program Description', 'Date', 'Start', 'TV-Channel']
+        if not all(col in self.df.columns for col in REQUIRED_COLS):
+            return {
+                "check_key": "harmonize_uk_ire_desc_strict", "status": "Skipped",
+                "action": "Description Harmonization", 
+                "description": "Skipped: Missing required BSR columns.",
+                "details": {"rows_updated": 0}
+            }
+
+        # --- PART 1: Data Preparation ---
+        
+        df_temp = self.df.copy()
+        
+        # 🚨 CRITICAL FIX: Sanitize ALL columns used for filtering or comparison 
+        # to guarantee they are strings and safe from the 'float' error.
+        TEXT_COLS_TO_SANITIZE = ['Market', 'TV-Channel', 'Program Description', 'Date', 'Start']
+        for col in TEXT_COLS_TO_SANITIZE:
+            if col in df_temp.columns:
+                df_temp[col] = df_temp[col].astype(str).str.strip()
+
+        df_temp['Market_Norm'] = df_temp['Market'].str.upper()
+        df_temp['Channel_Norm'] = df_temp['TV-Channel'].str.upper() # Base Channel name used in map lookup
+
+        # Ensure Date/Start are clean datetime objects for calculation
+        try:
+            # 1. Clean the Start time column using the safe helper
+            start_time_clean = self._safe_get_time_string(df_temp['Start'])
+            
+            # 2. Re-parse the Date 
+            date_clean = pd.to_datetime(df_temp['Date'], errors='coerce').dt.strftime('%Y-%m-%d').fillna('1970-01-01')
+            
+            # 3. Combine valid Date and clean Time
+            df_temp['DateTime_Key'] = pd.to_datetime(date_clean + ' ' + start_time_clean, errors='coerce')
+            
+            if df_temp['DateTime_Key'].isna().sum() > (len(df_temp) * 0.1): 
+                raise ValueError("Excessive NaT values after concatenation.")
+                
+        except Exception as e:
+            return {"check_key": "harmonize_uk_ire_desc_strict", "status": "Failed", "action": "Description Harmonization", 
+                    "description": f"Failed to create DateTime Key due to parsing errors: {e}", "details": {"rows_updated": 0}}
+
+        # --- PART 2: Match and Update Logic (Focusing on the Comparison) ---
+
+        # 1. Isolate SOURCE Data (Ireland Rows)
+        ireland_source_mask = df_temp['Market_Norm'] == IRELAND_MARKET
+        ireland_source_df = df_temp[ireland_source_mask].copy()
+
+        # 2. Isolate TARGET Data (UK Rows)
+        uk_target_mask = df_temp['Market_Norm'].isin(UK_MARKETS)
+        uk_target_df = df_temp[uk_target_mask].copy()
+
+        rows_updated = 0
+        
+        # Get the static channel classification map
+        CHANNEL_MAP = self._get_uk_ire_channel_map()
+        
+        # Iterate through every clean Ireland broadcast slot
+        for ire_index, ire_row in ireland_source_df.iterrows():
+            
+            ire_dt = ire_row['DateTime_Key']
+            ire_channel_norm = ire_row['Channel_Norm']
+            ire_desc = ire_row['Program Description'] # This is guaranteed clean string
+            
+            canonical_ire_id = CHANNEL_MAP.get(ire_channel_norm, ire_channel_norm) 
+
+            # --- A. Time Alignment Check (3-Minute Delta) ---
+            same_day_mask = uk_target_df['DateTime_Key'].dt.date == ire_dt.date()
+            time_diff = (uk_target_df['DateTime_Key'] - ire_dt).abs() / timedelta(minutes=1)
+            time_match_mask = time_diff <= TIME_TOLERANCE_MINUTES
+            
+            # --- B. Channel Match Check ---
+            uk_time_aligned_df = uk_target_df[same_day_mask & time_match_mask].copy()
+            
+            if not uk_time_aligned_df.empty:
+                
+                for uk_index, uk_row in uk_time_aligned_df.iterrows():
+                    
+                    uk_channel_norm = uk_row['Channel_Norm']
+                    uk_original_desc = uk_row['Program Description'] # This is guaranteed clean string
+                    
+                    canonical_uk_id = CHANNEL_MAP.get(uk_channel_norm, uk_channel_norm)
+                    
+                    # Check 1: Do the two canonical channel IDs match?
+                    if canonical_uk_id == canonical_ire_id:
+                        
+                        # Check 2: Are the descriptions DIFFERENT? (The comparison is now safe)
+                        if uk_original_desc != ire_desc:
+                            
+                            # Action: Overwrite the UK description in the original DF
+                            self.df.loc[uk_index, 'Program Description'] = ire_desc
+                            
+                            # Flag the row
+                            self.df.loc[uk_index, FLAG_COLUMN] = f"Description Harmonized from IRELAND: {ire_channel_norm}"
+                            rows_updated += 1
+                            
+        # Final cleanup of temporary columns
+        self.df.drop(columns=['DateTime_Key', 'Market_Norm', 'Channel_Norm'] + TEXT_COLS_TO_SANITIZE, errors='ignore', inplace=True)
+        
+        return {
+            "check_key": "harmonize_uk_ire_desc_strict",
+            "status": "Flagged" if rows_updated > 0 else "Completed",
+            "action": "Description Harmonization (Strict)", 
+            "description": f"Harmonized IRELAND descriptions to UK for {rows_updated} matching time slots (3min tolerance).",
+            "details": {"rows_updated": int(rows_updated), "time_tolerance_min": TIME_TOLERANCE_MINUTES}
+        }
+
+    # --- HELPER 1: Channel List and Mapping (Defines the Restricted Scope) ---
+
+    def _safe_get_time_string(self, series):
+        """Safely extracts time string from mixed data types, enforcing string conversion."""
+        series_str = series.astype(str) 
+        dt_series = pd.to_datetime(series_str, errors='coerce', format='mixed')
+        time_series = dt_series.dt.strftime('%H:%M:%S').fillna('00:00:00')
+        return time_series
+
+    # --- HELPER 2: Channel List and Mapping (Defines the Restricted Scope) ---
+
+    def _get_target_channel_map(self):
+        """
+        Creates a standardized map of approved UK/Ireland channels, classifying them 
+        by their canonical name for pairing purposes.
+        """
+        # NOTE: The provided list contains duplicates for "count=2" channels, 
+        # indicating they use the same name for both UK and IRE feeds.
+        RAW_APPROVED_CHANNELS = [
+            'BBC1', 'BBC1', 'BBC2', 'BBC2', 'Channel 4', 'Channel 4', 
+            'Premier Sports 1 IRE', 'Premier Sports 1 UK', 'Quest', 
+            'Sky Mix', 'Sky Mix', 'Sky News', 'Sky News UK', 
+            'Sky Showcase IRE', 'Sky Showcase UK', 'Sky Sports Football', 
+            'Sky Sports Football', 'Sky Sports Golf', 'Sky Sports Golf UK',
+            'Sky Sports Main Event', 'Sky Sports Main Event', 'Sky Sports News', 
+            'Sky Sports News UK', 'Sky Sports Premier League', 'Sky Sports Premier League UK', 
+            'Sky Sports Racing', 'Sky Sports Racing', 'Sky Sports Tennis IRE', 
+            'Sky Sports Tennis UK', 'TNT Sports 1', 'TNT Sports 1', 'U+Dave', 'U+Dave'
+        ]
+
+        channel_map = {}
+        
+        for raw_name in RAW_APPROVED_CHANNELS:
+            # Standardize the base name (remove suffixes for core identity)
+            base_name = raw_name.replace(' IRE', '').replace(' UK', '').strip().upper()
+            
+            # We classify the channel by its BASE name.
+            if base_name not in channel_map:
+                channel_map[base_name] = base_name
+                
+        # The map only contains the unique base channel names: {'BBC1': 'BBC1', 'SKY NEWS': 'SKY NEWS', ...}
+        return channel_map
+
+    # --- CORE HARMONIZATION FUNCTION (Final Logic) ---
+
+    def _harmonize_uk_ire_program_descriptions_simple(self) -> Dict[str, Any]:
+        """
+        Audits Program Description consistency between IRELAND (Source) and UK (Target).
+        Flags BOTH rows if a time-aligned, channel-matched pair has different descriptions, 
+        but DOES NOT perform the descriptive overwrite.
+        """
+        initial_rows = len(self.df)
+        FLAG_COLUMN = 'QC_UK_IRE_Harmonization_Flag'
+        TIME_TOLERANCE_MINUTES = 3 
+        
+        UK_MARKETS = ['UNITED KINGDOM', 'UK']
+        IRELAND_MARKET = 'IRELAND'
+
+        self.df[FLAG_COLUMN] = 'OK'
+        REQUIRED_COLS = ['Market', 'Program Description', 'Date', 'Start', 'TV-Channel']
+        if not all(col in self.df.columns for col in REQUIRED_COLS):
+            return {"check_key": "harmonize_uk_ire_desc_simple", "status": "Skipped", "action": "Description Harmonization", "description": "Skipped: Missing required BSR columns.", "details": {"rows_flagged": 0}}
+
+        # Get the strict map of approved channel base names
+        APPROVED_CHANNEL_BASES = set(self._get_target_channel_map().keys()) # Assumed helper call
+
+        # --- PART 1: Data Preparation ---
+        df_temp = self.df.copy()
+        
+        # Normalize Market and Channel names
+        df_temp['Market_Norm'] = df_temp['Market'].astype(str).str.upper().str.strip()
+        df_temp['Canonical_Channel'] = self._create_canonical_channel_key(df_temp['TV-Channel'])
+
+        # Time parsing (assumed functional helper call)
+        try:
+            start_time_clean = self._safe_get_time_string(df_temp['Start'])
+            date_clean = pd.to_datetime(df_temp['Date'], errors='coerce').dt.strftime('%Y-%m-%d').fillna('1970-01-01')
+            df_temp['DateTime_Key'] = pd.to_datetime(date_clean + ' ' + start_time_clean, errors='coerce')
+        except Exception:
+            return {"check_key": "harmonize_uk_ire_desc_simple", "status": "Failed", "action": "Description Harmonization", "description": "Failed to create DateTime Key.", "details": {"rows_flagged": 0}}
+
+        # --- PART 2: Match and Audit Logic ---
+
+        # 1. Isolate SOURCE Data (Ireland Rows)
+        ireland_source_mask = df_temp['Market_Norm'] == IRELAND_MARKET
+        ireland_source_mask = ireland_source_mask & df_temp['Canonical_Channel'].isin(APPROVED_CHANNEL_BASES)
+        ireland_source_df = df_temp[ireland_source_mask].copy()
+
+        # 2. Isolate TARGET Data (UK Rows)
+        uk_target_mask = df_temp['Market_Norm'].isin(UK_MARKETS)
+        uk_target_mask = uk_target_mask & df_temp['Canonical_Channel'].isin(APPROVED_CHANNEL_BASES)
+        uk_target_df = df_temp[uk_target_mask].copy()
+
+        rows_flagged = 0
+        flagged_indices = set() # Collects indices from both UK and IRE involved in a mismatch
+        
+        # Iterate through every clean Ireland broadcast slot (Source)
+        for ire_index, ire_row in ireland_source_df.iterrows():
+            
+            ire_dt = ire_row['DateTime_Key']
+            ire_key = ire_row['Canonical_Channel']
+            ire_desc = ire_row['Program Description']
+            
+            # --- Find UK Matches ---
+            same_day_mask = uk_target_df['DateTime_Key'].dt.date == ire_dt.date()
+            time_diff = (uk_target_df['DateTime_Key'] - ire_dt).abs() / timedelta(minutes=1)
+            time_match_mask = time_diff <= TIME_TOLERANCE_MINUTES
+            channel_match_mask = uk_target_df['Canonical_Channel'] == ire_key
+            final_match_mask = same_day_mask & time_match_mask & channel_match_mask
+            
+            uk_matching_rows = uk_target_df[final_match_mask]
+            
+            if not uk_matching_rows.empty:
+                
+                for uk_index, uk_row in uk_matching_rows.iterrows():
+                    uk_original_desc = uk_row['Program Description']
+                    
+                    # Check: Are the descriptions DIFFERENT? (This is the anomaly)
+                    if uk_original_desc.strip() != ire_desc.strip():
+                        
+                        # Flagging Action: Record both source (IRE) and target (UK) indices
+                        flagged_indices.add(ire_index) # Flag the Ireland source row
+                        flagged_indices.add(uk_index)  # Flag the UK target row
+
+        # --- 3. Apply Flag to Original DataFrame ---
+        rows_flagged = len(flagged_indices)
+        
+        if rows_flagged > 0:
+            flag_message = f"DESCRIPTION MISMATCH: Descriptions differ on time-aligned channel slot (Review UK/IRE data)."
+            
+            # Apply the flag to all identified indices (both UK and IRE)
+            self.df.loc[list(flagged_indices), FLAG_COLUMN] = flag_message
+                            
+        # Final cleanup of temporary columns
+        self.df.drop(columns=['DateTime_Key', 'Market_Norm', 'Channel_Norm', 'Canonical_Channel'], errors='ignore', inplace=True)
+        
+        return {
+            "check_key": "harmonize_uk_ire_desc_simple",
+            "status": "Flagged" if rows_flagged > 0 else "Completed",
+            "action": "Description Consistency Audit", 
+            "description": f"Audited description consistency. Flagged {rows_flagged} rows in pairs where UK and IRELAND descriptions differed.",
+            "details": {
+                "rows_flagged": int(rows_flagged),
+                "time_tolerance_min": TIME_TOLERANCE_MINUTES,
+            }
+        }
+
+    def _check_game_of_the_day_match(self) -> Dict[str, Any]:
+        """
+        Identifies BSR rows marked as 'Game of the day' and checks if corresponding 
+        data exists in the OVN/CDT file (same Date/Time). Flags rows for update.
+        """
+        initial_rows = len(self.df)
+        FLAG_COLUMN = 'QC_Game_of_Day_OVN_Flag'
+        KEYWORD = "GAME OF THE DAY"
+        TARGET_MARKET_REGEX = r'UNITED KINGDOM|UK'
+        
+        self.df[FLAG_COLUMN] = 'OK'
+        
+        REQUIRED_BSR_COLS = ['Program Description', 'Date (UTC/GMT)', 'Start (UTC)', 'Market']
+        if not all(col in self.df.columns for col in REQUIRED_BSR_COLS):
+            return {
+                "check_key": "check_game_of_the_day_match", "status": "Skipped",
+                "action": "Game of Day Audit", 
+                "description": "Skipped: Missing required BSR columns.",
+                "details": {"rows_flagged": 0}
+            }
+
+        # 1. Load the OVN Data
+        df_ovn = self._load_overnight_data()
+        
+        if df_ovn is None or df_ovn.empty or 'Match_Key' not in df_ovn.columns:
+             return {
+                "check_key": "check_game_of_the_day_match", "status": "Skipped",
+                "action": "Game of Day Audit", 
+                "description": "Skipped: Overnight (CDT) file not loaded or empty.",
+                "details": {"rows_flagged": 0}
+            }
+
+        # 2. Filter BSR for 'Game of the day' in UK
+        market_mask = self.df['Market'].astype(str).str.upper().str.contains(TARGET_MARKET_REGEX, regex=True, na=False)
+        desc_mask = self.df['Program Description'].astype(str).str.upper().str.contains(KEYWORD, na=False)
+        
+        target_bsr_mask = market_mask & desc_mask
+        
+        if not target_bsr_mask.any():
+             return {
+                "check_key": "check_game_of_the_day_match", "status": "Completed",
+                "action": "Game of Day Audit", 
+                "description": "No 'Game of the day' entries found in UK market.",
+                "details": {"rows_flagged": 0}
+            }
+            
+        # 3. Prepare BSR Keys for Matching
+        try:
+            start_time_clean = self._safe_get_time_string(self.df.loc[target_bsr_mask, 'Start (UTC)'])
+            date_clean = pd.to_datetime(self.df.loc[target_bsr_mask, 'Date (UTC/GMT)'], errors='coerce').dt.strftime('%Y-%m-%d')
+            
+            bsr_keys = date_clean + '|' + start_time_clean
+            
+        except Exception as e:
+            return {"check_key": "check_game_of_the_day_match", "status": "Failed", "description": f"Key generation error: {e}"}
+
+        # 4. Perform the Match
+        ovn_keys_set = set(df_ovn['Match_Key'].unique())
+        match_found_mask = bsr_keys.isin(ovn_keys_set)
+        
+        indices_to_flag = bsr_keys[match_found_mask].index
+        rows_flagged = len(indices_to_flag)
+        
+        # 5. Apply Flag
+        if rows_flagged > 0:
+            flag_msg = "UPDATE REQUIRED: OVN Data Available (Matchday/Description found in Overnight)."
+            self.df.loc[indices_to_flag, FLAG_COLUMN] = flag_msg
+            
+        return {
+            "check_key": "check_game_of_the_day_match",
+            "status": "Flagged" if rows_flagged > 0 else "Completed",
+            "action": "Game of Day Audit", 
+            "description": f"Flagged {rows_flagged} 'Game of the day' rows where OVN data is available for update.",
+            "details": {
+                "rows_flagged": int(rows_flagged),
+                "ovn_records_loaded": len(df_ovn)
+            }
+        }
+
+    # def _check_non_metered_primary_market_audience(self) -> Dict[str, Any]:
+        """
+        Audits the 'Source' column to identify rows that are duplicated from a 
+        non-metered primary market (Source = 'BSA' only, without 'Time bans' or 'BC-LOGS').
+        Sets audience values to 0 for these rows.
+        """
+        initial_rows = len(self.df)
+        FLAG_COLUMN = 'QC_Non_Metered_Audience_Flag'
+        
+        SOURCE_COL = 'Source'
+        # Target columns to zero out
+        AUDIENCE_COLS = ['Aud. Estimates [\'000s]', 'Aud Metered (000s) 3+']
+        
+        # Keywords
+        KEYWORD_BSA = 'BSA'
+        KEYWORDS_VALIDATORS = ['TIME BANS', 'BC-LOGS', 'BC LOGS'] # Variations of valid markers
+        
+        self.df[FLAG_COLUMN] = 'OK'
+        
+        # Check required columns
+        cols_to_check = [SOURCE_COL] + AUDIENCE_COLS
+        if not all(col in self.df.columns for col in cols_to_check):
+            return {
+                "check_key": "check_non_metered_audience", "status": "Skipped",
+                "action": "Non-Metered Audience Check", 
+                "description": "Skipped: Missing Source or Audience columns.",
+                "details": {"rows_suppressed": 0}
+            }
+
+        # 1. Normalize Source Column
+        source_norm = self.df[SOURCE_COL].astype(str).str.upper().str.strip()
+        
+        # 2. Create Masks
+        
+        # Condition A: Contains "BSA"
+        has_bsa = source_norm.str.contains(KEYWORD_BSA, na=False)
+        
+        # Condition B: Contains "Time bans" OR "BC-LOGS"
+        # Create regex pattern: "TIME BANS|BC-LOGS|BC LOGS"
+        validator_pattern = '|'.join([re.escape(k) for k in KEYWORDS_VALIDATORS])
+        has_validator = source_norm.str.contains(validator_pattern, regex=True, na=False)
+        
+        # 3. Identify Rows to Suppress
+        # Logic: Has BSA AND DOES NOT HAVE Validator
+        suppression_mask = has_bsa & (~has_validator)
+        
+        rows_suppressed = suppression_mask.sum()
+        
+        # 4. Apply Update and Flag
+        if rows_suppressed > 0:
+            
+            # Action 1: Set Audience columns to 0
+            for col in AUDIENCE_COLS:
+                if col in self.df.columns:
+                    self.df.loc[suppression_mask, col] = 0.0
+            
+            # Action 2: Flag the row
+            self.df.loc[suppression_mask, FLAG_COLUMN] = "AUDIENCE SUPPRESSED: Source is BSA only (Non-Metered Primary Market)."
+
+        return {
+            "check_key": "check_non_metered_audience",
+            "status": "Flagged" if rows_suppressed > 0 else "Completed",
+            "action": "Non-Metered Audience Check", 
+            "description": f"Suppressed audience for {rows_suppressed} rows where Source indicated non-metered origin (BSA without validation).",
+            "details": {
+                "rows_suppressed": int(rows_suppressed),
+                "bsr_source_criteria": "BSA only (No Time bans/BC-LOGS)"
+            }
+        }
+    def _check_non_metered_primary_market_audience(self) -> Dict[str, Any]:
+        """
+        Audits the 'Source' column to identify rows that come from a non-metered 
+        primary market (Source = 'BSA' only). 
+        Flags the row if Audience data is present when it should be zero.
+        Does NOT modify the audience data.
+        """
+        initial_rows = len(self.df)
+        FLAG_COLUMN = 'QC_Non_Metered_Audience_Flag'
+        
+        SOURCE_COL = 'Source'
+        AUDIENCE_COLS = ['Aud. Estimates [\'000s]', 'Aud Metered (000s) 3+']
+        
+        KEYWORD_BSA = 'BSA'
+        KEYWORDS_VALIDATORS = ['TIME BANS', 'BC-LOGS', 'BC LOGS']
+        
+        self.df[FLAG_COLUMN] = 'OK'
+        
+        # Check required columns
+        cols_to_check = [SOURCE_COL] + [col for col in AUDIENCE_COLS if col in self.df.columns]
+        if not all(col in self.df.columns for col in cols_to_check):
+            return {
+                "check_key": "check_non_metered_audience", "status": "Skipped",
+                "action": "Non-Metered Audience Audit", 
+                "description": "Skipped: Missing Source or Audience columns.",
+                "details": {"rows_flagged": 0}
+            }
+
+        # 1. Normalize Source Column
+        source_norm = self.df[SOURCE_COL].astype(str).str.upper().str.strip()
+        
+        # 2. Create Source Masks
+        has_bsa = source_norm.str.contains(KEYWORD_BSA, na=False)
+        
+        validator_pattern = '|'.join([re.escape(k) for k in KEYWORDS_VALIDATORS])
+        has_validator = source_norm.str.contains(validator_pattern, regex=True, na=False)
+        
+        # Mask A: Logic for Non-Metered Source (Has BSA but NO Validator)
+        is_non_metered_source = has_bsa & (~has_validator)
+        
+        # 3. Create Audience Mask (Check if data actually exists > 0)
+        # We only want to flag if there is a value to suppress. If it's already 0, it's fine.
+        audience_df = self.df[cols_to_check].drop(columns=[SOURCE_COL])
+        # Coerce to numeric and check if any audience column has a value > 0
+        has_data_to_remove = (audience_df.apply(pd.to_numeric, errors='coerce').fillna(0) > 0).any(axis=1)
+        
+        # 4. Combine Masks
+        flag_mask = is_non_metered_source & has_data_to_remove
+        
+        rows_flagged = flag_mask.sum()
+        
+        # 5. Apply Flag (NO DATA CHANGE)
+        if rows_flagged > 0:
+            flag_message = "AUDIENCE ANOMALY: Source is BSA-only (Non-Metered), but Audience > 0. Should be suppressed."
+            
+            # Apply flag only to rows currently marked OK to avoid overwriting higher priority errors
+            rows_to_flag = flag_mask & (self.df[FLAG_COLUMN] == 'OK')
+            self.df.loc[rows_to_flag, FLAG_COLUMN] = flag_message
+
+        return {
+            "check_key": "check_non_metered_audience",
+            "status": "Flagged" if rows_flagged > 0 else "Completed",
+            "action": "Non-Metered Audience Audit", 
+            "description": f"Flagged {rows_flagged} rows where Source indicates non-metered origin but Audience data is present.",
+            "details": {
+                "rows_flagged": int(rows_flagged),
+                "bsr_source_criteria": "BSA only (No Time bans/BC-LOGS)"
+            }
+        }
+
+    def _check_legacy_mapping(self) -> Dict[str, Any]:
+        """
+        Checks BSR rows against a Legacy Mapping sheet. 
+        - If BSR matches 'Original' and differs from 'Legacy': Flags "Legacy Definition Found".
+        - If BSR matches 'Original' and matches 'Legacy': Flags "Both are Same".
+        - If BSR row is not in the Legacy Mapping: Flags "Not found in the obligation sheet".
+        """
+        initial_rows = len(self.df)
+        FLAG_COLUMN = 'QC_Legacy_Mapping_Flag'
+        
+        self.df[FLAG_COLUMN] = 'OK'
+        
+        # 1. Load the Multi-Index DataFrame (Legacy Mapping)
+        # NOTE: Assumes _load_full_obligation_data is the function loading the Legacy sheet (header=[0,1])
+        df_map = self._load_full_obligation_data()
+        
+        if df_map is None or df_map.empty:
+            return {
+                "check_key": "check_legacy_mapping", "status": "Failed",
+                "action": "Legacy Mapping Check", 
+                "description": "Error: Legacy Mapping sheet needed but not found or empty.",
+                "details": {"rows_flagged": 0}
+            }
+
+        # 2. Prepare Matching Columns & Comparison Logic
+        try:
+            # --- ORIGINAL COLUMNS (The Key) ---
+            map_orig_market = df_map[('Original details', 'Market')].astype(str).str.strip().str.upper()
+            map_orig_channel = df_map[('Original details', 'TV-Channel')].astype(str).str.strip().str.upper()
+            
+            # --- LEGACY COLUMNS (The Value) ---
+            map_leg_market_raw = df_map[('Legacy details', 'Market')].astype(str).str.strip()
+            map_leg_channel_raw = df_map[('Legacy details', 'TV-Channel')].astype(str).str.strip()
+            map_leg_id = df_map[('Legacy details', 'Channel ID')]
+            
+            # Create normalized versions for comparison (Upper case)
+            map_leg_market_norm = map_leg_market_raw.str.upper()
+            map_leg_channel_norm = map_leg_channel_raw.str.upper()
+            
+            # Create a temporary mapping DataFrame
+            flat_map = pd.DataFrame({
+                'Match_Key': map_orig_market + '|' + map_orig_channel,
+                'Legacy_Market_Norm': map_leg_market_norm,
+                'Legacy_Channel_Norm': map_leg_channel_norm,
+                'Legacy_Display_Info': map_leg_market_raw + ' | ' + map_leg_channel_raw + ' (ID: ' + map_leg_id.astype(str) + ')'
+            })
+            
+        except KeyError as e:
+            return {
+                "check_key": "check_legacy_mapping", "status": "Failed",
+                "action": "Legacy Mapping Check", 
+                "description": f"Failed to parse Legacy headers. Structure mismatch: {e}",
+                "details": {"rows_flagged": 0}
+            }
+
+        # 3. Prepare BSR Keys
+        bsr_market_norm = self.df['Market'].astype(str).str.strip().str.upper()
+        bsr_channel_norm = self.df['TV-Channel'].astype(str).str.strip().str.upper()
+        
+        # Create keys for BSR
+        self.df['Temp_Legacy_Key'] = bsr_market_norm + '|' + bsr_channel_norm
+        
+        # 4. Perform Lookups
+        # We need to map three things: The Info String, The Legacy Market (Norm), The Legacy Channel (Norm)
+        info_dict = flat_map.set_index('Match_Key')['Legacy_Display_Info'].to_dict()
+        market_dict = flat_map.set_index('Match_Key')['Legacy_Market_Norm'].to_dict()
+        channel_dict = flat_map.set_index('Match_Key')['Legacy_Channel_Norm'].to_dict()
+        
+        mapped_info = self.df['Temp_Legacy_Key'].map(info_dict)
+        mapped_market = self.df['Temp_Legacy_Key'].map(market_dict)
+        mapped_channel = self.df['Temp_Legacy_Key'].map(channel_dict)
+        
+        # 5. Apply Logic
+        
+        # Mask: Row was found in the mapping
+        mask_found = matches = mapped_info.notna()
+        mask_not_found = mapped_info.isna()
+        
+        rows_flagged = 0
+        rows_different = 0
+        rows_same = 0
+
+        # Handle Not Found Rows
+        if mask_not_found.any():
+            self.df.loc[mask_not_found, FLAG_COLUMN] = "Not found in the obligation sheet"
+            rows_flagged += mask_not_found.sum()
+
+        # Handle Found Rows
+        if mask_found.any():
+            # Mask: BSR Data matches Legacy Data (Same Market AND Same Channel)
+            is_same_mask = mask_found & (bsr_market_norm == mapped_market) & (bsr_channel_norm == mapped_channel)
+            
+            # Mask: BSR Data differs from Legacy Data (Needs Update)
+            is_diff_mask = mask_found & (~is_same_mask)
+            
+            # Case 1: Difference Found
+            if is_diff_mask.any():
+                self.df.loc[is_diff_mask, FLAG_COLUMN] = "Legacy Definition Found: Should be " + mapped_info[is_diff_mask]
+                rows_different = is_diff_mask.sum()
+                rows_flagged += rows_different
+            
+            # Case 2: Both are Same
+            if is_same_mask.any():
+                self.df.loc[is_same_mask, FLAG_COLUMN] = "Both are Same"
+                rows_same = is_same_mask.sum()
+
+        # Cleanup
+        self.df.drop(columns=['Temp_Legacy_Key'], inplace=True, errors='ignore')
+
+        return {
+            "check_key": "check_legacy_mapping",
+            "status": "Flagged" if rows_flagged > 0 else "Completed",
+            "action": "Legacy Mapping Check", 
+            "description": f"Checked against Legacy Map. Flagged {rows_flagged} rows (Diffs/Not Found).",
+            "details": {
+                "rows_flagged": int(rows_flagged),
+                "rows_not_found": int(mask_not_found.sum()),
+                "rows_different": int(rows_different),
+                "rows_same": int(rows_same),
+                "mappings_loaded": len(flat_map)
+            }
+        }
+
+    def normalize_channel_name(self, channel_series):
+        """
+        Removes regional codes, parentheses, suffixes, and numbers to compare channels 
+        by their core brand identity (e.g., ESPN, Sky).
+        """
+        # 1. Ensure string and convert to uppercase
+        normalized = channel_series.astype(str).str.strip().str.upper()
+        
+        # 2. Remove anything inside parentheses (e.g., (ARG), (BOL))
+        normalized = normalized.str.replace(r'\s*\([^)]*\)', '', regex=True)
+        
+        # 3. Remove country codes/acronyms
+        normalized = normalized.str.replace(
+            r'(\s+ARG|\s+BOL|\s+CHL|\s+PER|\s+SWE|\s+DE|\s+AFR|\s+PCA|\s+COL|\s+ECU|\s+URY|\s+MEX|\s+JPN|\s+LTU|\s+CHE|\s+FRA)', 
+            '', 
+            flags=re.IGNORECASE, 
+            regex=True
+        )
+        
+        # 4. Remove 'SPORT' and 'TV'
+        normalized = normalized.str.replace(r'\s+SPORT[S]*', '', regex=True)
+        normalized = normalized.str.replace(r'\s+TV', '', regex=True)
+        
+        # 5. Final cleanup
+        normalized = normalized.str.replace(r'\s{2,}', ' ', regex=True).str.strip()
+        return normalized
+
+    def _safe_get_time_string(self, series):
+        """Safely extracts time string from mixed data types."""
+        series_str = series.astype(str) 
+        dt_series = pd.to_datetime(series_str, errors='coerce', format='mixed')
+        time_series = dt_series.dt.strftime('%H:%M:%S').fillna('00:00:00')
+        return time_series
+
+    # --- THE CHECK FUNCTION ---
+
+    def _check_premier_league_october_obligation(self) -> Dict[str, Any]:
+        """
+        Checks BSR rows against the Obligation sheet (CDT Audiences tab) for specific 
+        Premier League matches in October. 
+        
+        MATCHING LOGIC: Matches on [Channel + Broadcaster] ONLY.
+        Ignores Date and Time to prevent mismatches due to timezone/formatting differences.
+        """
+        initial_rows = len(self.df)
+        FLAG_COLUMN = 'QC_PL_Oct_Obligation_Match_Flag'
+        
+        # Constants for filtering
+        TARGET_COMPETITION = 'Premier League'
+        TARGET_MONTH = 10 # October
+        CDT_SHEET_NAME = "CDT Audiences"
+        
+        self.df[FLAG_COLUMN] = 'OK'
+
+        if not self.obligation_path:
+            return {
+                "check_key": "check_pl_oct_obligation", "status": "Skipped",
+                "action": "PL October Obligation Check", 
+                "description": "Skipped: Obligation file not provided.",
+                "details": {"rows_flagged": 0}
+            }
+            
+        try:
+            # 1. Load CDT sheet (Header row 9 -> Index 8)
+            df_obl = pd.read_excel(self.obligation_path, sheet_name=CDT_SHEET_NAME, header=8) 
+            df_obl.columns = [str(c).strip() for c in df_obl.columns]
+            
+            # Verify required columns exist
+            if 'Competition' not in df_obl.columns:
+                 return {"check_key": "check_pl_oct_obligation", "status": "Failed", "description": f"Column 'Competition' not found in Obligation file. Loaded: {df_obl.columns.tolist()}"}
+
+            # Filter for Premier League
+            pl_mask = df_obl['Competition'].astype(str).str.contains(TARGET_COMPETITION, case=False, na=False)
+            df_obl_pl = df_obl[pl_mask].copy()
+
+            # Filter for October Dates (This ensures we only look at the relevant month in the OVN file)
+            if 'Date' in df_obl_pl.columns:
+                df_obl_pl['Date_dt'] = pd.to_datetime(df_obl_pl['Date'], errors='coerce')
+                oct_mask = df_obl_pl['Date_dt'].dt.month == TARGET_MONTH
+                df_obl_final = df_obl_pl[oct_mask].copy()
+            else:
+                return {"check_key": "check_pl_oct_obligation", "status": "Failed", "description": "Column 'Date' not found in Obligation file."}
+                
+            if df_obl_final.empty:
+                return {"check_key": "check_pl_oct_obligation", "status": "Completed", "description": "No Premier League obligation data found for October."}
+
+            # 2. Prepare Keys for Matching (Obligation Side)
+            # Normalize for matching
+            df_obl_final['Channel_Norm'] = self.normalize_channel_name(df_obl_final['Channel'])
+            df_obl_final['Broadcaster_Norm'] = df_obl_final['Broadcaster'].astype(str).str.strip().str.upper()
+            
+            # --- MODIFIED KEY: Removed Date and Start Time ---
+            # Matching only on Broadcaster + Channel
+            df_obl_final['Match_Key'] = (
+                df_obl_final['Channel_Norm'] + '|' + 
+                df_obl_final['Broadcaster_Norm']
+            )
+            
+            required_keys = set(df_obl_final['Match_Key'].unique())
+
+        except Exception as e:
+            return {"check_key": "check_pl_oct_obligation", "status": "Failed", "description": f"Error processing Obligation data: {e}"}
+
+        # 3. Prepare BSR Data for Matching
+        try:
+            bsr_check = self.df.copy()
+            bsr_check['Channel_Norm'] = self.normalize_channel_name(bsr_check['TV-Channel'])
+            bsr_check['Broadcaster_Norm'] = bsr_check['Broadcaster'].astype(str).str.strip().str.upper()
+            
+            # --- MODIFIED KEY: Removed Date and Start Time ---
+            bsr_check['Match_Key'] = (
+                bsr_check['Channel_Norm'] + '|' + 
+                bsr_check['Broadcaster_Norm']
+            )
+            
+            # 4. Find Matches
+            match_mask = bsr_check['Match_Key'].isin(required_keys)
+            indices_matched = bsr_check[match_mask].index
+            
+            rows_flagged = len(indices_matched)
+            
+            if rows_flagged > 0:
+                flag_msg = "Obligation Match Found: Corresponding PL/Oct data exists in Obligation Sheet."
+                self.df.loc[indices_matched, FLAG_COLUMN] = flag_msg
+
+        except Exception as e:
+            return {"check_key": "check_pl_oct_obligation", "status": "Failed", "description": f"Error processing BSR data for match: {e}"}
+
+        return {
+            "check_key": "check_pl_oct_obligation",
+            "status": "Flagged" if rows_flagged > 0 else "Completed",
+            "action": "PL October Obligation Check", 
+            "description": f"Flagged {rows_flagged} BSR rows matching Premier League/October obligation channels (Ignoring Date/Time).",
+            "details": {
+                "rows_flagged": int(rows_flagged),
+                "obligation_entries_count": len(required_keys)
+            }
+        }
+
     
     def _filter_short_programs(self):
         """
