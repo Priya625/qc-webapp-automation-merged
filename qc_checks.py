@@ -1339,7 +1339,7 @@ def country_channel_id_check(df, bsr_cols):
         return df
 
     def norm(x):
-        if _pd.isna(x) or x is None:
+        if pd.isna(x) or x is None:
             return ""
         return str(x).strip()
 
