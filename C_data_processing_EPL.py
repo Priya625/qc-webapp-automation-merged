@@ -1404,7 +1404,7 @@ class EPLValidator:
         self.df[FLAG] = ""
 
         # ----------------------------
-        # Load fixture sheet (same logic as Program Category Check)
+        # Load fixture sheet 
         # ----------------------------
         bsr_path = self.bsr_path
         try:
@@ -1436,7 +1436,7 @@ class EPLValidator:
         df_fix = xl.parse(fixture_sheet)
 
         # required columns in fixture
-        needed_fix_cols = ["Home Team", "Away Team", "Date", "Start", "End (UTC)"]
+        needed_fix_cols = ["Home Team", "Away Team", "Date", "Start Time", "End (UTC)"]
         for c in needed_fix_cols:
             if c not in df_fix.columns:
                 return {
@@ -1461,7 +1461,7 @@ class EPLValidator:
 
         # Combine fixture datetime
         df_fix["_fix_start"] = [
-            pd.to_datetime(str(df_fix.at[i, "Date"]) + " " + str(df_fix.at[i, "Start"]), errors="coerce")
+            pd.to_datetime(str(df_fix.at[i, "Date"]) + " " + str(df_fix.at[i, "Start Time"]), errors="coerce")
             for i in df_fix.index
         ]
 
