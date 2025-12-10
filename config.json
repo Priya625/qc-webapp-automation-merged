@@ -12,9 +12,9 @@
     "output_prefix": "QC_Result_",
     "output_sheet_name": "QC Results",
     "summary_sheet_name": "Summary",
-    "fixture_sheet_keyword": "fixture",
+    "fixture_sheet_keyword":"Fixtures",
     "macro_sheet_name": "Data Core",
-    "macro_header_row": 1,
+    "macro_header_row": 2,
     "rosco_ignore_sheet": "general"
   },
   "project_rules": {
@@ -35,11 +35,13 @@
       "channel_id": ["Channel ID", "ChannelID", "Channel Id"],
       "market": ["Market"],
       "market_id": ["Market ID"],
+      "broadcaster": ["Broadcaster", "BROADCASTER"],
+      "combined": ["Combined"],
       "type_of_program": ["Type of Program", "Type of programme", "Type of program"],
       "match_day": ["Matchday", "Match Day", "Matchday "],
       "home_team": ["Home Team", "HomeTeam", "Home"],
       "away_team": ["Away Team", "AwayTeam", "Away"],
-      "date": ["Date (UTC/GMT)", "Date"],
+      "date": ["Date (UTC/GMT)", "Date(UTC/GMT)","Date"],
       "start_time": ["Start (UTC)", "Start(UTC)"],
       "end_time": ["End (UTC)", "End(UTC)"],
       "duration": ["Duration"],
@@ -56,7 +58,7 @@
       "away_team": ["Away Team", "Away"],
       "date": ["Date"],
       "start_time": ["Start Time", "Start"],
-      "event": ["Event", "Competition"],
+      "competition": ["Competition"],
       "match_day": ["Matchday"]
     },
     "macro": {

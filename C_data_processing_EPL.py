@@ -118,11 +118,11 @@ class EPLValidator:
         "check_non_metered_primary_market_audience" : self._check_non_metered_primary_market_audience,
         "check_legacy_mapping" : self._check_legacy_mapping,
         "check_premier_league_october_obligation" : self._check_premier_league_october_obligation,
-        
-        
-        
-        
-        
+        "filter_short_programs": self._filter_short_programs,
+        "sa_nielsen_inclusion_check": self._sa_nielsen_inclusion_check,
+        "epl_live_vs_delay_validation": self._epl_live_vs_delay_validation,
+        "pl_magazine_highlights_classification": self._pl_magazine_highlights_classification,
+       # "dedicated_program_duration_allignments": self._dedicated_program_duration_allignments
         # Future EPL checks would be added here
     }
 
@@ -162,8 +162,7 @@ class EPLValidator:
 
     # --- Private Loading/Parsing Methods (from old qc_checks.py) ---
     def _load_overnight_data(self):
-        """
-        Loads the CDT/Overnight file, handling the specific header offset (Row 9)
+        """ Loads the CDT/Overnight file, handling the specific header offset (Row 9)
         and standardizing columns for the Game of the Day check.
         """
         if not self.overnight_path: return None
@@ -457,7 +456,7 @@ class EPLValidator:
         initial_rows = len(self.df)
         FLAG_COLUMN = 'QC_Recommended_Program_Type' 
         
-        # 🟢 READ FROM CONFIG
+        #  READ FROM CONFIG
         chk_config = self.config.get("impute_lt_live_status", {})
         TARGET_MARKET = chk_config.get("market", "INDIA")
         KEYWORD = chk_config.get("keyword", "L/T")
@@ -1061,7 +1060,6 @@ class EPLValidator:
                 "columns_checked": DATE_TIME_COLS_TO_CHECK
             }
         }
-    
 
     def _check_live_broadcast_uniqueness(self) -> Dict[str, Any]:
             """
@@ -2170,6 +2168,337 @@ class EPLValidator:
                 "obligation_entries_count": len(required_keys)
             }
         }
+
+    
+    def _filter_short_programs(self):
+        """
+        Removes programs where duration <5 minutes except Austria and New Zealand.
+        Stores removed rows in: self.short_programs_df
+        """
+        MIN_DURATION = 5
+        EXEMPT = ["AUSTRIA", "NEW ZEALAND"]
+
+        df = self.df.copy()
+
+        # Normalize markets
+        df["Market_norm"] = df["Market"].astype(str).str.upper()
+
+        # Parse start + end with date included
+        df["Date_only"] = pd.to_datetime(df["Date"], errors="coerce").dt.date.astype(str)
+
+        df["Start_DT"] = pd.to_datetime(
+            df["Date_only"] + " " + df["Start (UTC)"].astype(str),
+            errors="coerce"
+        )
+        df["End_DT_raw"] = pd.to_datetime(
+            df["Date_only"] + " " + df["End (UTC)"].astype(str),
+            errors="coerce"
+        )
+
+        # Handle past-midnight rollover
+        rollover = df["End_DT_raw"] < df["Start_DT"]
+        df.loc[rollover, "End_DT_raw"] += pd.Timedelta(days=1)
+
+        # Compute duration in minutes
+        df["Duration_Min"] = (df["End_DT_raw"] - df["Start_DT"]).dt.total_seconds() / 60
+
+        remove_mask = (df["Duration_Min"] < MIN_DURATION) & (~df["Market_norm"].isin(EXEMPT))
+
+        removed_df = df[remove_mask].copy()
+        keep_df = df[~remove_mask].copy()
+
+        # Clean temp cols
+        for col in ["Market_norm", "Start_DT", "End_DT_raw", "Duration_Min", "Date_only"]:
+            removed_df.drop(columns=col, inplace=True, errors="ignore")
+            keep_df.drop(columns=col, inplace=True, errors="ignore")
+
+        self.short_programs_df = removed_df
+        self.df = keep_df
+
+        return {
+            "check_key": "filter_short_programs",
+            "status": "Flagged" if len(removed_df) else "Completed",
+            "description": f"{len(removed_df)} short programs removed (<5 min)",
+            "details": {}
+        }
+    
+    def _sa_nielsen_inclusion_check(self):
+        """
+        SA Nielsen Inclusion Check (Case Sensitive):
+        Extract rows where Market exactly equals "South Africa".
+        Remove them from the main DF and store in self.sa_nielsen_df.
+        """
+        TARGET = "South Africa"
+
+        if "Market" not in self.df.columns:
+            return {
+                "check_key": "sa_nielsen_inclusion_check",
+                "status": "Skipped",
+                "description": "Column 'Market' not found.",
+                "details": {}
+            }
+
+        # Strict case-sensitive match
+        sa_mask = self.df["Market"] == TARGET
+
+        sa_rows = self.df.loc[sa_mask].copy()
+        remaining = self.df.loc[~sa_mask].copy()
+
+        # Save new versions
+        self.sa_nielsen_df = sa_rows.reset_index(drop=True)
+        self.df = remaining.reset_index(drop=True)
+
+        return {
+            "check_key": "sa_nielsen_inclusion_check",
+            "status": "Completed",
+            "description": f"Extracted {len(sa_rows)} rows for SA Nielsen tab.",
+            "details": {"rows_found": int(len(sa_rows))}
+        }
+    
+    def _epl_live_vs_delay_validation(self):
+        """
+        NEW EPL Live vs Delay Validation
+        Logic:
+        For each broadcast row:
+            - Match fixture using home, away, date
+            - Compare Start(UTC) with fixture kickoff time
+            - If within ±60 minutes -> LIVE
+            - Else -> DELAYED
+        Output:
+        - Adds 'EPL_LiveDelay_Flag'
+        - Produces self.live_delay_flags_df
+        """
+
+        FLAG = "EPL_LiveDelay_Flag"
+        self.df[FLAG] = ""
+
+        # ----------------------------
+        # Load fixture sheet 
+        # ----------------------------
+        bsr_path = self.bsr_path
+        try:
+            xl = pd.ExcelFile(bsr_path)
+        except:
+            return {
+                "check_key": "epl_live_vs_delay_validation",
+                "status": "Skipped",
+                "description": "Unable to read BSR file for fixture sheet.",
+                "details": {}
+            }
+
+        # detect fixture sheet
+        fixture_keywords = ["fixture", "fixtures"]
+        fixture_sheet = None
+        for s in xl.sheet_names:
+            if any(k in s.lower() for k in fixture_keywords):
+                fixture_sheet = s
+                break
+
+        if fixture_sheet is None:
+            return {
+                "check_key": "epl_live_vs_delay_validation",
+                "status": "Skipped",
+                "description": "Fixture sheet not found",
+                "details": {}
+            }
+
+        df_fix = xl.parse(fixture_sheet)
+
+        # required columns in fixture
+        needed_fix_cols = ["Home Team", "Away Team", "Date", "Start Time", "End (UTC)"]
+        for c in needed_fix_cols:
+            if c not in df_fix.columns:
+                return {
+                    "check_key": "epl_live_vs_delay_validation",
+                    "status": "Skipped",
+                    "description": f"Missing fixture column: {c}",
+                    "details": {}
+                }
+
+        # ----------------------------
+        # Prepare fixture lookup
+        # ----------------------------
+        def clean(x):
+            if pd.isna(x): return ""
+            x = str(x).lower().strip()
+            x = re.sub(r"[^\w\s]", " ", x)
+            return re.sub(r"\s+", " ", x).strip()
+
+        df_fix["_home"] = df_fix["Home Team"].map(clean)
+        df_fix["_away"] = df_fix["Away Team"].map(clean)
+        df_fix["_date"] = pd.to_datetime(df_fix["Date"], errors="coerce").dt.date
+
+        # Combine fixture datetime
+        df_fix["_fix_start"] = [
+            pd.to_datetime(str(df_fix.at[i, "Date"]) + " " + str(df_fix.at[i, "Start Time"]), errors="coerce")
+            for i in df_fix.index
+        ]
+
+        # ----------------------------
+        # Prepare BSR
+        # ----------------------------
+        df = self.df
+
+        required_bsr_cols = ["Home Team", "Away Team", "Date", "Start (UTC)"]
+        missing = [c for c in required_bsr_cols if c not in df.columns]
+        if missing:
+            return {
+                "check_key": "epl_live_vs_delay_validation",
+                "status": "Skipped",
+                "description": f"Missing BSR columns: {missing}",
+                "details": {}
+            }
+
+        df["_home"] = df["Home Team"].map(clean)
+        df["_away"] = df["Away Team"].map(clean)
+        df["_date"] = pd.to_datetime(df["Date"], errors="coerce").dt.date
+        df["_bsr_start"] = [
+            pd.to_datetime(str(df.at[i, "Date"]) + " " + str(df.at[i, "Start (UTC)"]), errors="coerce")
+            for i in df.index
+        ]
+
+        # ----------------------------
+        # MAIN LOGIC
+        # ----------------------------
+        tolerance = 60  # minutes
+        flagged_rows = []
+
+        for i, row in df.iterrows():
+            h = row["_home"]
+            a = row["_away"]
+            d = row["_date"]
+            bsr_start = row["_bsr_start"]
+
+            if pd.isna(bsr_start) or pd.isna(d):
+                continue
+
+            # Fixture match
+            fx = df_fix[
+                (df_fix["_home"] == h)
+                & (df_fix["_away"] == a)
+                & (df_fix["_date"] == d)
+            ]
+
+            if fx.empty:
+                # no fixture → skip silently
+                continue
+
+            fix_start = fx["_fix_start"].iloc[0]
+            if pd.isna(fix_start):
+                continue
+
+            diff = abs((bsr_start - fix_start).total_seconds() / 60)
+
+            # LIVE
+            if diff <= tolerance:
+                df.at[i, FLAG] = f"LIVE: within ±{tolerance} min"
+                flagged_rows.append(i)
+            else:
+                df.at[i, FLAG] = f"DELAYED: diff={diff:.1f} min"
+                flagged_rows.append(i)
+
+        # ----------------------------
+        # Save flagged rows for export
+        # ----------------------------
+        self.live_delay_flags_df = df.loc[flagged_rows].copy()
+
+        # Cleanup
+        df.drop(columns=["_home", "_away", "_date", "_bsr_start"], errors="ignore", inplace=True)
+
+        total_flagged = len(flagged_rows)
+        return {
+            "check_key": "epl_live_vs_delay_validation",
+            "status": "Flagged" if total_flagged else "Completed",
+            "description": f"Checked Live vs Delay using fixture ±1 hour tolerance. Flagged {total_flagged} rows.",
+            "details": {"rows_flagged": total_flagged}
+        }
+
+
+    def _pl_magazine_highlights_classification(self):
+        """
+        EPL: PL Magazine / Highlights Classification
+
+        Auto-detects:
+        - 'Type of program' column (any casing/spacing)
+        - 'Combined' column
+
+        Works even if names differ.
+        """
+
+        df = self.df.copy()
+
+        # ---------- Helper to find column robustly ----------
+        def find_col(df, name):
+            name = name.strip().lower()
+            for col in df.columns:
+                if col.strip().lower() == name:
+                    return col
+            return None
+
+        # Detect required columns
+        col_progtype = find_col(df, "type of program")
+        col_combined = find_col(df, "combined")
+
+        missing = []
+        if col_progtype is None: missing.append("Type of program")
+        if col_combined is None: missing.append("Combined")
+
+        if missing:
+            return {
+                "check_key": "pl_magazine_highlights_classification",
+                "status": "Skipped",
+                "description": f"Missing required columns: {missing}",
+                "details": {}
+            }
+
+        # Output column
+        CATEGORY_COL = "PL_Magazine_Highlights_Category"
+        df[CATEGORY_COL] = ""
+
+        # Normalize
+        type_norm = df[col_progtype].astype(str).str.lower().str.strip()
+        combined_norm = df[col_combined].astype(str).str.lower()
+
+        # -----------------------------------------------------
+        # 1️⃣  MAGAZINE & SUPPORT
+        # -----------------------------------------------------
+        mag_mask = type_norm == "magazine & support"
+
+        df.loc[mag_mask & combined_norm.str.contains("vault"), CATEGORY_COL] = "PL Magazine"
+        df.loc[mag_mask & combined_norm.str.contains("stories"), CATEGORY_COL] = "PL Stories"
+        df.loc[mag_mask & combined_norm.str.contains("preview"), CATEGORY_COL] = "PL Preview"
+        df.loc[mag_mask & combined_norm.str.contains("the big interview"), CATEGORY_COL] = "PL The Big Interview"
+
+        df.loc[mag_mask & (df[CATEGORY_COL] == ""), CATEGORY_COL] = "PL Magazine"
+
+        # -----------------------------------------------------
+        # 2️⃣  HIGHLIGHTS
+        # -----------------------------------------------------
+        high_mask = type_norm == "highlights"
+
+        df.loc[high_mask & combined_norm.str.contains("netbusters"), CATEGORY_COL] = "PL Netbusters"
+        df.loc[high_mask & combined_norm.str.contains("reload"), CATEGORY_COL] = "PL Reload"
+        df.loc[high_mask & combined_norm.str.contains("review"), CATEGORY_COL] = "PL Review"
+        df.loc[high_mask & combined_norm.str.contains("match of the day"), CATEGORY_COL] = "PL Match Of The Day"
+
+        df.loc[high_mask & (df[CATEGORY_COL] == ""), CATEGORY_COL] = "PL Highlights"
+
+        # -----------------------------------------------------
+        # Report tab
+        # -----------------------------------------------------
+        report_df = df[df[CATEGORY_COL] != ""].copy()
+        self.pl_mag_highlights_df = report_df
+
+        # Save back to main DF
+        self.df = df
+
+        return {
+            "check_key": "pl_magazine_highlights_classification",
+            "status": "Completed",
+            "description": f"Classified {len(report_df)} rows.",
+            "details": {"rows_classified": len(report_df)}
+        }
+
 
 # ----------------------------- ⚙️ Utility Functions (kept standalone) -----------------------------
 
