@@ -1,5 +1,6 @@
 import pandas as pd
 import re
+import math
 import datetime
 import os
 import numpy as np
@@ -420,19 +421,9 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
     )
 
 
-# ----------------------------- 6️⃣ Program Category Check (robust parsing, original logic preserved) -----------------------------
+# ----------------------------- 6️⃣ Program Category Check -----------------------------
 def program_category_check(bsr_path, df, col_map, rules, file_rules):
-    """
-    Preserves original LIVE / DELAYED / REPEAT decision logic exactly,
-    but replaces datetime parsing with a robust routine that:
-      - tolerates swapped date/time columns,
-      - handles excel serial dates and time fractions,
-      - strips odd unicode / separators,
-      - returns timezone-naive pandas Timestamp or pd.NaT.
-    """
-    import math
-
-    # ---------- Fixture sheet detection (supports list or single value in config) ----------
+   # --- Fixture sheet detection (support list or string keywords) ---
     xl = pd.ExcelFile(bsr_path)
     fixture_keywords = file_rules.get("fixture_sheet_keyword", "fixture")
     if not isinstance(fixture_keywords, list):
@@ -488,11 +479,10 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     def clean(x):
         if pd.isna(x):
             return ""
-        x = str(x).strip()
-        # remove common problematic unicode and collapse whitespace
+        x = str(x).strip().lower()
         x = x.replace("\u00A0", " ").replace("\u200b", "").strip()
         x = re.sub(r"[^\w\s&]", " ", x)  # keep & since "Magazine & Support" uses it
-        return re.sub(r"\s+", " ", x).strip().lower()
+        return re.sub(r"\s+", " ", x).strip()
 
     def parse_datetime_candidate(date_raw, time_raw):
         """
@@ -644,31 +634,24 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         # fallback: NaT
         return pd.NaT
 
-    # ---------- Prepare fixture lookup (parse fixture start datetimes) ----------
-    df_fix["_home"] = df_fix[col_home_fix].map(clean) if col_home_fix else ""
-    df_fix["_away"] = df_fix[col_away_fix].map(clean) if col_away_fix else ""
-
-    # Build _start on fixture using robust parser
+    # ---------- Prepare fixture lookup ----------
+    df_fix["_home"] = df_fix[col_home_fix].map(clean)
+    df_fix["_away"] = df_fix[col_away_fix].map(clean)
+    df_fix["_date"] = pd.to_datetime(df_fix[col_date_fix], errors="coerce").dt.date
     df_fix["_start"] = [
-        parse_datetime_candidate(df_fix.at[i, col_date_fix] if col_date_fix in df_fix.columns else pd.NA,
-                                 df_fix.at[i, col_start_fix] if col_start_fix in df_fix.columns else pd.NA)
+        parse_datetime_candidate(df_fix.at[i, col_date_fix], df_fix.at[i, col_start_fix])
         for i in df_fix.index
     ]
-    # Also store a fixture date (date part) for matching similar to original behaviour
-    df_fix["_date"] = [ (ts.date() if pd.notna(ts) else pd.NaT) for ts in df_fix["_start"] ]
 
-    # ---------- Prepare BSR (parse BSR start datetimes) ----------
+    # ---------- Prepare BSR ----------
     df["_home"] = df[col_home_bsr].map(clean)
     df["_away"] = df[col_away_bsr].map(clean)
     df["_event_key"] = df["_home"] + "||" + df["_away"]
-
+    df["_date"] = pd.to_datetime(df[col_date_bsr], errors="coerce").dt.date
     df["_start"] = [
         parse_datetime_candidate(df.at[i, col_date_bsr], df.at[i, col_start_bsr])
         for i in df.index
     ]
-    # keep original _date column behavior (date part)
-    df["_date"] = [ (ts.date() if pd.notna(ts) else pd.NaT) for ts in df["_start"] ]
-
     df["_broad"] = df[col_broadcaster].astype(str).str.lower().str.strip() if col_broadcaster else ""
 
     # normalize actual to lower-case comparable form
@@ -699,7 +682,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             return None
     df["_duration_min"] = df[col_duration].apply(parse_duration_minutes) if col_duration else None
 
-    # keywords & bounds (same as before)
+    # keywords & bounds
     highlights_keywords = ["hits", "highlights", "post", "review", "overview", "recap", "summary"]
     magazine_keywords = ["pre", "post", "studio", "interview", "analysis", "previo"]
     dur_min_bound, dur_max_bound = rules.get("flag_duration_min", 10), rules.get("flag_duration_max", 50)
@@ -709,7 +692,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
     LIVE_TOL = rules.get("live_tolerance_min", 35)
 
-    # ---------- MAIN LOOP: Preserve your original decision logic exactly ----------
+    # ---------- MAIN LOOP ----------
     for idx, row in df.iterrows():
         ev_key = row["_event_key"]
         h = row["_home"]
@@ -728,16 +711,20 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             else:
                 dur_ok = (dur_min_bound <= dur_min <= dur_max_bound)
 
+        # If actual explicitly labels it, respect that first (normalized)
         if isinstance(actual, str) and actual == "highlights":
             df.at[idx, "Program_Category_Expected"] = "highlights"
             df.at[idx, "Program_Category_Remark"] = "Detected as Highlights (Program type)"
+            # override everything else
             continue
 
         if isinstance(actual, str) and actual in ("magazine", "magazine & support", "magazine & support".lower()):
+            # set expected exactly to the normalized form used by actual when present
             df.at[idx, "Program_Category_Expected"] = "magazine & support"
             df.at[idx, "Program_Category_Remark"] = "Detected as Magazine & Support (Program type)"
             continue
 
+        # Keyword+duration based detection (also overrides)
         if dur_ok and any(re.search(rf"\b{re.escape(str(kw))}\b", combined_text.lower()) for kw in highlights_keywords):
             df.at[idx, "Program_Category_Expected"] = "highlights"
             df.at[idx, "Program_Category_Remark"] = f"Detected as Highlights (duration {dur_min} min & keyword match)"
@@ -819,28 +806,9 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             continue
 
     # ---------- FINAL OK ----------
-    # Case-insensitive compare
-    df["Program_Category_OK"] = (
-        df["Program_Category_Actual"].astype(str).str.strip().str.lower()
-        == df["Program_Category_Expected"].astype(str).str.strip().str.lower()
-    )
+    df["Program_Category_OK"] = df["Program_Category_Actual"] == df["Program_Category_Expected"]
 
-    # Ensure any datetime-like internal columns are timezone-naive before returning (avoid Excel tz errors)
-    for c in df.columns:
-        try:
-            if pd.api.types.is_datetime64_any_dtype(df[c]):
-                # convert tz-aware -> tz-naive
-                try:
-                    df[c] = df[c].dt.tz_convert(None)
-                except Exception:
-                    try:
-                        df[c] = df[c].dt.tz_localize(None)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-    # cleanup internal cols (keep behaviour same as original)
+    # cleanup internal cols
     df.drop(columns=["_home", "_away", "_event_key", "_date", "_start", "_broad", "_combined_text", "_duration_min"],
             errors="ignore", inplace=True)
 
