@@ -1385,114 +1385,162 @@ class EPLValidator:
             "details": {"rows_found": int(len(sa_rows))}
         }
     
-    def _epl_live_vs_delay_validation(self) -> Dict[str, Any]:
+    def _epl_live_vs_delay_validation(self):
         """
-        EPL Live vs Delay Validation
-        - Group by (Market, TV-Channel, MatchKey)
-        - If any row in group has Program Type == 'Live' -> any rows with Program Type == 'Delayed' are INVALID
-        - If no 'Live' in group -> mark earliest airing in the group as 'Delayed' (flagged as 'Marked: Earliest as Delayed')
-        Outputs:
-        - Adds column 'EPL_LiveDelay_Flag' to self.df
-        - Stores flagged rows (invalid delayed + newly-marked delayed) in self.live_delay_flags_df
+        NEW EPL Live vs Delay Validation
+        Logic:
+        For each broadcast row:
+            - Match fixture using home, away, date
+            - Compare Start(UTC) with fixture kickoff time
+            - If within ±60 minutes -> LIVE
+            - Else -> DELAYED
+        Output:
+        - Adds 'EPL_LiveDelay_Flag'
+        - Produces self.live_delay_flags_df
         """
-        FLAG_COL = "EPL_LiveDelay_Flag"
-        required_cols = ["Market", "TV-Channel", "Start (UTC)", "End (UTC)"]
-        # Accept either 'Match ID' or 'Event' as match key
-        match_key_col = None
-        for c in ("Match ID", "MatchID", "Event"):
-            if c in self.df.columns:
-                match_key_col = c
-                break
 
-        # Validate columns
-        if not all(c in self.df.columns for c in required_cols) or match_key_col is None or "Type of program" not in self.df.columns:
-            missing = [c for c in required_cols if c not in self.df.columns]
-            if match_key_col is None:
-                missing.append("Match ID / Event")
-            if "Type of program" not in self.df.columns:
-                missing.append("Type of program")
+        FLAG = "EPL_LiveDelay_Flag"
+        self.df[FLAG] = ""
+
+        # ----------------------------
+        # Load fixture sheet (same logic as Program Category Check)
+        # ----------------------------
+        bsr_path = self.bsr_path
+        try:
+            xl = pd.ExcelFile(bsr_path)
+        except:
             return {
                 "check_key": "epl_live_vs_delay_validation",
                 "status": "Skipped",
-                "description": f"Missing required columns: {missing}",
+                "description": "Unable to read BSR file for fixture sheet.",
                 "details": {}
             }
 
-        # Copy so we don't lose index info
-        df = self.df.copy()
-        df[FLAG_COL] = ""  # default blank
+        # detect fixture sheet
+        fixture_keywords = ["fixture", "fixtures"]
+        fixture_sheet = None
+        for s in xl.sheet_names:
+            if any(k in s.lower() for k in fixture_keywords):
+                fixture_sheet = s
+                break
 
-        # Normalize strings for grouping (but keep original values)
-        df["_Market_norm"] = df["Market"].astype(str).str.strip()
-        df["_Channel_norm"] = df["TV-Channel"].astype(str).str.strip()
-        df["_Match_norm"] = df[match_key_col].astype(str).str.strip()
+        if fixture_sheet is None:
+            return {
+                "check_key": "epl_live_vs_delay_validation",
+                "status": "Skipped",
+                "description": "Fixture sheet not found",
+                "details": {}
+            }
 
-        # Parse start datetimes robustly
-        try:
-            # build a datetime using the Date or Start(UTC) directly - assume Start (UTC) contains time
-            df["_Start_dt"] = pd.to_datetime(df["Start (UTC)"], errors="coerce")
-            # If Start(UTC) lacks date, try combining with Date column
-            if df["_Start_dt"].isna().all() and "Date" in df.columns:
-                date_only = pd.to_datetime(df["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
-                df["_Start_dt"] = pd.to_datetime(date_only + " " + df["Start (UTC)"].astype(str), errors="coerce")
-        except Exception:
-            df["_Start_dt"] = pd.to_datetime(df["Start (UTC)"].astype(str), errors="coerce")
+        df_fix = xl.parse(fixture_sheet)
 
-        # Set up container for flagged rows
-        flagged_indices = set()
-        newly_marked_indices = set()
+        # required columns in fixture
+        needed_fix_cols = ["Home Team", "Away Team", "Date", "Start (UTC)", "End (UTC)"]
+        for c in needed_fix_cols:
+            if c not in df_fix.columns:
+                return {
+                    "check_key": "epl_live_vs_delay_validation",
+                    "status": "Skipped",
+                    "description": f"Missing fixture column: {c}",
+                    "details": {}
+                }
 
-        group_cols = ["_Market_norm", "_Channel_norm", "_Match_norm"]
+        # ----------------------------
+        # Prepare fixture lookup
+        # ----------------------------
+        def clean(x):
+            if pd.isna(x): return ""
+            x = str(x).lower().strip()
+            x = re.sub(r"[^\w\s]", " ", x)
+            return re.sub(r"\s+", " ", x).strip()
 
-        # iterate groups
-        for _, group in df.groupby(group_cols, dropna=False):
-            if group.empty:
+        df_fix["_home"] = df_fix["Home Team"].map(clean)
+        df_fix["_away"] = df_fix["Away Team"].map(clean)
+        df_fix["_date"] = pd.to_datetime(df_fix["Date"], errors="coerce").dt.date
+
+        # Combine fixture datetime
+        df_fix["_fix_start"] = [
+            pd.to_datetime(str(df_fix.at[i, "Date"]) + " " + str(df_fix.at[i, "Start (UTC)"]), errors="coerce")
+            for i in df_fix.index
+        ]
+
+        # ----------------------------
+        # Prepare BSR
+        # ----------------------------
+        df = self.df
+
+        required_bsr_cols = ["Home Team", "Away Team", "Date", "Start (UTC)"]
+        missing = [c for c in required_bsr_cols if c not in df.columns]
+        if missing:
+            return {
+                "check_key": "epl_live_vs_delay_validation",
+                "status": "Skipped",
+                "description": f"Missing BSR columns: {missing}",
+                "details": {}
+            }
+
+        df["_home"] = df["Home Team"].map(clean)
+        df["_away"] = df["Away Team"].map(clean)
+        df["_date"] = pd.to_datetime(df["Date"], errors="coerce").dt.date
+        df["_bsr_start"] = [
+            pd.to_datetime(str(df.at[i, "Date"]) + " " + str(df.at[i, "Start (UTC)"]), errors="coerce")
+            for i in df.index
+        ]
+
+        # ----------------------------
+        # MAIN LOGIC
+        # ----------------------------
+        tolerance = 60  # minutes
+        flagged_rows = []
+
+        for i, row in df.iterrows():
+            h = row["_home"]
+            a = row["_away"]
+            d = row["_date"]
+            bsr_start = row["_bsr_start"]
+
+            if pd.isna(bsr_start) or pd.isna(d):
                 continue
-            # Standardize program type
-            type_series = group["Type of program"].astype(str).str.strip().str.upper()
-            has_live = (type_series == "LIVE").any()
 
-            if has_live:
-                # Any 'DELAYED' rows in this group are invalid
-                delayed_mask = type_series == "DELAYED"
-                if delayed_mask.any():
-                    idxs = group.loc[delayed_mask].index.tolist()
-                    for i in idxs:
-                        df.at[i, FLAG_COL] = "INVALID - Delayed while Live exists"
-                        flagged_indices.add(i)
+            # Fixture match
+            fx = df_fix[
+                (df_fix["_home"] == h)
+                & (df_fix["_away"] == a)
+                & (df_fix["_date"] == d)
+            ]
+
+            if fx.empty:
+                # no fixture → skip silently
+                continue
+
+            fix_start = fx["_fix_start"].iloc[0]
+            if pd.isna(fix_start):
+                continue
+
+            diff = abs((bsr_start - fix_start).total_seconds() / 60)
+
+            # LIVE
+            if diff <= tolerance:
+                df.at[i, FLAG] = f"LIVE: within ±{tolerance} min"
+                flagged_rows.append(i)
             else:
-                # No Live -> mark the earliest airing in the group as Delayed (if not already delayed)
-                # Use parsed _Start_dt; fallback to Start (UTC) lexicographic
-                group_sorted = group.sort_values(by="_Start_dt", na_position="last")
-                earliest_idx = None
-                for i, row in group_sorted.iterrows():
-                    if pd.notna(row["_Start_dt"]):
-                        earliest_idx = i
-                        break
-                if earliest_idx is None:
-                    # fallback to first index in group
-                    earliest_idx = group_sorted.index[0] if not group_sorted.empty else None
+                df.at[i, FLAG] = f"DELAYED: diff={diff:.1f} min"
+                flagged_rows.append(i)
 
-                if earliest_idx is not None:
-                    prev_flag = df.at[earliest_idx, FLAG_COL]
-                    # Only mark if it's not already marked invalid
-                    df.at[earliest_idx, FLAG_COL] = (prev_flag + " || " if prev_flag else "") + "Marked: Earliest as Delayed (No Live in group)"
-                    newly_marked_indices.add(earliest_idx)
+        # ----------------------------
+        # Save flagged rows for export
+        # ----------------------------
+        self.live_delay_flags_df = df.loc[flagged_rows].copy()
 
-        # Save flagged rows DataFrame
-        flagged_df = df.loc[sorted(list(flagged_indices.union(newly_marked_indices)))]
-        self.live_delay_flags_df = flagged_df.drop(columns=["_Market_norm", "_Channel_norm", "_Match_norm", "_Start_dt"], errors="ignore").reset_index(drop=True)
+        # Cleanup
+        df.drop(columns=["_home", "_away", "_date", "_bsr_start"], errors="ignore", inplace=True)
 
-        # Copy FLAG column back to self.df (preserve other columns)
-        # If self.df has duplicate index or changed, align by a safe merge on index
-        self.df = df.drop(columns=["_Market_norm", "_Channel_norm", "_Match_norm", "_Start_dt"], errors="ignore")
-
-        total_flagged = len(self.live_delay_flags_df) if hasattr(self, "live_delay_flags_df") else 0
+        total_flagged = len(flagged_rows)
         return {
             "check_key": "epl_live_vs_delay_validation",
-            "status": "Flagged" if total_flagged > 0 else "Completed",
-            "description": f"Live vs Delay validation completed. Flagged {total_flagged} rows.",
-            "details": {"rows_flagged": int(total_flagged)}
+            "status": "Flagged" if total_flagged else "Completed",
+            "description": f"Checked Live vs Delay using fixture ±1 hour tolerance. Flagged {total_flagged} rows.",
+            "details": {"rows_flagged": total_flagged}
         }
 
 
