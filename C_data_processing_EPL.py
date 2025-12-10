@@ -1549,22 +1549,31 @@ class EPLValidator:
         """
         EPL: PL Magazine / Highlights Classification
 
-        Logic:
-        - Only classify when Type of program ∈ ['Magazine & Support', 'Highlights']
-        - Look inside Combined column for keywords (case-insensitive)
-        - Assign proper PL category
-        - Default:
-            Magazine & Support → PL Magazine
-            Highlights → PL Highlights
-        - Output column: PL_Magazine_Highlights_Category
-        - Report sheet: self.pl_mag_highlights_df
+        Auto-detects:
+        - 'Type of program' column (any casing/spacing)
+        - 'Combined' column
+
+        Works even if names differ.
         """
 
         df = self.df.copy()
 
-        # Required columns
-        required_cols = ["Type of program", "Combined"]
-        missing = [c for c in required_cols if c not in df.columns]
+        # ---------- Helper to find column robustly ----------
+        def find_col(df, name):
+            name = name.strip().lower()
+            for col in df.columns:
+                if col.strip().lower() == name:
+                    return col
+            return None
+
+        # Detect required columns
+        col_progtype = find_col(df, "type of program")
+        col_combined = find_col(df, "combined")
+
+        missing = []
+        if col_progtype is None: missing.append("Type of program")
+        if col_combined is None: missing.append("Combined")
+
         if missing:
             return {
                 "check_key": "pl_magazine_highlights_classification",
@@ -1577,12 +1586,12 @@ class EPLValidator:
         CATEGORY_COL = "PL_Magazine_Highlights_Category"
         df[CATEGORY_COL] = ""
 
-        # Normalize type
-        type_norm = df["Type of program"].astype(str).str.lower().str.strip()
-        combined_norm = df["Combined"].astype(str).str.lower()
+        # Normalize
+        type_norm = df[col_progtype].astype(str).str.lower().str.strip()
+        combined_norm = df[col_combined].astype(str).str.lower()
 
         # -----------------------------------------------------
-        # 1️⃣  MAGAZINE & SUPPORT LOGIC
+        # 1️⃣  MAGAZINE & SUPPORT
         # -----------------------------------------------------
         mag_mask = type_norm == "magazine & support"
 
@@ -1591,11 +1600,10 @@ class EPLValidator:
         df.loc[mag_mask & combined_norm.str.contains("preview"), CATEGORY_COL] = "PL Preview"
         df.loc[mag_mask & combined_norm.str.contains("the big interview"), CATEGORY_COL] = "PL The Big Interview"
 
-        # Default for magazine if still blank
         df.loc[mag_mask & (df[CATEGORY_COL] == ""), CATEGORY_COL] = "PL Magazine"
 
         # -----------------------------------------------------
-        # 2️⃣  HIGHLIGHTS LOGIC
+        # 2️⃣  HIGHLIGHTS
         # -----------------------------------------------------
         high_mask = type_norm == "highlights"
 
@@ -1604,16 +1612,15 @@ class EPLValidator:
         df.loc[high_mask & combined_norm.str.contains("review"), CATEGORY_COL] = "PL Review"
         df.loc[high_mask & combined_norm.str.contains("match of the day"), CATEGORY_COL] = "PL Match Of The Day"
 
-        # Default for highlights if still blank
         df.loc[high_mask & (df[CATEGORY_COL] == ""), CATEGORY_COL] = "PL Highlights"
 
         # -----------------------------------------------------
-        # Prepare report tab
+        # Report tab
         # -----------------------------------------------------
         report_df = df[df[CATEGORY_COL] != ""].copy()
         self.pl_mag_highlights_df = report_df
 
-        # Push back to main DF
+        # Save back to main DF
         self.df = df
 
         return {
