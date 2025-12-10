@@ -1524,7 +1524,7 @@ class EPLValidator:
         df["PL_Magazine_Highlights_Category"] = ""
 
         # Filter only Highlights / Magazine
-        mask = df["Type of Program"].str.strip().str.lower().isin(["highlights", "magazine"])
+        mask = df["Program Type"].str.strip().str.lower().isin(["highlights", "magazine"])
         target_df = df[mask].copy()
 
         if target_df.empty:

@@ -1254,7 +1254,6 @@ def country_channel_id_check(df, bsr_cols):
         Market_Channel_ID_OK (bool)
         Market_Channel_ID_Remark (str)
     """
-    import pandas as _pd
 
     df = df.copy()  # work on a copy to avoid side-effects
     df["Market_Channel_ID_OK"] = True

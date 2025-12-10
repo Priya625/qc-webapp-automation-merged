@@ -127,27 +127,8 @@ all_market_check_keys_epl = {
     "sa_nielsen_inclusion_check": "South Africa Nielsen Inclusion Check",
     "epl_live_vs_delay_validation": "Live vs Delay Validation",
     "pl_magazine_highlights_classification": "PL Magazine/Highlights Classification"
+}
 
-}
-# --- User-Facing Descriptions for EPL Checks ---
-EPL_CHECK_DESCRIPTIONS = {
-    "impute_lt_live_status": "L/T Live Imputation: Flags rows where the 'L/T' keyword is in 'Combined' but 'Type of program' is not 'Live'.",
-    "consolidate_gillete_soccer": "Program Consolidation: Flags sequential 'Gillete Soccer' programs for merging (Gap <= 30min) in the same market/channel.",
-    "check_sky_showcase_live": "Sky Showcase Live Status Check (UK): Flags any program on 'Sky Showcase' in the UK/Ireland marked as 'Live'.",
-    "standardize_uk_ire_region": "Region Standardization: Corrects/Flags UK/Ireland Region field to 'Europe' and standardizes market names.",
-    "check_fixture_vs_case": "Fixture Case Check: Flags incorrect casing of the separator 'VS' (must be lowercase 'vs') in the fixture description for the UK market.",
-    "check_pan_balkans_serbia_parity": "Market Parity Check: Compares the total program row count for 'Pan Balkans' and 'Serbia' and flags all rows if the counts are not strictly equal.",
-    "audit_multi_match_status": "Multi-Match Audit: Flags rows containing 'Goal Rush' / 'Konferenz' keywords if the fixture description does not contain the required 'MULTI-MATCH' tag.",
-    "check_date_time_format_integrity": "Checking Time Integrity: Audits all 6 date/time columns to check for data type inconsistencies (e.g., numeric IDs, invalid formats).",
-    "check_live_broadcast_uniqueness": "Checking 1 live for based on these col 'Market', 'TV-Channel', 'Competition', 'Date': Implements a Channel Capacity Check ensuring no two LIVE programs overlap on the same Market/Channel ID/Time Slot.",
-    "audit_channel_line_item_count": "Channel line item count (New Tab): Calculates the total number of line items (programs) for each unique TV-Channel and generates a separate summary report tab.",
-    "check_combined_archive_status": "Flag any row with archive in Combined column: Flags any row where the 'Combined' column contains the keyword 'ARCHIVE'.",
-    "suppress_duplicated_audience": "Flag if it is a Duplicated Market and has audience: Flags duplication source rows if they still contain a positive, non-zero audience value in either audience column.",
-    "filter_short_programs": "5 Minute Program Filter: Removes programs where duration is strictly less than 5 minutes (except Austria/NZ) and stores them in a separate sheet.",
-    "sa_nielsen_inclusion_check": "South Africa Nielsen Inclusion Check: Extracts rows where the Market exactly equals 'South Africa' (case sensitive) and moves them to a separate sheet.",
-    "epl_live_vs_delay_validation": "Live vs Delay Validation: Groups by MatchKey. Flags 'Delayed' if 'Live' is present. If no 'Live', marks the earliest airing as 'Delayed'.",
-    "pl_magazine_highlights_classification": "PL Magazine/Highlights Classification: Classifies 'Highlights' or 'Magazine' programs into granular PL sub-categories (e.g., 'Netbusters', 'Reload')."
-}
 
 with home_page_tab:
     # --- Custom CSS for Styling ---
@@ -712,6 +693,7 @@ with epl_tab:
         st.checkbox(all_market_check_keys_epl["sa_nielsen_inclusion_check"], key="sa_nielsen_inclusion_check")
         st.checkbox(all_market_check_keys_epl["epl_live_vs_delay_validation"], key="epl_live_vs_delay_validation")
         st.checkbox(all_market_check_keys_epl["pl_magazine_highlights_classification"], key="pl_magazine_highlights_classification")
+        st.checkbox(all_market_check_keys_epl["change_vs_to_lowercase"], key="change_vs_to_lowercase")
 
         
 
