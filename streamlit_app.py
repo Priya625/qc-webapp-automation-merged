@@ -693,7 +693,6 @@ with epl_tab:
         st.checkbox(all_market_check_keys_epl["sa_nielsen_inclusion_check"], key="sa_nielsen_inclusion_check")
         st.checkbox(all_market_check_keys_epl["epl_live_vs_delay_validation"], key="epl_live_vs_delay_validation")
         st.checkbox(all_market_check_keys_epl["pl_magazine_highlights_classification"], key="pl_magazine_highlights_classification")
-        st.checkbox(all_market_check_keys_epl["change_vs_to_lowercase"], key="change_vs_to_lowercase")
 
         
 
