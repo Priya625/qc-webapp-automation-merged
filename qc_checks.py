@@ -451,8 +451,8 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
     col_home_bsr = _find_column(df, b.get("home_team"))
     col_away_bsr = _find_column(df, b.get("away_team"))
-    col_date_bsr = _find_column(df, b.get("date"))
-    col_start_bsr = _find_column(df, b.get("start_time"))
+    col_date_bsr = _find_column(df, ["Date (UTC/GMT)","Date"])
+    col_start_bsr = _find_column(df, ["Start (UTC)","Start"])
     col_progtype = _find_column(df, b.get("type_of_program"))
     col_broadcaster = _find_column(df, b.get("broadcaster"))
 
