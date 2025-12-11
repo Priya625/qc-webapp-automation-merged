@@ -720,13 +720,13 @@ with epl_tab:
     # --- Dedicated Upload for Manual Checks (MODIFIED) ---
     col_file1, col_file2, col_file3,col_file4 = st.columns(4)
     with col_file1:
-        f1_bsr_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="epl_market_check_file")
+        epl_bsr_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="epl_market_check_file")
     with col_file2:
-        f1_obligation_file = st.file_uploader("📄 Upload Channel Names (.xlsx)", type=["xlsx"], key="epl_obligation_file")
+        epl_obligation_file = st.file_uploader("📄 Upload Channel Names (.xlsx)", type=["xlsx"], key="epl_obligation_file")
     with col_file3:
-        f1_overnight_file = st.file_uploader("📈 Upload CDT-OVN Audience File (.xlsx)", type=["xlsx"], key="epl_overnight_file")
+        epl_overnight_file = st.file_uploader("📈 Upload CDT-OVN Audience File (.xlsx)", type=["xlsx"], key="epl_overnight_file")
     with col_file4:
-        f1_macro_file = st.file_uploader("📋 4. BSA Duplicator File ", type=["xlsm", "xlsx"], key="epl_macro_file")
+        epl_macro_file = st.file_uploader("📋 4. BSA Duplicator File ", type=["xlsm", "xlsx"], key="epl_macro_file")
     
     st.write("---")
 
@@ -809,7 +809,7 @@ with epl_tab:
             }
         
         # Check mandatory files
-        if f1_bsr_file is None:
+        if epl_bsr_file is None:
             st.error("⚠️ Please upload a BSR file before applying checks.")
         elif "check_f1_obligations" in active_checks and f1_obligation_file is None:
             st.error("⚠️ **F1 Obligation Check Selected:** Please upload the F1 Obligation File.")
@@ -821,23 +821,23 @@ with epl_tab:
             with st.spinner(f"Applying {len(active_checks)} checks..."):
                 try:
                     # --- Save files temporarily ---
-                    bsr_file_path = os.path.join(UPLOAD_FOLDER, f1_bsr_file.name)
-                    with open(bsr_file_path, "wb") as f: f.write(f1_bsr_file.getbuffer())
+                    bsr_file_path = os.path.join(UPLOAD_FOLDER, epl_bsr_file.name)
+                    with open(bsr_file_path, "wb") as f: f.write(epl_bsr_file.getbuffer())
                     
                     obligation_path = None
-                    if f1_obligation_file:
-                        obligation_path = os.path.join(UPLOAD_FOLDER, f1_obligation_file.name)
-                        with open(obligation_path, "wb") as f: f.write(f1_obligation_file.getbuffer())
+                    if epl_obligation_file:
+                        obligation_path = os.path.join(UPLOAD_FOLDER, epl_obligation_file.name)
+                        with open(obligation_path, "wb") as f: f.write(epl_obligation_file.getbuffer())
                     
                     overnight_path = None
-                    if f1_overnight_file:
-                        overnight_path = os.path.join(UPLOAD_FOLDER, f1_overnight_file.name)
-                        with open(overnight_path, "wb") as f: f.write(f1_overnight_file.getbuffer())
+                    if epl_overnight_file:
+                        overnight_path = os.path.join(UPLOAD_FOLDER, epl_overnight_file.name)
+                        with open(overnight_path, "wb") as f: f.write(epl_overnight_file.getbuffer())
                     
                     macro_path = None
-                    if f1_macro_file:
-                        macro_path = os.path.join(UPLOAD_FOLDER, f1_macro_file.name)
-                        with open(macro_path, "wb") as f: f.write(f1_macro_file.getbuffer())
+                    if epl_macro_file:
+                        macro_path = os.path.join(UPLOAD_FOLDER, epl_macro_file.name)
+                        with open(macro_path, "wb") as f: f.write(epl_macro_file.getbuffer())
                     
                     try:
                         # Use the path to load the BSR file
