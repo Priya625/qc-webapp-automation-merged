@@ -685,178 +685,178 @@ with f1_tab:
                 except Exception as e:
                     st.error(f"❌ An error occurred during F1 checks: {e}")
 
-with epl_tab:
-    st.header(" EPL Specific Checks")
-    st.markdown("Upload the required files here to perform and log manual checks.")
+# with epl_tab:
+#     st.header(" EPL Specific Checks")
+#     st.markdown("Upload the required files here to perform and log manual checks.")
 
-    # --- Dedicated Upload for Manual Checks (MODIFIED) ---
-    col_file1, col_file2, col_file3,col_file4 = st.columns(4)
-    with col_file1:
-        epl_bsr_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="epl_market_check_file")
-    with col_file2:
-        epl_obligation_file = st.file_uploader("📄 Upload F1 Obligation File (.xlsx)", type=["xlsx"], key="epl_obligation_file")
-    with col_file3:
-        epl_overnight_file = st.file_uploader("📈 Upload Overnight Audience File (.xlsx)", type=["xlsx"], key="epl_overnight_file")
-    with col_file4:
-        epl_macro_file = st.file_uploader("📋 4. BSA Duplicator File (Existence Check)", type=["xlsm", "xlsx"], key="epl_macro_file")
+#     # --- Dedicated Upload for Manual Checks (MODIFIED) ---
+#     col_file1, col_file2, col_file3,col_file4 = st.columns(4)
+#     with col_file1:
+#         epl_bsr_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="epl_market_check_file")
+#     with col_file2:
+#         epl_obligation_file = st.file_uploader("📄 Upload F1 Obligation File (.xlsx)", type=["xlsx"], key="epl_obligation_file")
+#     with col_file3:
+#         epl_overnight_file = st.file_uploader("📈 Upload Overnight Audience File (.xlsx)", type=["xlsx"], key="epl_overnight_file")
+#     with col_file4:
+#         epl_macro_file = st.file_uploader("📋 4. BSA Duplicator File (Existence Check)", type=["xlsm", "xlsx"], key="epl_macro_file")
     
-    st.write("---")
+#     st.write("---")
 
-    # Initialize check states in session_state if not present
-    for key in all_market_check_keys_epl.keys():
-        if key not in st.session_state:
-            st.session_state[key] = False
+#     # Initialize check states in session_state if not present
+#     for key in all_market_check_keys_epl.keys():
+#         if key not in st.session_state:
+#             st.session_state[key] = False
 
-    # --- Checkbox UI generation (unchanged) ---
-    with st.expander("1. Channel and Territory Review", expanded=True):
-        st.subheader("General Market Checks")
-        st.checkbox(all_market_check_keys_epl["impute_lt_live_status"], key="impute_lt_live_status")
-        st.checkbox(all_market_check_keys_epl["consolidate_gillete_soccer"], key="consolidate_gillete_soccer")
-        st.checkbox(all_market_check_keys_epl["check_sky_showcase_live"], key="check_sky_showcase_live")
-        st.checkbox(all_market_check_keys_epl["standardize_uk_ire_region"], key="standardize_uk_ire_region")
-        st.checkbox(all_market_check_keys_epl["check_fixture_vs_case"], key="check_fixture_vs_case")
-        st.checkbox(all_market_check_keys_epl["check_pan_balkans_serbia_parity"], key="check_pan_balkans_serbia_parity")
-        st.checkbox(all_market_check_keys_epl["audit_multi_match_status"], key="audit_multi_match_status")
-        st.checkbox(all_market_check_keys_epl["check_date_time_format_integrity"], key="check_date_time_format_integrity")
-        st.checkbox(all_market_check_keys_epl["check_live_broadcast_uniqueness"], key="check_live_broadcast_uniqueness")
-        st.checkbox(all_market_check_keys_epl["audit_channel_line_item_count"], key="audit_channel_line_item_count")
-        st.checkbox(all_market_check_keys_epl["check_combined_archive_status"], key="check_combined_archive_status")
-        st.checkbox(all_market_check_keys_epl["suppress_duplicated_audience"], key="suppress_duplicated_audience")
-        st.checkbox(all_market_check_keys_epl["filter_short_programs"], key="filter_short_programs")
-        st.checkbox(all_market_check_keys_epl["sa_nielsen_inclusion_check"], key="sa_nielsen_inclusion_check")
-        st.checkbox(all_market_check_keys_epl["epl_live_vs_delay_validation"], key="epl_live_vs_delay_validation")
-        st.checkbox(all_market_check_keys_epl["pl_magazine_highlights_classification"], key="pl_magazine_highlights_classification")
-        #st.checkbox(all_market_check_keys_epl["dedicated_program_duration_allignments"], key="dedicated_program_duration_allignments")
+#     # --- Checkbox UI generation (unchanged) ---
+#     with st.expander("1. Channel and Territory Review", expanded=True):
+#         st.subheader("General Market Checks")
+#         st.checkbox(all_market_check_keys_epl["impute_lt_live_status"], key="impute_lt_live_status")
+#         st.checkbox(all_market_check_keys_epl["consolidate_gillete_soccer"], key="consolidate_gillete_soccer")
+#         st.checkbox(all_market_check_keys_epl["check_sky_showcase_live"], key="check_sky_showcase_live")
+#         st.checkbox(all_market_check_keys_epl["standardize_uk_ire_region"], key="standardize_uk_ire_region")
+#         st.checkbox(all_market_check_keys_epl["check_fixture_vs_case"], key="check_fixture_vs_case")
+#         st.checkbox(all_market_check_keys_epl["check_pan_balkans_serbia_parity"], key="check_pan_balkans_serbia_parity")
+#         st.checkbox(all_market_check_keys_epl["audit_multi_match_status"], key="audit_multi_match_status")
+#         st.checkbox(all_market_check_keys_epl["check_date_time_format_integrity"], key="check_date_time_format_integrity")
+#         st.checkbox(all_market_check_keys_epl["check_live_broadcast_uniqueness"], key="check_live_broadcast_uniqueness")
+#         st.checkbox(all_market_check_keys_epl["audit_channel_line_item_count"], key="audit_channel_line_item_count")
+#         st.checkbox(all_market_check_keys_epl["check_combined_archive_status"], key="check_combined_archive_status")
+#         st.checkbox(all_market_check_keys_epl["suppress_duplicated_audience"], key="suppress_duplicated_audience")
+#         st.checkbox(all_market_check_keys_epl["filter_short_programs"], key="filter_short_programs")
+#         st.checkbox(all_market_check_keys_epl["sa_nielsen_inclusion_check"], key="sa_nielsen_inclusion_check")
+#         st.checkbox(all_market_check_keys_epl["epl_live_vs_delay_validation"], key="epl_live_vs_delay_validation")
+#         st.checkbox(all_market_check_keys_epl["pl_magazine_highlights_classification"], key="pl_magazine_highlights_classification")
+#         #st.checkbox(all_market_check_keys_epl["dedicated_program_duration_allignments"], key="dedicated_program_duration_allignments")
         
 
-    st.write("---")
+#     st.write("---")
 
 
-    # --- Run Processing Button (UNTOUCHED) ---
-    if st.button(" EPL Apply Selected Checks"):
+#     # --- Run Processing Button (UNTOUCHED) ---
+#     if st.button(" EPL Apply Selected Checks"):
         
-        active_checks = [key for key in all_market_check_keys_epl.keys() if st.session_state[key]]
+#         active_checks = [key for key in all_market_check_keys_epl.keys() if st.session_state[key]]
         
-        # Check mandatory files
-        if epl_bsr_file is None:
-            st.error("⚠️ Please upload a BSR file before applying checks.")
-        elif "check_f1_obligations" in active_checks and epl_obligation_file is None:
-            st.error("⚠️ **F1 Obligation Check Selected:** Please upload the F1 Obligation File.")
-        elif "update_audience_from_overnight" in active_checks and epl_overnight_file is None:
-            st.error("⚠️ Audience Upscale Check Selected: Please upload the Overnight Audience File.")
-        elif "dup_channel_existence" in active_checks and epl_macro_file is None:
-            st.error("⚠️ Duplication Channel Existence Check Selected: Please upload the BSA Macro Duplicator File.")
-        else:
-            with st.spinner(f"Applying {len(active_checks)} checks..."):
-                try:
-                    # --- Save files temporarily ---
-                    bsr_file_path = os.path.join(UPLOAD_FOLDER, epl_bsr_file.name)
-                    with open(bsr_file_path, "wb") as f: f.write(epl_bsr_file.getbuffer())
+#         # Check mandatory files
+#         if epl_bsr_file is None:
+#             st.error("⚠️ Please upload a BSR file before applying checks.")
+#         elif "check_f1_obligations" in active_checks and epl_obligation_file is None:
+#             st.error("⚠️ **F1 Obligation Check Selected:** Please upload the F1 Obligation File.")
+#         elif "update_audience_from_overnight" in active_checks and epl_overnight_file is None:
+#             st.error("⚠️ Audience Upscale Check Selected: Please upload the Overnight Audience File.")
+#         elif "dup_channel_existence" in active_checks and epl_macro_file is None:
+#             st.error("⚠️ Duplication Channel Existence Check Selected: Please upload the BSA Macro Duplicator File.")
+#         else:
+#             with st.spinner(f"Applying {len(active_checks)} checks..."):
+#                 try:
+#                     # --- Save files temporarily ---
+#                     bsr_file_path = os.path.join(UPLOAD_FOLDER, epl_bsr_file.name)
+#                     with open(bsr_file_path, "wb") as f: f.write(epl_bsr_file.getbuffer())
                     
-                    obligation_path = None
-                    if epl_obligation_file:
-                        obligation_path = os.path.join(UPLOAD_FOLDER, epl_obligation_file.name)
-                        with open(obligation_path, "wb") as f: f.write(epl_obligation_file.getbuffer())
+#                     obligation_path = None
+#                     if epl_obligation_file:
+#                         obligation_path = os.path.join(UPLOAD_FOLDER, epl_obligation_file.name)
+#                         with open(obligation_path, "wb") as f: f.write(epl_obligation_file.getbuffer())
                     
-                    overnight_path = None
-                    if epl_overnight_file:
-                        overnight_path = os.path.join(UPLOAD_FOLDER, epl_overnight_file.name)
-                        with open(overnight_path, "wb") as f: f.write(epl_overnight_file.getbuffer())
+#                     overnight_path = None
+#                     if epl_overnight_file:
+#                         overnight_path = os.path.join(UPLOAD_FOLDER, epl_overnight_file.name)
+#                         with open(overnight_path, "wb") as f: f.write(epl_overnight_file.getbuffer())
                     
-                    macro_path = None
-                    if epl_macro_file:
-                        macro_path = os.path.join(UPLOAD_FOLDER, epl_macro_file.name)
-                        with open(macro_path, "wb") as f: f.write(epl_macro_file.getbuffer())
+#                     macro_path = None
+#                     if epl_macro_file:
+#                         macro_path = os.path.join(UPLOAD_FOLDER, epl_macro_file.name)
+#                         with open(macro_path, "wb") as f: f.write(epl_macro_file.getbuffer())
                     
-                    try:
-                        # Use the path to load the BSR file
-                        bsr_df = pd.read_excel(bsr_file_path) 
-                    except Exception as e:
-                        st.error(f"❌ Error loading BSR file from path {bsr_file_path}: {e}")
-                        raise
+#                     try:
+#                         # Use the path to load the BSR file
+#                         bsr_df = pd.read_excel(bsr_file_path) 
+#                     except Exception as e:
+#                         st.error(f"❌ Error loading BSR file from path {bsr_file_path}: {e}")
+#                         raise
 
-                    # --- Run F1 Logic Directly ---
-                    validator = EPLValidator(
-                        bsr_path=bsr_file_path, 
-                        obligation_path=obligation_path, 
-                        overnight_path=overnight_path, 
-                        macro_path=macro_path
-                    ) 
+#                     # --- Run F1 Logic Directly ---
+#                     validator = EPLValidator(
+#                         bsr_path=bsr_file_path, 
+#                         obligation_path=obligation_path, 
+#                         overnight_path=overnight_path, 
+#                         macro_path=macro_path
+#                     ) 
                     
-                    status_summaries = validator.market_check_processor(active_checks)
+#                     status_summaries = validator.market_check_processor(active_checks)
                     
-                    df_processed = validator.df
+#                     df_processed = validator.df
                     
-                    # --- Generate Output File ---
-                    output_filename = f"Processed_BSR_{os.path.splitext(epl_bsr_file.name)[0]}_{int(time.time())}.xlsx"
-                    output_path = os.path.join(OUTPUT_FOLDER, output_filename)
+#                     # --- Generate Output File ---
+#                     output_filename = f"Processed_BSR_{os.path.splitext(epl_bsr_file.name)[0]}_{int(time.time())}.xlsx"
+#                     output_path = os.path.join(OUTPUT_FOLDER, output_filename)
                     
-                    # Ensure columns are normalized for saving
-                    # NOTE: This function is not defined in your provided simplified qc_checks.py, but assumed to exist
-                    # df_processed = qc_general.normalize_ok_columns(df_processed)
+#                     # Ensure columns are normalized for saving
+#                     # NOTE: This function is not defined in your provided simplified qc_checks.py, but assumed to exist
+#                     # df_processed = qc_general.normalize_ok_columns(df_processed)
 
-                    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+#                     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
 
     
-                        df_processed.to_excel(writer, index=False, sheet_name="EPL_Processed")
+#                         df_processed.to_excel(writer, index=False, sheet_name="EPL_Processed")
 
-                        # < 5 min sheet (if available)
-                        if hasattr(validator, "short_programs_df"):
-                            sp = validator.short_programs_df
-                            if isinstance(sp, pd.DataFrame) and not sp.empty:
-                                sp.to_excel(writer, index=False, sheet_name="<5 min-Short Programs")
+#                         # < 5 min sheet (if available)
+#                         if hasattr(validator, "short_programs_df"):
+#                             sp = validator.short_programs_df
+#                             if isinstance(sp, pd.DataFrame) and not sp.empty:
+#                                 sp.to_excel(writer, index=False, sheet_name="<5 min-Short Programs")
 
-                        # SA Nielsen sheet (if available)
-                        if hasattr(validator, "sa_nielsen_df"):
-                            sa = validator.sa_nielsen_df
-                            if isinstance(sa, pd.DataFrame) and not sa.empty:
-                                sa.to_excel(writer, index=False, sheet_name="SA_Nielsen")
+#                         # SA Nielsen sheet (if available)
+#                         if hasattr(validator, "sa_nielsen_df"):
+#                             sa = validator.sa_nielsen_df
+#                             if isinstance(sa, pd.DataFrame) and not sa.empty:
+#                                 sa.to_excel(writer, index=False, sheet_name="SA_Nielsen")
 
-                        # NEW: Live vs Delay sheet
-                        if hasattr(validator, "live_delay_flags_df"):
-                            ld = validator.live_delay_flags_df
-                            if isinstance(ld, pd.DataFrame) and not ld.empty:
-                                ld.to_excel(writer, index=False, sheet_name="EPL_LiveDelay_Flags")
+#                         # NEW: Live vs Delay sheet
+#                         if hasattr(validator, "live_delay_flags_df"):
+#                             ld = validator.live_delay_flags_df
+#                             if isinstance(ld, pd.DataFrame) and not ld.empty:
+#                                 ld.to_excel(writer, index=False, sheet_name="EPL_LiveDelay_Flags")
 
-                        # PL Magazine/Highlights classification sheet
-                        if hasattr(validator, "pl_mag_highlights_df"):
-                            pl = validator.pl_mag_highlights_df
-                            if isinstance(pl, pd.DataFrame) and not pl.empty:
-                                pl.to_excel(writer, index=False, sheet_name="PL_Mag_Highlights")
+#                         # PL Magazine/Highlights classification sheet
+#                         if hasattr(validator, "pl_mag_highlights_df"):
+#                             pl = validator.pl_mag_highlights_df
+#                             if isinstance(pl, pd.DataFrame) and not pl.empty:
+#                                 pl.to_excel(writer, index=False, sheet_name="PL_Mag_Highlights")
                                     
-                    st.success(f"✅ EPL checks completed successfully!")
+#                     st.success(f"✅ EPL checks completed successfully!")
                     
-                    # --- Display Summaries ---
-                    st.subheader("Processing Summary")
-                    if status_summaries:
-                        # Re-format summaries for display
-                        display_summaries = []
-                        for s in status_summaries:
-                            if isinstance(s, dict):
-                                display_summaries.append({
-                                    "Check": s.get('check_key', 'N/A'),
-                                    "Status": s.get('status', 'N/A'),
-                                    "Description": s.get('description', 'N/A'),
-                                    "Details": str(s.get('details', 'No details'))
-                                })
+#                     # --- Display Summaries ---
+#                     st.subheader("Processing Summary")
+#                     if status_summaries:
+#                         # Re-format summaries for display
+#                         display_summaries = []
+#                         for s in status_summaries:
+#                             if isinstance(s, dict):
+#                                 display_summaries.append({
+#                                     "Check": s.get('check_key', 'N/A'),
+#                                     "Status": s.get('status', 'N/A'),
+#                                     "Description": s.get('description', 'N/A'),
+#                                     "Details": str(s.get('details', 'No details'))
+#                                 })
                         
-                        df_summary = pd.DataFrame(display_summaries)
-                        st.dataframe(df_summary, use_container_width=True)
-                    else:
-                        st.info("No specific operational summaries were returned.")
+#                         df_summary = pd.DataFrame(display_summaries)
+#                         st.dataframe(df_summary, use_container_width=True)
+#                     else:
+#                         st.info("No specific operational summaries were returned.")
 
-                    # --- Provide Download Button ---
-                    st.markdown("---")
-                    with open(output_path, "rb") as f:
-                        st.download_button(
-                            label="📥 Download Processed EPL File",
-                            data=f,
-                            file_name=output_filename,
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
+#                     # --- Provide Download Button ---
+#                     st.markdown("---")
+#                     with open(output_path, "rb") as f:
+#                         st.download_button(
+#                             label="📥 Download Processed EPL File",
+#                             data=f,
+#                             file_name=output_filename,
+#                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+#                         )
                 
-                except Exception as e:
-                    st.error(f"❌ An error occurred during F1 checks: {e}")
+#                 except Exception as e:
+#                     st.error(f"❌ An error occurred during F1 checks: {e}")
 
 with epl_tab:
     st.header(" EPL Specific Checks")
@@ -882,6 +882,10 @@ with epl_tab:
         "check_non_metered_primary_market_audience": "Audits audience numbers for non-metered markets to ensure they are not zero.",
         "check_legacy_mapping": "Cross-references channel names against the legacy mapping table.",
         "check_premier_league_october_obligation": "Cross Checking of channels from CDT/OVN Sheet",
+        "filter_short_programs": "5 Minute Program Filter: Remove programs shorter than 5 minutes (except Austria/NZ)",
+        "sa_nielsen_inclusion_check": "South Africa Nielsen Inclusion Check",
+        "epl_live_vs_delay_validation": "Live vs Delay Validation",
+        "pl_magazine_highlights_classification": "PL Magazine/Highlights Classification"
 
         
     }
@@ -934,6 +938,10 @@ with epl_tab:
         check_ui("check_non_metered_primary_market_audience")
         check_ui("check_legacy_mapping")
         check_ui("check_premier_league_october_obligation")
+        check_ui("filter_short_programs")
+        check_ui("sa_nielsen_inclusion_check") 
+        check_ui("epl_live_vs_delay_validation")
+        check_ui("pl_magazine_highlights_classification")
 
     st.write("---")
         # --- Configuration Input Fields (NEW SECTION) ---
@@ -1030,7 +1038,38 @@ with epl_tab:
                     output_filename = f"Processed_BSR_{os.path.splitext(f1_bsr_file.name)[0]}_{int(time.time())}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_filename)
                     
-                    df_processed.to_excel(output_path, index=False)
+                    # Ensure columns are normalized for saving
+                    # NOTE: This function is not defined in your provided simplified qc_checks.py, but assumed to exist
+                    # df_processed = qc_general.normalize_ok_columns(df_processed)
+
+                    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+
+    
+                        df_processed.to_excel(writer, index=False, sheet_name="EPL_Processed")
+
+                        # < 5 min sheet (if available)
+                        if hasattr(validator, "short_programs_df"):
+                            sp = validator.short_programs_df
+                            if isinstance(sp, pd.DataFrame) and not sp.empty:
+                                sp.to_excel(writer, index=False, sheet_name="<5 min-Short Programs")
+
+                        # SA Nielsen sheet (if available)
+                        if hasattr(validator, "sa_nielsen_df"):
+                            sa = validator.sa_nielsen_df
+                            if isinstance(sa, pd.DataFrame) and not sa.empty:
+                                sa.to_excel(writer, index=False, sheet_name="SA_Nielsen")
+
+                        # NEW: Live vs Delay sheet
+                        if hasattr(validator, "live_delay_flags_df"):
+                            ld = validator.live_delay_flags_df
+                            if isinstance(ld, pd.DataFrame) and not ld.empty:
+                                ld.to_excel(writer, index=False, sheet_name="EPL_LiveDelay_Flags")
+
+                        # PL Magazine/Highlights classification sheet
+                        if hasattr(validator, "pl_mag_highlights_df"):
+                            pl = validator.pl_mag_highlights_df
+                            if isinstance(pl, pd.DataFrame) and not pl.empty:
+                                pl.to_excel(writer, index=False, sheet_name="PL_Mag_Highlights")
                     
                     st.success(f"✅ EPL checks completed successfully!")
                     
@@ -1064,4 +1103,4 @@ with epl_tab:
                         )
                 
                 except Exception as e:
-                    st.error(f"❌ An error occurred during F1 checks: {e}")
+                    st.error(f"❌ An error occurred during EPL checks: {e}")
