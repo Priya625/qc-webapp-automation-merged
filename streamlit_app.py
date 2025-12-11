@@ -8,46 +8,19 @@ import shutil
 import json
 from typing import Optional, List
 
+BACKEND_BASE_URL = os.environ.get("STREAMLIT_BACKEND_URL", "http://localhost:8000")
+BACKEND_URL = BACKEND_BASE_URL + "/api"
 
-# STREAMLIT_BACKEND_URL = https://github.com/codespaces/super-duper-space-broccoli-7w6r4v7w5rg3rprj
-# BACKEND_BASE_URL = os.environ.get("STREAMLIT_BACKEND_URL", "http://localhost:8000")
-# BACKEND_URL = BACKEND_BASE_URL + "/api"
 
 # --- Import ALL QC functions from ALL your files ---
-# Your colleague's original F1/QC functions
 try:
-#     from qc_checks import (
-#         detect_period_from_rosco as rosco_detect_orig, # Alias to avoid conflict
-#         load_bsr as load_bsr_orig,
-#         period_check as period_check_orig,
-#         completeness_check as completeness_check_orig,
-#         overlap_duplicate_daybreak_check as overlap_orig,
-#         program_category_check as program_cat_orig,
-#         duration_check as duration_orig,
-#         check_event_matchday_competition as event_matchday_orig,
-#         market_channel_program_duration_check as market_channel_orig,
-#         domestic_market_coverage_check as domestic_orig,
-#         rates_and_ratings_check as rates_orig,
-#         duplicated_markets_check as duplicated_orig,
-#         country_channel_id_check as country_id_orig,
-#         client_lstv_ott_check as client_lstv_orig,
-#         color_excel as color_excel_orig,
-#         generate_summary_sheet as summary_orig,
-#     )
+    import qc_checks as qc_general
 
     from C_data_processing_f1 import BSRValidator
     from C_data_processing_EPL import EPLValidator
 
 except ImportError as e:
-    st.error(f"Failed to import colleague's files (qc_checks.py, C_data_processing_f1.py): {e}")
-    st.stop()
-
-
-# Your 11-check QC functions
-try:
-    import qc_checks_1 as qc_general
-except ImportError as e:
-    st.error(f"Failed to import your QC file (qc_checks_1.py): {e}")
+    st.error(f"Failed to import your QC file (qc_checks.py) or validators: {e}")
     st.stop()
 
 
@@ -134,9 +107,9 @@ all_market_check_keys = {
     "recreate_viaplay": "Viaplay: Recreate based on a full market of lives",
     "recreate_disney_latam": "Disney+ Latam: Recreate based on a full market of lives",
 
+    #EPL
 }
 
-#EPL
 all_market_check_keys_epl = {
     "impute_lt_live_status": "L/T Live Imputation: Flag program type based on 'L/T' keyword in Combined col", # Using the L/T check key
     "consolidate_gillete_soccer": "Program Consolidation: Flag sequential 'Gillete Soccer' programs for merging (Gap <= 30min)",
@@ -150,18 +123,13 @@ all_market_check_keys_epl = {
     "audit_channel_line_item_count" : "Channel line item count (New Tab)",
     "check_combined_archive_status" : "Flag any row with archive in Combined column",
     "suppress_duplicated_audience" : "Flag if it is a Duplicated Market and has audience ",
-    "harmonize_uk_ire_program_descriptions_strict" : "Flag where description not same in specified channels ",
-    "check_game_of_the_day_match" : "Checking for Game of the day in CDT/OVN",
-    "check_non_metered_primary_market_audience" : "Checking Non metered channel audience is zero",
-    "check_legacy_mapping" : "Flag Legancy Name ",
-    "check_premier_league_october_obligation" : "Cross Checking of channels from CDT/OVN Sheet ",
     "filter_short_programs": "5 Minute Program Filter: Remove programs shorter than 5 minutes (except Austria/NZ)",
     "sa_nielsen_inclusion_check": "South Africa Nielsen Inclusion Check",
     "epl_live_vs_delay_validation": "Live vs Delay Validation",
     "pl_magazine_highlights_classification": "PL Magazine/Highlights Classification",
     #"dedicated_program_duration_allignments": "Dedicated Program Duration Alignments"
- 
 }
+
 
 with home_page_tab:
     # --- Custom CSS for Styling ---
@@ -558,13 +526,14 @@ with f1_tab:
 
     col_file1, col_file2, col_file3,col_file4 = st.columns(4)
     with col_file1:
-        f1_bsr_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="f1_bsr_upload_key") # <- RENAMED
+        f1_bsr_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="market_check_file")
     with col_file2:
-        f1_obligation_file = st.file_uploader("📄 Upload F1 Obligation File (.xlsx)", type=["xlsx"], key="f1_obligation_key") # <- RENAMED
+        f1_obligation_file = st.file_uploader("📄 Upload F1 Obligation File (.xlsx)", type=["xlsx"], key="obligation_file")
     with col_file3:
-        f1_overnight_file = st.file_uploader("📈 Upload Overnight Audience File (.xlsx)", type=["xlsx"], key="f1_overnight_key") # <- RENAMED
+        f1_overnight_file = st.file_uploader("📈 Upload Overnight Audience File (.xlsx)", type=["xlsx"], key="overnight_file")
     with col_file4:
-        f1_macro_file = st.file_uploader("📋 4. BSA Duplicator File (Existence Check)", type=["xlsm", "xlsx"], key="f1_macro_key") # <- RENAMED
+        f1_macro_file = st.file_uploader("📋 4. BSA Duplicator File (Existence Check)", type=["xlsm", "xlsx"], key="macro_file")
+    
     st.write("---")
 
     for key in all_market_check_keys.keys():
@@ -688,44 +657,16 @@ with epl_tab:
     st.header(" EPL Specific Checks")
     st.markdown("Upload the required files here to perform and log manual checks.")
 
-    # --- 0. Define Tooltips for Checks ---
-    # Add your detailed descriptions here
-    epl_tooltips = {
-        "impute_lt_live_status": "Scans the 'Combined' column for 'L/T'. If found, suggests changing status to 'Live'.",
-        "consolidate_gillete_soccer": "Merges consecutive 'Gillete Soccer' entries if they occur within the specified time gap.",
-        "check_sky_showcase_live": "Verifies if Sky Showcase broadcasts are correctly tagged as Live based on reference data.",
-        "standardize_uk_ire_region": "Ensures Region is set to 'UK/IRE' for specific channels to maintain consistency.",
-        "check_fixture_vs_case": "Compares the match fixture in the description against the case file to ensure accuracy.",
-        "check_pan_balkans_serbia_parity": "Checks that Pan-Balkans and Serbia feeds have matching data where expected.",
-        "audit_multi_match_status": "Flags sessions where multiple matches appear to be airing simultaneously on one feed.",
-        "check_date_time_format_integrity": "Validates that all Date and Time columns follow the strict 'YYYY-MM-DD' and 'HH:MM:SS' format.",
-        "check_live_broadcast_uniqueness": "Ensures there are no duplicate Live broadcast entries for the same timeslot.",
-        "audit_channel_line_item_count": "Counts line items per channel to ensure they meet the expected volume thresholds.",
-        "check_combined_archive_status": "Verifies that Archive statuses are correctly reflected in the Combined column.",
-        "suppress_duplicated_audience": "Identifies and suppresses audience numbers that appear to be duplicated across regions.",
-        "harmonize_uk_ire_program_descriptions_strict": "Strictly formats program descriptions for UK/IRE markets to a standard naming convention.",
-        "check_game_of_the_day_match": "Verifies the 'Game of the Day' logic matches the primary broadcast schedule.",
-        "check_non_metered_primary_market_audience": "Audits audience numbers for non-metered markets to ensure they are not zero.",
-        "check_legacy_mapping": "Cross-references channel names against the legacy mapping table.",
-        "check_premier_league_october_obligation": "Cross Checking of channels from CDT/OVN Sheet",
-        "filter_short_programs": "5 Minute Program Filter: Remove programs shorter than 5 minutes (except Austria/NZ)",
-        "sa_nielsen_inclusion_check": "South Africa Nielsen Inclusion Check",
-        "epl_live_vs_delay_validation": "Live vs Delay Validation",
-        "pl_magazine_highlights_classification": "PL Magazine/Highlights Classification"
-
-        
-    }
-
     # --- Dedicated Upload for Manual Checks (MODIFIED) ---
     col_file1, col_file2, col_file3,col_file4 = st.columns(4)
     with col_file1:
-        epl_bsr_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="epl_bsr_upload")
+        epl_bsr_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="epl_market_check_file")
     with col_file2:
-        epl_obligation_file = st.file_uploader("📄 Upload Channel Names (.xlsx)", type=["xlsx"], key="epl_obligation_file")
+        epl_obligation_file = st.file_uploader("📄 Upload F1 Obligation File (.xlsx)", type=["xlsx"], key="epl_obligation_file")
     with col_file3:
-        epl_overnight_file = st.file_uploader("📈 Upload CDT-OVN Audience File (.xlsx)", type=["xlsx"], key="epl_overnight_file")
+        epl_overnight_file = st.file_uploader("📈 Upload Overnight Audience File (.xlsx)", type=["xlsx"], key="epl_overnight_file")
     with col_file4:
-        epl_macro_file = st.file_uploader("📋 4. BSA Duplicator File ", type=["xlsm", "xlsx"], key="epl_macro_file")
+        epl_macro_file = st.file_uploader("📋 4. BSA Duplicator File (Existence Check)", type=["xlsm", "xlsx"], key="epl_macro_file")
     
     st.write("---")
 
@@ -734,55 +675,27 @@ with epl_tab:
         if key not in st.session_state:
             st.session_state[key] = False
 
-
-    # --- Checkbox UI generation with Tooltips ---
+    # --- Checkbox UI generation (unchanged) ---
     with st.expander("1. Channel and Territory Review", expanded=True):
         st.subheader("General Market Checks")
+        st.checkbox(all_market_check_keys_epl["impute_lt_live_status"], key="impute_lt_live_status")
+        st.checkbox(all_market_check_keys_epl["consolidate_gillete_soccer"], key="consolidate_gillete_soccer")
+        st.checkbox(all_market_check_keys_epl["check_sky_showcase_live"], key="check_sky_showcase_live")
+        st.checkbox(all_market_check_keys_epl["standardize_uk_ire_region"], key="standardize_uk_ire_region")
+        st.checkbox(all_market_check_keys_epl["check_fixture_vs_case"], key="check_fixture_vs_case")
+        st.checkbox(all_market_check_keys_epl["check_pan_balkans_serbia_parity"], key="check_pan_balkans_serbia_parity")
+        st.checkbox(all_market_check_keys_epl["audit_multi_match_status"], key="audit_multi_match_status")
+        st.checkbox(all_market_check_keys_epl["check_date_time_format_integrity"], key="check_date_time_format_integrity")
+        st.checkbox(all_market_check_keys_epl["check_live_broadcast_uniqueness"], key="check_live_broadcast_uniqueness")
+        st.checkbox(all_market_check_keys_epl["audit_channel_line_item_count"], key="audit_channel_line_item_count")
+        st.checkbox(all_market_check_keys_epl["check_combined_archive_status"], key="check_combined_archive_status")
+        st.checkbox(all_market_check_keys_epl["suppress_duplicated_audience"], key="suppress_duplicated_audience")
+        st.checkbox(all_market_check_keys_epl["filter_short_programs"], key="filter_short_programs")
+        st.checkbox(all_market_check_keys_epl["sa_nielsen_inclusion_check"], key="sa_nielsen_inclusion_check")
+        st.checkbox(all_market_check_keys_epl["epl_live_vs_delay_validation"], key="epl_live_vs_delay_validation")
+        st.checkbox(all_market_check_keys_epl["pl_magazine_highlights_classification"], key="pl_magazine_highlights_classification")
+        #st.checkbox(all_market_check_keys_epl["dedicated_program_duration_allignments"], key="dedicated_program_duration_allignments")
         
-        # Helper function to render checkbox with tooltip
-        def check_ui(key_name):
-            label = all_market_check_keys_epl[key_name]
-            # Use .get() to avoid errors if a tooltip is missing
-            tooltip = epl_tooltips.get(key_name, "No description available.")
-            return st.checkbox(label, key=key_name, help=tooltip)
-
-        # Apply to all your checkboxes
-        check_ui("impute_lt_live_status")
-        check_ui("consolidate_gillete_soccer")
-        check_ui("check_sky_showcase_live")
-        check_ui("standardize_uk_ire_region")
-        check_ui("check_fixture_vs_case")
-        check_ui("check_pan_balkans_serbia_parity")
-        check_ui("audit_multi_match_status")
-        check_ui("check_date_time_format_integrity")
-        check_ui("check_live_broadcast_uniqueness")
-        check_ui("audit_channel_line_item_count")
-        check_ui("check_combined_archive_status")
-        check_ui("suppress_duplicated_audience")
-        check_ui("harmonize_uk_ire_program_descriptions_strict")
-        check_ui("check_game_of_the_day_match")
-        check_ui("check_non_metered_primary_market_audience")
-        check_ui("check_legacy_mapping")
-        check_ui("check_premier_league_october_obligation")
-        check_ui("filter_short_programs")
-        check_ui("sa_nielsen_inclusion_check") 
-        check_ui("epl_live_vs_delay_validation")
-        check_ui("pl_magazine_highlights_classification")
-
-    st.write("---")
-        # --- Configuration Input Fields (NEW SECTION) ---
-    
-    config_col1, config_col2 = st.columns(2)
-
-    with config_col1:
-        st.caption("L/T Live Imputation Settings (Recommended: Live)")
-        lt_market_input = st.text_input("Target Market (e.g., INDIA):", value="INDIA", key="lt_market_input")
-        lt_keyword_input = st.text_input("Keyword to Search ('L/T'):", value="L/T", key="lt_keyword_input")
-
-    with config_col2:
-        st.caption("Sequential Consolidation Settings (Gillete Soccer)")
-        consolidate_keyword_input = st.text_input("Consolidation Keyword:", value="GILLETE SOCCER", key="consolidate_keyword_input")
-        consolidate_gap_input = st.number_input("Max Time Gap (Minutes):", value=30, min_value=0, max_value=120, key="consolidate_gap_input")
 
     st.write("---")
 
@@ -791,30 +704,15 @@ with epl_tab:
     if st.button(" EPL Apply Selected Checks"):
         
         active_checks = [key for key in all_market_check_keys_epl.keys() if st.session_state[key]]
-
-        # 1. Compile Configuration Dictionary from User Inputs
-        check_configs = {}
-        
-        if "impute_lt_live_status" in active_checks:
-            check_configs["impute_lt_live_status"] = {
-                "market": lt_market_input,
-                "keyword": lt_keyword_input
-            }
-            
-        if "consolidate_gillete_soccer" in active_checks:
-            check_configs["consolidate_gillete_soccer"] = {
-                "keyword": consolidate_keyword_input,
-                "max_gap_minutes": int(consolidate_gap_input)
-            }
         
         # Check mandatory files
         if epl_bsr_file is None:
             st.error("⚠️ Please upload a BSR file before applying checks.")
-        elif "check_f1_obligations" in active_checks and f1_obligation_file is None:
+        elif "check_f1_obligations" in active_checks and epl_obligation_file is None:
             st.error("⚠️ **F1 Obligation Check Selected:** Please upload the F1 Obligation File.")
-        elif "update_audience_from_overnight" in active_checks and f1_overnight_file is None:
+        elif "update_audience_from_overnight" in active_checks and epl_overnight_file is None:
             st.error("⚠️ Audience Upscale Check Selected: Please upload the Overnight Audience File.")
-        elif "dup_channel_existence" in active_checks and f1_macro_file is None:
+        elif "dup_channel_existence" in active_checks and epl_macro_file is None:
             st.error("⚠️ Duplication Channel Existence Check Selected: Please upload the BSA Macro Duplicator File.")
         else:
             with st.spinner(f"Applying {len(active_checks)} checks..."):
@@ -843,17 +741,14 @@ with epl_tab:
                         bsr_df = pd.read_excel(bsr_file_path) 
                     except Exception as e:
                         st.error(f"❌ Error loading BSR file from path {bsr_file_path}: {e}")
-                        # Stop execution if the main file can't be loaded
-                    
+                        raise
 
                     # --- Run F1 Logic Directly ---
                     validator = EPLValidator(
-                        df=bsr_df,
                         bsr_path=bsr_file_path, 
                         obligation_path=obligation_path, 
                         overnight_path=overnight_path, 
-                        macro_path=macro_path,
-                        check_configs=check_configs 
+                        macro_path=macro_path
                     ) 
                     
                     status_summaries = validator.market_check_processor(active_checks)
@@ -861,7 +756,7 @@ with epl_tab:
                     df_processed = validator.df
                     
                     # --- Generate Output File ---
-                    output_filename = f"Processed_BSR_{os.path.splitext(f1_bsr_file.name)[0]}_{int(time.time())}.xlsx"
+                    output_filename = f"Processed_BSR_{os.path.splitext(epl_bsr_file.name)[0]}_{int(time.time())}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_filename)
                     
                     # Ensure columns are normalized for saving
@@ -896,7 +791,7 @@ with epl_tab:
                             pl = validator.pl_mag_highlights_df
                             if isinstance(pl, pd.DataFrame) and not pl.empty:
                                 pl.to_excel(writer, index=False, sheet_name="PL_Mag_Highlights")
-                    
+                                    
                     st.success(f"✅ EPL checks completed successfully!")
                     
                     # --- Display Summaries ---
@@ -922,7 +817,7 @@ with epl_tab:
                     st.markdown("---")
                     with open(output_path, "rb") as f:
                         st.download_button(
-                            label="📥 Download Processed F1 File",
+                            label="📥 Download Processed EPL File",
                             data=f,
                             file_name=output_filename,
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
