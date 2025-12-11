@@ -688,6 +688,11 @@ with epl_tab:
         # "check_star_sports_3_consolidation": "Prioritizing Malayalam over Star Sports 3",
         # "check_bsa_nielsen_audience_presence": "Make sure Non-metered Data (Time Bands) has Audience",
         "check_source_mediatype_validity": "Only Predefined Values in the Source,Source 2,Media Type",
+        "filter_short_programs": "5 Minute Program Filter: Remove programs shorter than 5 minutes (except Austria/NZ)",
+        "sa_nielsen_inclusion_check": "South Africa Nielsen Inclusion Check",
+        "epl_live_vs_delay_validation": "Live vs Delay Validation",
+        "pl_magazine_highlights_classification": "PL Magazine/Highlights Classification",
+        #"dedicated_program_duration_allignments": "Dedicated Program Duration Alignments"
         
 
         
@@ -696,7 +701,7 @@ with epl_tab:
     # --- Dedicated Upload for Manual Checks (MODIFIED) ---
     col_file1, col_file2, col_file3,col_file4 = st.columns(4)
     with col_file1:
-        f1_bsr_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="epl_market_check_file")
+        epl_bsr_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="epl_market_check_file")
     with col_file2:
         f1_obligation_file = st.file_uploader("📄 Upload Channel Names (.xlsx)", type=["xlsx"], key="epl_obligation_file")
     with col_file3:
@@ -744,6 +749,10 @@ with epl_tab:
         # check_ui("check_star_sports_3_consolidation")
         # check_ui("check_bsa_nielsen_audience_presence")
         check_ui("check_source_mediatype_validity")
+        check_ui("filter_short_programs")
+        check_ui("sa_nielsen_inclusion_check")
+        check_ui("epl_live_vs_delay_validation")
+        check_ui("pl_magazine_highlights_classification")
         
 
     st.write("---")
@@ -785,7 +794,7 @@ with epl_tab:
             }
         
         # Check mandatory files
-        if f1_bsr_file is None:
+        if epl_bsr_file is None:
             st.error("⚠️ Please upload a BSR file before applying checks.")
         elif "check_f1_obligations" in active_checks and f1_obligation_file is None:
             st.error("⚠️ **F1 Obligation Check Selected:** Please upload the F1 Obligation File.")
@@ -797,8 +806,8 @@ with epl_tab:
             with st.spinner(f"Applying {len(active_checks)} checks..."):
                 try:
                     # --- Save files temporarily ---
-                    bsr_file_path = os.path.join(UPLOAD_FOLDER, f1_bsr_file.name)
-                    with open(bsr_file_path, "wb") as f: f.write(f1_bsr_file.getbuffer())
+                    bsr_file_path = os.path.join(UPLOAD_FOLDER, epl_bsr_file.name)
+                    with open(bsr_file_path, "wb") as f: f.write(epl_bsr_file.getbuffer())
                     
                     obligation_path = None
                     if f1_obligation_file:
@@ -838,10 +847,41 @@ with epl_tab:
                     df_processed = validator.df
                     
                     # --- Generate Output File ---
-                    output_filename = f"Processed_BSR_{os.path.splitext(f1_bsr_file.name)[0]}_{int(time.time())}.xlsx"
+                    output_filename = f"Processed_BSR_{os.path.splitext(epl_bsr_file.name)[0]}_{int(time.time())}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_filename)
                     
-                    df_processed.to_excel(output_path, index=False)
+                    # Ensure columns are normalized for saving
+                    # NOTE: This function is not defined in your provided simplified qc_checks.py, but assumed to exist
+                    # df_processed = qc_general.normalize_ok_columns(df_processed)
+
+                    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+
+    
+                        df_processed.to_excel(writer, index=False, sheet_name="EPL_Processed")
+
+                        # < 5 min sheet (if available)
+                        if hasattr(validator, "short_programs_df"):
+                            sp = validator.short_programs_df
+                            if isinstance(sp, pd.DataFrame) and not sp.empty:
+                                sp.to_excel(writer, index=False, sheet_name="<5 min-Short Programs")
+
+                        # SA Nielsen sheet (if available)
+                        if hasattr(validator, "sa_nielsen_df"):
+                            sa = validator.sa_nielsen_df
+                            if isinstance(sa, pd.DataFrame) and not sa.empty:
+                                sa.to_excel(writer, index=False, sheet_name="SA_Nielsen")
+
+                        # NEW: Live vs Delay sheet
+                        if hasattr(validator, "live_delay_flags_df"):
+                            ld = validator.live_delay_flags_df
+                            if isinstance(ld, pd.DataFrame) and not ld.empty:
+                                ld.to_excel(writer, index=False, sheet_name="EPL_LiveDelay_Flags")
+
+                        # PL Magazine/Highlights classification sheet
+                        if hasattr(validator, "pl_mag_highlights_df"):
+                            pl = validator.pl_mag_highlights_df
+                            if isinstance(pl, pd.DataFrame) and not pl.empty:
+                                pl.to_excel(writer, index=False, sheet_name="PL_Mag_Highlights")
                     
                     st.success(f"✅ EPL checks completed successfully!")
                     
