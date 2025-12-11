@@ -2305,7 +2305,7 @@ class EPLValidator:
         df_fix = xl.parse(fixture_sheet)
 
         # required columns in fixture
-        needed_fix_cols = ["Home Team", "Away Team", "Date", "Start Time", "End (UTC)"]
+        needed_fix_cols = ["Home Team", "Away Team", "Date", "Start Time", "End Time"]
         for c in needed_fix_cols:
             if c not in df_fix.columns:
                 return {
