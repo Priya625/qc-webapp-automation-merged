@@ -720,7 +720,7 @@ with epl_tab:
     # --- Dedicated Upload for Manual Checks (MODIFIED) ---
     col_file1, col_file2, col_file3,col_file4 = st.columns(4)
     with col_file1:
-        epl_bsr_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="epl_market_check_file")
+        epl_bsr_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="epl_bsr_upload")
     with col_file2:
         epl_obligation_file = st.file_uploader("📄 Upload Channel Names (.xlsx)", type=["xlsx"], key="epl_obligation_file")
     with col_file3:
