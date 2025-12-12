@@ -393,8 +393,6 @@ with main_qc_tab:
         main_rosco_file = st.file_uploader("📘 Upload Rosco File (.xlsx)", type=["xlsx"], key="main_rosco")
     with col2:
         main_bsr_file = st.file_uploader("📗 Upload BSR File (.xlsx)", type=["xlsx"], key="main_bsr")
-
-    st.write("---")
     # -------------------- RUN BUTTON (SAFE PROCESS) --------------------
     if st.button("🚀 Run General QC Checks"):
         # Basic validations
@@ -629,8 +627,6 @@ with main_qc_tab:
             """,
             unsafe_allow_html=True,
         )
-
-    st.write("---")
 
 
 # -----------------------------------------------------------
