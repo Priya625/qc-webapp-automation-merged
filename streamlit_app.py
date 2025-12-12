@@ -185,6 +185,74 @@ with main_qc_tab:
     st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
     st.write("---")
 
+    # QC Card Grid (2 rows x 4)
+    st.subheader("📊 General QC Checks Overview")
+
+    # Row 1
+    r1c1, r1c2, r1c3, r1c4 = st.columns(4)
+    with r1c1:
+        st.markdown("""
+            <div class='qc-card'>
+                <h4>1️⃣ Period Check</h4>
+                <div class='qc-small'>Validates that each broadcast date falls within the monitoring start and end dates extracted from the Rosco file.</div>
+            </div>
+            """, unsafe_allow_html=True)
+    with r1c2:
+        st.markdown("""
+            <div class='qc-card'>
+                <h4>2️⃣ Completeness Check</h4>
+                <div class='qc-small'>Ensures required fields (TV Channel, Channel ID, Teams, Audience, Source, Match Day) are present and non-empty.</div>
+            </div>
+            """, unsafe_allow_html=True)
+    with r1c3:
+        st.markdown("""
+            <div class='qc-card'>
+                <h4>3️⃣ Overlap / Duplicate Check</h4>
+                <div class='qc-small'>Detects overlapping program times, in-market duplicates, and flags incorrect daybreak (midnight) transitions.</div>
+            </div>
+            """, unsafe_allow_html=True)
+    with r1c4:
+        st.markdown("""
+            <div class='qc-card'>
+                <h4>4️⃣ Program Category Check</h4>
+                <div class='qc-small'>Classifies programs as Live / Delayed / Repeat / Highlights / Magazine using fixtures, timing windows, keywords and duration rules.</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    # Row 2
+    r2c1, r2c2, r2c3, r2c4 = st.columns(4)
+    with r2c1:
+        st.markdown("""
+            <div class='qc-card'>
+                <h4>5️⃣ Event–Matchday–Competition</h4>
+                <div class='qc-small'>Checks Competition, Event and Matchday consistency and that Home/Away match data is valid against references (if available).</div>
+            </div>
+            """, unsafe_allow_html=True)
+    with r2c2:
+        st.markdown("""
+            <div class='qc-card'>
+                <h4>6️⃣ Market–Channel Consistency</h4>
+                <div class='qc-small'>Verifies Market + Channel pairs against the ROSCO reference to ensure the channel belongs to the expected market.</div>
+            </div>
+            """, unsafe_allow_html=True)
+    with r2c3:
+        st.markdown("""
+            <div class='qc-card'>
+                <h4>7️⃣ Rates & Ratings Check</h4>
+                <div class='qc-small'>Ensures exactly one audience source is present per row (Estimates OR Metered) and flags missing / both-present cases.</div>
+            </div>
+            """, unsafe_allow_html=True)
+    with r2c4:
+        st.markdown("""
+            <div class='qc-card'>
+                <h4>8️⃣ Channel ID Consistency</h4>
+                <div class='qc-small'>Ensures each Market + TV-Channel pair is associated with a single consistent Channel ID across the dataset.</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    st.write("---")
+    st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+
     # Run button and safe processing
     if st.button("🚀 Run General QC Checks"):
         if not main_rosco_file or not main_bsr_file:
@@ -312,72 +380,6 @@ with main_qc_tab:
                             st.error(f"Could not create download button: {e}")
                 except Exception as e:
                     st.error(f"An unexpected error occurred while running QC: {e}")
-    
-    # QC Card Grid (2 rows x 4)
-    st.subheader("📊 General QC Checks Overview")
-
-    # Row 1
-    r1c1, r1c2, r1c3, r1c4 = st.columns(4)
-    with r1c1:
-        st.markdown("""
-            <div class='qc-card'>
-                <h4>1️⃣ Period Check</h4>
-                <div class='qc-small'>Validates that each broadcast date falls within the monitoring start and end dates extracted from the Rosco file.</div>
-            </div>
-            """, unsafe_allow_html=True)
-    with r1c2:
-        st.markdown("""
-            <div class='qc-card'>
-                <h4>2️⃣ Completeness Check</h4>
-                <div class='qc-small'>Ensures required fields (TV Channel, Channel ID, Teams, Audience, Source, Match Day) are present and non-empty.</div>
-            </div>
-            """, unsafe_allow_html=True)
-    with r1c3:
-        st.markdown("""
-            <div class='qc-card'>
-                <h4>3️⃣ Overlap / Duplicate Check</h4>
-                <div class='qc-small'>Detects overlapping program times, in-market duplicates, and flags incorrect daybreak (midnight) transitions.</div>
-            </div>
-            """, unsafe_allow_html=True)
-    with r1c4:
-        st.markdown("""
-            <div class='qc-card'>
-                <h4>4️⃣ Program Category Check</h4>
-                <div class='qc-small'>Classifies programs as Live / Delayed / Repeat / Highlights / Magazine using fixtures, timing windows, keywords and duration rules.</div>
-            </div>
-            """, unsafe_allow_html=True)
-
-    # Row 2
-    r2c1, r2c2, r2c3, r2c4 = st.columns(4)
-    with r2c1:
-        st.markdown("""
-            <div class='qc-card'>
-                <h4>5️⃣ Event–Matchday–Competition</h4>
-                <div class='qc-small'>Checks Competition, Event and Matchday consistency and that Home/Away match data is valid against references (if available).</div>
-            </div>
-            """, unsafe_allow_html=True)
-    with r2c2:
-        st.markdown("""
-            <div class='qc-card'>
-                <h4>6️⃣ Market–Channel Consistency</h4>
-                <div class='qc-small'>Verifies Market + Channel pairs against the ROSCO reference to ensure the channel belongs to the expected market.</div>
-            </div>
-            """, unsafe_allow_html=True)
-    with r2c3:
-        st.markdown("""
-            <div class='qc-card'>
-                <h4>7️⃣ Rates & Ratings Check</h4>
-                <div class='qc-small'>Ensures exactly one audience source is present per row (Estimates OR Metered) and flags missing / both-present cases.</div>
-            </div>
-            """, unsafe_allow_html=True)
-    with r2c4:
-        st.markdown("""
-            <div class='qc-card'>
-                <h4>8️⃣ Channel ID Consistency</h4>
-                <div class='qc-small'>Ensures each Market + TV-Channel pair is associated with a single consistent Channel ID across the dataset.</div>
-            </div>
-            """, unsafe_allow_html=True)
-    st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
 
 
 # -----------------------------------------------------------
