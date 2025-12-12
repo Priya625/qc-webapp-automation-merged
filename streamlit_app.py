@@ -50,365 +50,149 @@ if config is None:
 LOGO_PATH_4 = "images/Nielsen_Sports_logo.svg"
 
 st.set_page_config(page_title="NIELSEN QC Automation Portal", layout="wide")
-st.markdown("""
-<style>
 
-/* Reduce huge top padding Streamlit adds */
-.block-container {
-    padding-top: 1rem !important;
-}
+# -------------------- GLOBAL CSS (move things up, card styles, uploader styles) --------------------
+st.markdown(
+    """
+    <style>
+    /* Reduce top padding so content starts higher */
+    .block-container { padding-top: 0.5rem !important; }
 
-/* Move Tabs Up */
-.stTabs {
-    margin-top: -30px !important;
-}
+    /* Move tabs slightly up */
+    .stTabs { margin-top: -18px !important; }
 
-/* Fix File Uploader Padding */
-div[data-testid="stFileUploader"] {
-    margin-top: -10px !important;
-}
+    /* Adjust header/title spacing */
+    .header-title { margin-top: 0.25rem !important; }
+    .subtitle { margin-bottom: 1rem !important; }
 
-/* QC Cards */
-.qc-card {
-    background: #F7F9FC;
-    border: 1px solid #D0D7E2;
-    padding: 15px;
-    border-radius: 8px;
-    box-shadow: 0px 1px 3px rgba(0,0,0,0.08);
-    font-size: 14px;
+    /* Logo container */
+    .logo-container { display:flex; align-items:center; gap:12px; }
+    .logo-container img { margin-top: -12px !important; }
 
-    /* MAKE HEIGHT AUTO SO TEXT NEVER GETS CUT */
-    height: auto !important;
-    min-height: 140px;
-}
+    /* File uploader styling */
+    div[data-testid="stFileUploader"] { background-color: #F5F7FF; padding: 8px; border-radius: 8px; }
+    div[data-testid="stFileUploaderDropzone"] { border: 2px dashed #0049BE !important; }
 
-.qc-card h4 {
-    margin-top: 0;
-    color: #0049BE;
-    font-size: 15px;
-}
+    /* QC small card (auto height so text not clipped) */
+    .qc-card {
+        background: #F7F9FC;
+        border: 1px solid #D0D7E2;
+        padding: 12px;
+        border-radius: 8px;
+        box-shadow: 0px 1px 3px rgba(0,0,0,0.06);
+        font-size: 14px;
+        height: auto !important;
+        min-height: 120px;
+        overflow: visible;
+    }
+    .qc-card h4 { margin: 0 0 6px 0; color: #0049BE; font-size: 15px; }
+    .qc-small { font-size: 13px; color: #333; }
 
-</style>
-""", unsafe_allow_html=True)
+    /* Capability metric cards (home page) */
+    .metric-card {
+        background-color: #F7F7F9;
+        border-radius: 8px;
+        padding: 18px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    }
+    .metric-card h3 { margin: 0 0 6px 0; color: #1A5276; font-size: 1.05rem; }
+    .metric-card p { margin: 0; color: #555; }
 
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# -------------------- TOP LOGO + HEADER --------------------
+# Wrap logo in a container to control spacing
+st.markdown("<div class='logo-container'>", unsafe_allow_html=True)
 try:
     if os.path.exists(LOGO_PATH_4):
         st.image(LOGO_PATH_4, width=150)
     else:
-        st.header("pic  ")
+        # fallback small text logo
+        st.markdown("<div style='font-weight:700; font-size:18px;'>Nielsen Sports</div>", unsafe_allow_html=True)
 except Exception:
-    st.header("pic")
+    st.markdown("<div style='font-weight:700; font-size:18px;'>Nielsen Sports</div>", unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
 
+st.markdown("<div class='header-title' style='font-size:32px; font-weight:800;'>Nielsen Automation Portal</div>", unsafe_allow_html=True)
+st.markdown("<p class='subtitle' style='font-size:14px;'>The central hub for data integrity, transformation, and complex market modeling for Sports BSR data.</p>", unsafe_allow_html=True)
 
-# --- Use Tabs for Clear Separation (MODIFIED) ---
-home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab , epl_tab= st.tabs([
-    " Home Page", 
-    " Main QC Automation", 
-    " Laliga Specific QC", 
-    " F1 Market Specific Checks",
-    " EPL Specific Checks"
-])
+# -------------------- TABS --------------------
+home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab, epl_tab = st.tabs(
+    ["Home Page", "Main QC Automation", "Laliga Specific QC", "F1 Market Specific Checks", "EPL Specific Checks"]
+)
 
-# --- Define all market check keys globally for management ---
-all_market_check_keys = {
-    # 1. Channel and Territory Review
-    "check_latam_espn": "LATAM ESPN Channels: Ecuador and Venezuela missing",
-    "check_italy_mexico": "Italy and Mexico: Duplications/consolidations",
-    "check_channel4plus1": "Specific Channel Checks: Channel 4+1",
-    "check_espn4_bsa": "ESPN 4: Latam channel extract from BSA",
-    "check_f1_obligations": "Formula 1 Obligations: Missing channels", # <--- F1 Check
-    "apply_duplication_weights": "Apply Market Duplication and Upweight Rules (Germany, SA, UK, Brazil, etc.)",
-    "check_session_completeness": "Session Count Check: Flag duplicate/over-reported Qualifying, Race, or Training sessions",
-    "impute_program_type": "Impute Program Type: Assign Live/Repeat/Highlights/Support based on time matching",
-    "duration_limits": "Duration Limits Check: Flag broadcasts outside 5 minutes to 5 hours (QC)",
-    "live_date_integrity": "Live Session Date Integrity: Check Live Race/Quali/Train against fixed schedule date",
-    "update_audience_from_overnight": "Audience Upscale Check: Update BSR with higher Max Overnight data", 
-    "dup_channel_existence": "Duplication Channel Existence: Check if all target channels are in BSR",
-
-    # 2. Broadcaster/Platform Coverage
-    "check_youtube_global": "YOUTUBE: ADD YOUTUBE AS PAN-GLOBAL (CPT 8.14)",
-    "check_pan_mena": "Pan MENA: BROADCASTER",
-    "check_china_tencent": "China Tencent: BROADCASTER",
-    "check_czech_slovakia": "Czech Rep and Slovakia: BROADCASTER",
-    "check_ant1_greece": "ANT1+ Greece: BROADCASTER (CPT 3.23)",
-    "check_india": "India: BROADCASTER",
-    "check_usa_espn": "USA ESPN Mail: BROADCASTER",
-    "check_dazn_japan": "DAZN Japan: BROADCASTER",
-    "check_aztv": "AZTV / IDMAN TV: BROADCASTER",
-    "check_rush_caribbean": "RUSH Caribbean: BROADCASTER",
-    
-    # 3. Removals and Recreations
-    "remove_andorra": "Remove Andorra",
-    "remove_serbia": "Remove Serbia",
-    "remove_montenegro": "Remove Montenegro",
-    "remove_brazil_espn_fox": "Remove any ESPN/Fox from Brazil",
-    "remove_switz_canal": "Remove Switzerland Canal+ / ServusTV",
-    "remove_viaplay_baltics": "Remove viaplay from Latvia, Lithuania, Poland, and Estonia",
-    "recreate_viaplay": "Viaplay: Recreate based on a full market of lives",
-    "recreate_disney_latam": "Disney+ Latam: Recreate based on a full market of lives",
-
-    #EPL
-}
-
-all_market_check_keys_epl = {
-    "impute_lt_live_status": "L/T Live Imputation: Flag program type based on 'L/T' keyword in Combined col", # Using the L/T check key
-    "consolidate_gillete_soccer": "Program Consolidation: Flag sequential 'Gillete Soccer' programs for merging (Gap <= 30min)",
-    "check_sky_showcase_live": "Sky Showcase Live Status Check (UK)",
-    "standardize_uk_ire_region" : "Region Standardization: Correct UK/Ireland Region field to 'Europe' and standardize market names",
-    "check_fixture_vs_case" : "Checks for Capital VS AND Small vs",
-    "check_pan_balkans_serbia_parity" : "Checks equal count in pan_balkans and serbia",
-    "audit_multi_match_status" : "Checking for these keywords 'GOAL RUSH', 'KONFERENZ', 'CONFERENCE'",
-    "check_date_time_format_integrity" : "Checking Time Integrity",
-    "check_live_broadcast_uniqueness" : "Checking 1 live for based on these col 'Market', 'TV-Channel', 'Competition', 'Date'",
-    "audit_channel_line_item_count" : "Channel line item count (New Tab)",
-    "check_combined_archive_status" : "Flag any row with archive in Combined column",
-    "suppress_duplicated_audience" : " Flag if it is a Duplicated Market and has audience ",
-    "harmonize_uk_ire_program_descriptions_strict" : "Flag where description not same in specified channels(UK/ Ireland) ",
-    "check_game_of_the_day_match" : "Checking for Game of the day in CDT/OVN",
-    "check_non_metered_primary_market_audience" : "Checking Non metered channel audience is zero",
-    "check_legacy_mapping" : "Flag Legancy Name ",
-    # "check_premier_league_october_obligation" : "Cross Checking of channels from CDT/OVN Sheet ",
-    # "check_star_sports_3_consolidation" : "Prioritizing Malayalam region over Start Sports 3 ",
-    # "check_bsa_nielsen_audience_presence" : "Make sure Non-metered Data (Time Bands) has Audience ",    
-    "check_source_mediatype_validity": "Only Predefined Values in the Source,Source 2,Media Type",
-    "filter_short_programs": "5 Minute Program Filter: Remove programs shorter than 5 minutes (except Austria/NZ)",
-    "sa_nielsen_inclusion_check": "South Africa Nielsen Inclusion Check",
-    "epl_live_vs_delay_validation": "Live vs Delay Validation",
-    "pl_magazine_highlights_classification": "PL Magazine/Highlights Classification",
-    "dedicated_program_duration_allignments": "Dedicated Program Duration Alignments"
-}
-
-
+# -------------------- HOME TAB --------------------
 with home_page_tab:
-    # --- Custom CSS for Styling ---
-    st.markdown(
-        """
-        <style>
-            /* Ensure the overall background color is applied */
-            .stApp {
-                background-color:  #FFFFFF; 
-            }
+    st.markdown("<div style='margin-top:6px;'></div>", unsafe_allow_html=True)
 
-            .stApp > header {
-                text-align: center;
-            }
-
-            .stTabs [data-baseweb="tab-list"] {
-                justify-content: center;
-                gap: 50px; /* INCREASED GAP for more space between tabs */
-            }
-            
-            
-            /* Main Header Styling */
-            .header-title {
-                color: #0049BE; /* Vibrant Corporate Blue */
-                font-size: 3.5em;
-                font-weight: 900;
-                text-align: center;
-                padding-top: 80px; /* <-- INCREASED TOP SPACE */
-            }
-            .subtitle {
-                color:  #259600; 
-                font-size: 1.3em;
-                text-align: center;
-                margin-bottom: 8em; /* <-- INCREASED BOTTOM SPACE */
-            }
-            
-            /* Navigation Section (Hero Container) */
-            .nav-container {
-                background-color: #FFFFFF; /* White background for the action area */
-                padding: 40px 50px;
-                border-radius: 15px;
-                box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15); /* Stronger shadow */
-                margin-bottom: 30px;
-                text-align: center;
-            }
-            .nav-container h3 {
-                color: #0047AB;
-                font-size: 1.8em;
-                margin-bottom: 0.5em;
-            }
-            .nav-item-list {
-                list-style-type: none; 
-                padding: -100;
-                display: flex; /* Flex layout for horizontal tabs/buttons */
-                justify-content: space-around;
-                margin-top: 20px;
-            }
-            .nav-item {
-                flex: 1;
-                margin: 0 10px;
-                padding: 15px 20px;
-                border: 2px solid #4D577D;
-                border-radius: 8px;
-                transition: transform 0.2s, border-color 0.2s;
-                text-align: center;
-                cursor: pointer;
-            }
-            .nav-item:hover {
-                transform: translateY(-3px);
-                border-color: #B30095; /* Blue hover accent */
-            }
-
-            /* Capability Cards Styling (3-column layout) */
-            .metric-card {
-                background-color: #F7F7F9;
-                border-bottom: 4px solid var(--accent-color); /* Bottom border accent */
-                border-radius: 8px;
-                padding: 20px 20px;
-                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); 
-                height: 100%;
-                transition: box-shadow 0.3s;
-            }
-            .metric-card:hover {
-                box-shadow: 0 6px 15px rgba(0, 0, 0, 0.15); 
-            }
-            .metric-card h3 {
-                color: #1A5276; 
-                font-size: 1.2em;
-                font-weight: 700;
-                margin-bottom: 0.5em;
-            }
-            .metric-card p {
-                font-size: 0.9em;
-                color: #555;
-            }
-            .stHeader {
-                background-color: #E4F0F7; /* Ensures Streamlit headers match background */
-            }
-            /* Targets the entire file uploader container for subtle background changes */
-                div[data-testid="stFileUploader"] {
-                    background-color: #EAE4FF; /* Light Lavender Background */
-                    padding: 10px;
-                    border-radius: 10px;
-                }
-                /* Targets the actual upload button/text area */
-                div[data-testid="stFileUploaderDropzone"] {
-                    border: 2px dashed #0049BE; /* Custom Border Color */
-                }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
-    # --- Header Section (Centered) ---
-    st.markdown("<div class='header-title'> Nielsen  Automation Portal</div>", unsafe_allow_html=True)
-    st.markdown("<p class='subtitle'>The central hub for data integrity, transformation, and complex market modeling for Sports BSR data.</p>", unsafe_allow_html=True)
-    
-    # # --- 1. Navigation Guide (Central Hero Section) ---
-    # # st.markdown("<div class='nav-container'>", unsafe_allow_html=True)
-    # st.markdown("<h3>Modules</h3>", unsafe_allow_html=True)
-    # # st.markdown("<p style='color: #009DA8;'>Select a tab above  to access core functionality.</p>", unsafe_allow_html=True)
-    
-    # # NOTE: Since we cannot programmatically link to Streamlit tabs via HTML/CSS, 
-    # # this list is for display only, guiding the user to the top tabs.
-    # st.markdown(
-    #     """
-    #     <ul class='nav-item-list'>
-    #         <li class='nav-item'>
-    #             <strong>Main QC Automation</strong>
-    #         </li>
-    #         <li class='nav-item'>
-    #             <strong>LaLiga Specific QC</strong>
-    #         </li>
-    #         <li class='nav-item'>
-    #             <strong>F1 Market Specific Checks</strong>
-    #         </li>
-    #     </ul>
-    #     """, unsafe_allow_html=True
-    # )
-    # st.markdown("</div>", unsafe_allow_html=True)
-
-    # st.markdown("<h3 style='color: #1A5276; text-align: center; margin-top: 30px; margin-bottom: 25px;'>Key System Capabilities</h3>", unsafe_allow_html=True)
-
-    # --- 2. Core Capabilities Cards (STAGGERED GRID LAYOUT) ---
-    
-    # --- Row 1 ---
-    cap_row1_col1, cap_row1_col2 = st.columns(2) 
-    
-    # Card 1: Traceability & Auditing
-    with cap_row1_col1:
+    st.markdown("<h3 style='text-align:center; color:#0049BE; margin-bottom:8px;'>Modules</h3>", unsafe_allow_html=True)
+    col_a, col_b = st.columns(2)
+    with col_a:
         st.markdown(
             """
-            <div class='metric-card' style='--accent-color:  #FF5AB4;'>
+            <div class='metric-card'>
                 <h3>Full Data Traceability</h3>
-                <p>Ensures 100% auditability for every change—from initial loading to final weighted output—confirming pipeline integrity at every step.</p>
+                <p>Ensures 100% auditability for every change — from loading to final weighted output.</p>
             </div>
             """, unsafe_allow_html=True
         )
-
-    # Card 2: Upscaling & Reconciliation
-    with cap_row1_col2:
+    with col_b:
         st.markdown(
             """
-            <div class='metric-card' style='--accent-color: #D13CBD;'>
+            <div class='metric-card'>
                 <h3>Audience Upscale & Reconciliation</h3>
-                <p>Automatically reconciles BSR audience estimates by overriding estimates with higher, verified maximum figures from Overnight Quick Reports.</p>
+                <p>Automatically reconciles audience estimates using higher verified overnight figures.</p>
             </div>
             """, unsafe_allow_html=True
         )
-            
-    # --- Row 2 ---
-    st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
-    cap_row2_col1, cap_row2_col2 = st.columns(2) 
 
-    # Card 3: Complex Market Modeling
-    with cap_row2_col1:
+    st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+    col_c, col_d = st.columns(2)
+    with col_c:
         st.markdown(
             """
-            <div class='metric-card' style='--accent-color: #FFC800;'>
+            <div class='metric-card'>
                 <h3>Complex Market Modeling</h3>
-                <p>Applies conditional weighted duplication rules and validates channel existence essential for comprehensive pan-regional data models.</p>
+                <p>Applies conditional weighted duplication rules and validates channel existence for pan-regional models.</p>
             </div>
             """, unsafe_allow_html=True
         )
-    
-    # Card 4: F1 Duplication Audit
-    with cap_row2_col2:
+    with col_d:
         st.markdown(
             """
-            <div class='metric-card' style='--accent-color: #8CE650;'>
+            <div class='metric-card'>
                 <h3>F1 Duplication Audit</h3>
-                <p>Validates the completeness of all duplication rules by checking if required target channels exist in the destination market's current inventory.</p>
+                <p>Validates duplication completeness by checking target channel existence in destination markets.</p>
             </div>
             """, unsafe_allow_html=True
         )
 
-
-    st.markdown("<div style='margin-bottom: 50px;'></div>", unsafe_allow_html=True)
-
-
-# -----------------------------------------------------------
-#        ✅ MAIN QC AUTOMATION TAB (YOUR 9 CHECKS)
-# -----------------------------------------------------------
-
-# -------------------- MAIN QC AUTOMATION TAB (REPLACE THIS ENTIRE BLOCK) --------------------
+# -------------------- MAIN QC AUTOMATION TAB --------------------
 with main_qc_tab:
     st.header("QC File Uploader")
     st.markdown("Upload your **Rosco** and **BSR** files below. This will run the general QC checks.")
 
-    # --- File uploaders (two columns) ---
+    # File uploaders
     col1, col2 = st.columns(2)
     with col1:
         main_rosco_file = st.file_uploader("📘 Upload Rosco File (.xlsx)", type=["xlsx"], key="main_rosco")
     with col2:
         main_bsr_file = st.file_uploader("📗 Upload BSR File (.xlsx)", type=["xlsx"], key="main_bsr")
 
+    st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
     st.write("---")
-    # -------------------- RUN BUTTON (SAFE PROCESS) --------------------
+
+    # Run button and safe processing
     if st.button("🚀 Run General QC Checks"):
-        # Basic validations
-        if not main_rosco_file or not main_bsr_file or not config:
-            st.error("⚠️ Please upload both Rosco and BSR files and ensure config.json is loaded.")
+        if not main_rosco_file or not main_bsr_file:
+            st.error("⚠️ Please upload both Rosco and BSR files before running checks.")
         else:
             with st.spinner("Running General QC checks..."):
                 try:
-                    # Load config pieces
-                    col_map = config.get("column_mappings", {})
-                    rules = config.get("qc_rules", {})
-                    file_rules = config.get("file_rules", {})
-
-                    # Save uploaded files to disk
+                    # Save upload files to disk
                     rosco_path = os.path.join(UPLOAD_FOLDER, main_rosco_file.name)
                     bsr_path = os.path.join(UPLOAD_FOLDER, main_bsr_file.name)
                     with open(rosco_path, "wb") as f:
@@ -416,219 +200,184 @@ with main_qc_tab:
                     with open(bsr_path, "wb") as f:
                         f.write(main_bsr_file.getbuffer())
 
-                    # --- RUN QC STEPS (wrapped with try/except for each major step) ---
-                    # 0. Detect monitoring period
-                    try:
-                        start_date, end_date = qc_general.detect_period_from_rosco(rosco_path)
-                    except Exception as e:
-                        raise RuntimeError(f"Error detecting monitoring period from Rosco: {e}")
+                    # If qc_general not available, abort gracefully
+                    if qc_general is None:
+                        st.error("qc_checks.py not available (import failed). Place qc_checks.py next to this app.")
+                    else:
+                        col_map = config.get("column_mappings", {})
+                        rules = config.get("qc_rules", {})
+                        file_rules = config.get("file_rules", {})
 
-                    # 1. Load BSR (detect header row inside function)
-                    try:
-                        df = qc_general.load_bsr(bsr_path)
-                    except Exception as e:
-                        raise RuntimeError(f"Error loading BSR file: {e}")
+                        # 1. Detect monitoring period
+                        try:
+                            start_date, end_date = qc_general.detect_period_from_rosco(rosco_path)
+                        except Exception as e:
+                            st.error(f"Could not detect monitoring period from Rosco: {e}")
+                            raise
 
-                    # 2. Period check
-                    try:
-                        df = qc_general.period_check(df, start_date, end_date)
-                    except Exception as e:
-                        raise RuntimeError(f"Error during period_check: {e}")
+                        # 2. Load BSR
+                        try:
+                            df = qc_general.load_bsr(bsr_path)
+                        except Exception as e:
+                            st.error(f"Error loading BSR: {e}")
+                            raise
 
-                    # 3. Completeness check
-                    try:
-                        df = qc_general.completeness_check(df, col_map.get("bsr", {}), rules.get("program_category", {}))
-                    except Exception as e:
-                        raise RuntimeError(f"Error during completeness_check: {e}")
+                        # 3. Period check
+                        try:
+                            df = qc_general.period_check(df, start_date, end_date)
+                        except Exception as e:
+                            st.error(f"Error in period_check: {e}")
+                            raise
 
-                    # 4. Overlap / Duplicate / Daybreak check
-                    try:
-                        df = qc_general.overlap_duplicate_daybreak_check(df, col_map.get("bsr", {}), rules.get("overlap_check", {}))
-                    except Exception as e:
-                        raise RuntimeError(f"Error during overlap_duplicate_daybreak_check: {e}")
+                        # 4. Completeness check
+                        try:
+                            df = qc_general.completeness_check(df, col_map.get("bsr", {}), rules.get("program_category", {}))
+                        except Exception as e:
+                            st.error(f"Error in completeness_check: {e}")
+                            raise
 
-                    # 5. Program category check (needs rosco/fixture sheet path)
-                    try:
-                        df = qc_general.program_category_check(bsr_path, df, col_map, rules.get("program_category", {}), file_rules)
-                    except Exception as e:
-                        raise RuntimeError(f"Error during program_category_check: {e}")
+                        # 5. Overlap/Duplicate/Daybreak
+                        try:
+                            df = qc_general.overlap_duplicate_daybreak_check(df, col_map.get("bsr", {}), rules.get("overlap_check", {}))
+                        except Exception as e:
+                            st.error(f"Error in overlap_duplicate_daybreak_check: {e}")
+                            raise
 
-                    # 6. Event / Matchday / Competition check
-                    try:
-                        df = qc_general.check_event_matchday_competition(df, rosco_path=rosco_path)
-                    except Exception as e:
-                        raise RuntimeError(f"Error during check_event_matchday_competition: {e}")
+                        # 6. Program category check
+                        try:
+                            df = qc_general.program_category_check(bsr_path, df, col_map, rules.get("program_category", {}), file_rules)
+                        except Exception as e:
+                            st.error(f"Error in program_category_check: {e}")
+                            raise
 
-                    # 7. Market-Channel consistency check
-                    try:
-                        df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
-                    except Exception as e:
-                        raise RuntimeError(f"Error during market_channel_consistency_check: {e}")
+                        # 7. Event/Matchday/Competition
+                        try:
+                            df = qc_general.check_event_matchday_competition(df, rosco_path=rosco_path)
+                        except Exception as e:
+                            st.error(f"Error in check_event_matchday_competition: {e}")
+                            raise
 
-                    # 8. Rates & Ratings check
-                    try:
-                        df = qc_general.rates_and_ratings_check(df, col_map.get("bsr", {}))
-                    except Exception as e:
-                        raise RuntimeError(f"Error during rates_and_ratings_check: {e}")
+                        # 8. Market-Channel consistency
+                        try:
+                            df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
+                        except Exception as e:
+                            st.error(f"Error in market_channel_consistency_check: {e}")
+                            raise
 
-                    # 9. Country Channel ID check
-                    try:
-                        df = qc_general.country_channel_id_check(df, col_map.get("bsr", {}))
-                    except Exception as e:
-                        raise RuntimeError(f"Error during country_channel_id_check: {e}")
+                        # 9. Rates & Ratings
+                        try:
+                            df = qc_general.rates_and_ratings_check(df, col_map.get("bsr", {}))
+                        except Exception as e:
+                            st.error(f"Error in rates_and_ratings_check: {e}")
+                            raise
 
-                    # --- Write output Excel ---
-                    output_file = f"General_QC_Result_{os.path.splitext(main_bsr_file.name)[0]}.xlsx"
-                    output_path = os.path.join(OUTPUT_FOLDER, output_file)
-                    try:
-                        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-                            df.to_excel(writer, index=False, sheet_name="QC Results")
-                    except Exception as e:
-                        raise RuntimeError(f"Error saving QC Excel file: {e}")
+                        # 10. Country/Channel ID check
+                        try:
+                            df = qc_general.country_channel_id_check(df, col_map.get("bsr", {}))
+                        except Exception as e:
+                            st.error(f"Error in country_channel_id_check: {e}")
+                            raise
 
-                    # Color Excel and create summary (wrap each call)
-                    try:
-                        qc_general.color_excel(output_path, df)
-                    except Exception as e:
-                        # Non-fatal: warn but continue
-                        st.warning(f"Warning: color_excel failed: {e}")
+                        # Save results
+                        output_file = f"General_QC_Result_{os.path.splitext(main_bsr_file.name)[0]}.xlsx"
+                        output_path = os.path.join(OUTPUT_FOLDER, output_file)
+                        try:
+                            with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+                                df.to_excel(writer, index=False, sheet_name="QC Results")
+                        except Exception as e:
+                            st.error(f"Failed to save output Excel: {e}")
+                            raise
 
-                    try:
-                        qc_general.generate_summary_sheet(output_path, df)
-                    except Exception as e:
-                        st.warning(f"Warning: generate_summary_sheet failed: {e}")
+                        # Try coloring and summary (non-fatal warnings)
+                        try:
+                            qc_general.color_excel(output_path, df)
+                        except Exception as e:
+                            st.warning(f"color_excel warning: {e}")
+                        try:
+                            qc_general.generate_summary_sheet(output_path, df)
+                        except Exception as e:
+                            st.warning(f"generate_summary_sheet warning: {e}")
 
-                    # Offer the file for download
-                    try:
-                        with open(output_path, "rb") as f:
-                            st.success("✅ General QC completed successfully!")
-                            st.download_button(
-                                label="📥 Download General QC Result",
-                                data=f,
-                                file_name=output_file,
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            )
-                    except Exception as e:
-                        st.error(f"Could not provide download button: {e}")
-
+                        # Offer download
+                        try:
+                            with open(output_path, "rb") as f:
+                                st.success("✅ General QC completed successfully!")
+                                st.download_button(
+                                    label="📥 Download General QC Result",
+                                    data=f,
+                                    file_name=output_file,
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                )
+                        except Exception as e:
+                            st.error(f"Could not create download button: {e}")
                 except Exception as e:
-                    # Show a helpful error message; include str(e) for debugging
-                    st.error(f"❌ An error occurred while running General QC: {e}")
-    # ------------ Inline CSS for QC cards (safe minimal) ------------
-    st.markdown(
-        """
-        <style>
-        .qc-card {
-            background: #F7F9FC;
-            border: 1px solid #D0D7E2;
-            padding: 12px;
-            border-radius: 8px;
-            box-shadow: 0px 1px 3px rgba(0,0,0,0.06);
-            font-size: 14px;
-            height: 130px;
-            overflow: hidden;
-        }
-        .qc-card h4 {
-            margin: 0 0 6px 0;
-            color: #0049BE;
-            font-size: 15px;
-        }
-        .qc-small {
-            font-size: 13px;
-            color: #333;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # -------------------- QC CARD GRID (2 rows x 4 cols) --------------------
+                    st.error(f"An unexpected error occurred while running QC: {e}")
+    
+    # QC Card Grid (2 rows x 4)
     st.subheader("📊 General QC Checks Overview")
 
-    # Row 1: Period, Completeness, Overlap/Duplicate, Program Category
+    # Row 1
     r1c1, r1c2, r1c3, r1c4 = st.columns(4)
     with r1c1:
-        st.markdown(
-            """
+        st.markdown("""
             <div class='qc-card'>
                 <h4>1️⃣ Period Check</h4>
                 <div class='qc-small'>Validates that each broadcast date falls within the monitoring start and end dates extracted from the Rosco file.</div>
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
+            """, unsafe_allow_html=True)
     with r1c2:
-        st.markdown(
-            """
+        st.markdown("""
             <div class='qc-card'>
                 <h4>2️⃣ Completeness Check</h4>
                 <div class='qc-small'>Ensures required fields (TV Channel, Channel ID, Teams, Audience, Source, Match Day) are present and non-empty.</div>
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
+            """, unsafe_allow_html=True)
     with r1c3:
-        st.markdown(
-            """
+        st.markdown("""
             <div class='qc-card'>
                 <h4>3️⃣ Overlap / Duplicate Check</h4>
                 <div class='qc-small'>Detects overlapping program times, in-market duplicates, and flags incorrect daybreak (midnight) transitions.</div>
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
+            """, unsafe_allow_html=True)
     with r1c4:
-        st.markdown(
-            """
+        st.markdown("""
             <div class='qc-card'>
                 <h4>4️⃣ Program Category Check</h4>
                 <div class='qc-small'>Classifies programs as Live / Delayed / Repeat / Highlights / Magazine using fixtures, timing windows, keywords and duration rules.</div>
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
+            """, unsafe_allow_html=True)
 
-    # Row 2: Event/Matchday/Competition, Market-Channel Consistency, Rates & Ratings, Channel ID Consistency
+    # Row 2
     r2c1, r2c2, r2c3, r2c4 = st.columns(4)
     with r2c1:
         st.markdown("""
             <div class='qc-card'>
                 <h4>5️⃣ Event–Matchday–Competition</h4>
-                Checks Competition, Event and Matchday consistency and that Home/Away match data is valid against references (if available).
+                <div class='qc-small'>Checks Competition, Event and Matchday consistency and that Home/Away match data is valid against references (if available).</div>
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
+            """, unsafe_allow_html=True)
     with r2c2:
-        st.markdown(
-            """
+        st.markdown("""
             <div class='qc-card'>
                 <h4>6️⃣ Market–Channel Consistency</h4>
                 <div class='qc-small'>Verifies Market + Channel pairs against the ROSCO reference to ensure the channel belongs to the expected market.</div>
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
+            """, unsafe_allow_html=True)
     with r2c3:
-        st.markdown(
-            """
+        st.markdown("""
             <div class='qc-card'>
                 <h4>7️⃣ Rates & Ratings Check</h4>
                 <div class='qc-small'>Ensures exactly one audience source is present per row (Estimates OR Metered) and flags missing / both-present cases.</div>
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
+            """, unsafe_allow_html=True)
     with r2c4:
-        st.markdown(
-            """
+        st.markdown("""
             <div class='qc-card'>
                 <h4>8️⃣ Channel ID Consistency</h4>
                 <div class='qc-small'>Ensures each Market + TV-Channel pair is associated with a single consistent Channel ID across the dataset.</div>
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
+            """, unsafe_allow_html=True)
+    st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
 
 
 # -----------------------------------------------------------
