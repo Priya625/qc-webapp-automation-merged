@@ -50,6 +50,27 @@ if config is None:
 LOGO_PATH_4 = "images/Nielsen_Sports_logo.svg"
 
 st.set_page_config(page_title="NIELSEN QC Automation Portal", layout="wide")
+st.markdown("""
+<style>
+
+.qc-card {
+    background: #F7F9FC;
+    border: 1px solid #D0D7E2;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0px 1px 3px rgba(0,0,0,0.08);
+    font-size: 14px;
+    height: 140px;
+}
+
+.qc-card h4 {
+    margin-top: 0;
+    color: #0049BE;
+    font-size: 15px;
+}
+
+</style>
+""", unsafe_allow_html=True)
 
 try:
     if os.path.exists(LOGO_PATH_4):
@@ -342,132 +363,258 @@ with home_page_tab:
 #        ✅ MAIN QC AUTOMATION TAB (YOUR 9 CHECKS)
 # -----------------------------------------------------------
 
+# -------------------- MAIN QC AUTOMATION TAB (REPLACE THIS ENTIRE BLOCK) --------------------
 with main_qc_tab:
     st.header("QC File Uploader")
     st.markdown("Upload your **Rosco** and **BSR** files below. This will run the general QC checks.")
 
+    # --- File uploaders (two columns) ---
     col1, col2 = st.columns(2)
     with col1:
         main_rosco_file = st.file_uploader("📘 Upload Rosco File (.xlsx)", type=["xlsx"], key="main_rosco")
     with col2:
         main_bsr_file = st.file_uploader("📗 Upload BSR File (.xlsx)", type=["xlsx"], key="main_bsr")
-    
+
     st.write("---")
 
-    # -----------------------------------------------------------
-    # 📘 NEW SECTION: QC CHECK EXPLANATION (Placed BEFORE Run Button)
-    # -----------------------------------------------------------
-    with st.expander("📊 Click to View Description of All QC Checks", expanded=True):
-        st.markdown("""
-        ### **General QC Checks Performed**
-        
-        **1️⃣ Detect Monitoring Period**  
-        Reads monitoring start & end dates from Rosco.
+    # ------------ Inline CSS for QC cards (safe minimal) ------------
+    st.markdown(
+        """
+        <style>
+        .qc-card {
+            background: #F7F9FC;
+            border: 1px solid #D0D7E2;
+            padding: 12px;
+            border-radius: 8px;
+            box-shadow: 0px 1px 3px rgba(0,0,0,0.06);
+            font-size: 14px;
+            height: 130px;
+            overflow: hidden;
+        }
+        .qc-card h4 {
+            margin: 0 0 6px 0;
+            color: #0049BE;
+            font-size: 15px;
+        }
+        .qc-small {
+            font-size: 13px;
+            color: #333;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-        **2️⃣ BSR Header Detection + Load**  
-        Automatically finds the correct header row.
+    # -------------------- QC CARD GRID (2 rows x 4 cols) --------------------
+    st.subheader("📊 General QC Checks Overview")
 
-        **3️⃣ Period Validation**  
-        Confirms each broadcast date lies within the monitoring window.
+    # Row 1: Period, Completeness, Overlap/Duplicate, Program Category
+    r1c1, r1c2, r1c3, r1c4 = st.columns(4)
+    with r1c1:
+        st.markdown(
+            """
+            <div class='qc-card'>
+                <h4>1️⃣ Period Check</h4>
+                <div class='qc-small'>Validates that each broadcast date falls within the monitoring start and end dates extracted from the Rosco file.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with r1c2:
+        st.markdown(
+            """
+            <div class='qc-card'>
+                <h4>2️⃣ Completeness Check</h4>
+                <div class='qc-small'>Ensures required fields (TV Channel, Channel ID, Teams, Audience, Source, Match Day) are present and non-empty.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with r1c3:
+        st.markdown(
+            """
+            <div class='qc-card'>
+                <h4>3️⃣ Overlap / Duplicate Check</h4>
+                <div class='qc-small'>Detects overlapping program times, in-market duplicates, and flags incorrect daybreak (midnight) transitions.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with r1c4:
+        st.markdown(
+            """
+            <div class='qc-card'>
+                <h4>4️⃣ Program Category Check</h4>
+                <div class='qc-small'>Classifies programs as Live / Delayed / Repeat / Highlights / Magazine using fixtures, timing windows, keywords and duration rules.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-        **4️⃣ Completeness Check**  
-        Ensures required columns (Channel, Market, IDs, Audience, Teams, etc.) are filled.
+    # Row 2: Event/Matchday/Competition, Market-Channel Consistency, Rates & Ratings, Channel ID Consistency
+    r2c1, r2c2, r2c3, r2c4 = st.columns(4)
+    with r2c1:
+        st.markdown(
+            """
+            <div class='qc-card'>
+                <h4>5️⃣ Event–Matchday–Competition</h4>
+                <div class='qc-small'>Checks Competition, Event and Matchday consistency and that Home/Away match data is valid against references (if available).</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with r2c2:
+        st.markdown(
+            """
+            <div class='qc-card'>
+                <h4>6️⃣ Market–Channel Consistency</h4>
+                <div class='qc-small'>Verifies Market + Channel pairs against the ROSCO reference to ensure the channel belongs to the expected market.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with r2c3:
+        st.markdown(
+            """
+            <div class='qc-card'>
+                <h4>7️⃣ Rates & Ratings Check</h4>
+                <div class='qc-small'>Ensures exactly one audience source is present per row (Estimates OR Metered) and flags missing / both-present cases.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with r2c4:
+        st.markdown(
+            """
+            <div class='qc-card'>
+                <h4>8️⃣ Channel ID Consistency</h4>
+                <div class='qc-small'>Ensures each Market + TV-Channel pair is associated with a single consistent Channel ID across the dataset.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-        **5️⃣ Overlap / Duplicate / Daybreak Check**  
-        Detects overlapping programs, duplicate broadcasts, or bad midnight transitions.
+    st.write("---")
 
-        **6️⃣ Program Category Classification**  
-        Assigns Live / Delayed / Repeat / Highlights / Magazine categories using rules, keywords, & fixtures.
-
-        **7️⃣ Competition–Event–Matchday Integrity**  
-        Confirms Competition, Event, Matchday, and Teams match valid sports structures.
-
-        **8️⃣ Market–Channel Consistency**  
-        Ensures Market–Channel pairs exist in ROSCO reference.
-
-        **9️⃣ Rates & Ratings Validation**  
-        Ensures one and only one value is filled (Audience Estimated OR Metered).
-
-        **🔟 Channel ID Consistency Check**  
-        Ensures each Market–Channel pair always uses one unique Channel ID.
-        """)
-
-    st.write("---")  # Divider before RUN button
-
-    # -----------------------------------------------------------
-    # EXISTING RUN BUTTON
-    # -----------------------------------------------------------
+    # -------------------- RUN BUTTON (SAFE PROCESS) --------------------
     if st.button("🚀 Run General QC Checks"):
+        # Basic validations
         if not main_rosco_file or not main_bsr_file or not config:
-            st.error("⚠️ Please upload both Rosco and BSR files (and ensure config.json is loaded).")
+            st.error("⚠️ Please upload both Rosco and BSR files and ensure config.json is loaded.")
         else:
-            with st.spinner("Running General QC checks... Please wait"):
+            with st.spinner("Running General QC checks..."):
                 try:
-                    # Load config
-                    col_map = config["column_mappings"]
-                    rules = config["qc_rules"]
-                    file_rules = config["file_rules"]
-                    
-                    # Save files temporarily
+                    # Load config pieces
+                    col_map = config.get("column_mappings", {})
+                    rules = config.get("qc_rules", {})
+                    file_rules = config.get("file_rules", {})
+
+                    # Save uploaded files to disk
                     rosco_path = os.path.join(UPLOAD_FOLDER, main_rosco_file.name)
                     bsr_path = os.path.join(UPLOAD_FOLDER, main_bsr_file.name)
-                    with open(rosco_path, "wb") as f: f.write(main_rosco_file.getbuffer())
-                    with open(bsr_path, "wb") as f: f.write(main_bsr_file.getbuffer())
+                    with open(rosco_path, "wb") as f:
+                        f.write(main_rosco_file.getbuffer())
+                    with open(bsr_path, "wb") as f:
+                        f.write(main_bsr_file.getbuffer())
 
-                    # --- Run YOUR 9 QC Checks Directly ---
-                    start_date, end_date = qc_general.detect_period_from_rosco(rosco_path)
-                    
-                    # 1. FIX: Removed col_map["bsr"]
-                    df = qc_general.load_bsr(bsr_path)
-                    
-                    # 2. FIX: Removed col_map["bsr"]
-                    df = qc_general.period_check(df, start_date, end_date) 
-                    
-                    # 3. FIX: Removed col_map["bsr"] and rules[...]
-                    df = qc_general.completeness_check(df, col_map["bsr"], rules["program_category"]) 
-                    
-                    # 4. FIX: Removed col_map["bsr"] and rules[...]
-                    df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules["overlap_check"]) 
-                    
-                    # 5. FIX: Simplified to match new signature
-                    df = qc_general.program_category_check(bsr_path, df, col_map, rules["program_category"], file_rules) 
-                    
-                    # 6. FIX: Simplified signature - assuming helper functions inside qc_checks.py now handle the file loading based on paths
-                    df = qc_general.check_event_matchday_competition(df, rosco_path=rosco_path)
-                    
-                    df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
+                    # --- RUN QC STEPS (wrapped with try/except for each major step) ---
+                    # 0. Detect monitoring period
+                    try:
+                        start_date, end_date = qc_general.detect_period_from_rosco(rosco_path)
+                    except Exception as e:
+                        raise RuntimeError(f"Error detecting monitoring period from Rosco: {e}")
 
-                    # 7. FIX: Changed to a similar available function (your provided code did not have rates_and_ratings_check(df, bsr_cols))
-                    df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
-                    
-                    # 8. FIX: Changed to a similar available function
-                    df = qc_general.country_channel_id_check(df,col_map["bsr"])
+                    # 1. Load BSR (detect header row inside function)
+                    try:
+                        df = qc_general.load_bsr(bsr_path)
+                    except Exception as e:
+                        raise RuntimeError(f"Error loading BSR file: {e}")
 
-                    # --- Generate Output File ---
+                    # 2. Period check
+                    try:
+                        df = qc_general.period_check(df, start_date, end_date)
+                    except Exception as e:
+                        raise RuntimeError(f"Error during period_check: {e}")
+
+                    # 3. Completeness check
+                    try:
+                        df = qc_general.completeness_check(df, col_map.get("bsr", {}), rules.get("program_category", {}))
+                    except Exception as e:
+                        raise RuntimeError(f"Error during completeness_check: {e}")
+
+                    # 4. Overlap / Duplicate / Daybreak check
+                    try:
+                        df = qc_general.overlap_duplicate_daybreak_check(df, col_map.get("bsr", {}), rules.get("overlap_check", {}))
+                    except Exception as e:
+                        raise RuntimeError(f"Error during overlap_duplicate_daybreak_check: {e}")
+
+                    # 5. Program category check (needs rosco/fixture sheet path)
+                    try:
+                        df = qc_general.program_category_check(bsr_path, df, col_map, rules.get("program_category", {}), file_rules)
+                    except Exception as e:
+                        raise RuntimeError(f"Error during program_category_check: {e}")
+
+                    # 6. Event / Matchday / Competition check
+                    try:
+                        df = qc_general.check_event_matchday_competition(df, rosco_path=rosco_path)
+                    except Exception as e:
+                        raise RuntimeError(f"Error during check_event_matchday_competition: {e}")
+
+                    # 7. Market-Channel consistency check
+                    try:
+                        df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
+                    except Exception as e:
+                        raise RuntimeError(f"Error during market_channel_consistency_check: {e}")
+
+                    # 8. Rates & Ratings check
+                    try:
+                        df = qc_general.rates_and_ratings_check(df, col_map.get("bsr", {}))
+                    except Exception as e:
+                        raise RuntimeError(f"Error during rates_and_ratings_check: {e}")
+
+                    # 9. Country Channel ID check
+                    try:
+                        df = qc_general.country_channel_id_check(df, col_map.get("bsr", {}))
+                    except Exception as e:
+                        raise RuntimeError(f"Error during country_channel_id_check: {e}")
+
+                    # --- Write output Excel ---
                     output_file = f"General_QC_Result_{os.path.splitext(main_bsr_file.name)[0]}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_file)
-                    
-                    # Ensure boolean columns are normalized for summary sheet
-                    # NOTE: This function is not defined in your provided simplified qc_checks.py, but assumed to exist
-                    # df = qc_general.normalize_ok_columns(df) 
+                    try:
+                        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+                            df.to_excel(writer, index=False, sheet_name="QC Results")
+                    except Exception as e:
+                        raise RuntimeError(f"Error saving QC Excel file: {e}")
 
-                    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-                        df.to_excel(writer, index=False, sheet_name="QC Results")
+                    # Color Excel and create summary (wrap each call)
+                    try:
+                        qc_general.color_excel(output_path, df)
+                    except Exception as e:
+                        # Non-fatal: warn but continue
+                        st.warning(f"Warning: color_excel failed: {e}")
 
-                    qc_general.color_excel(output_path, df)
-                    # Corrected the function call to match qc_checks.py's signature
-                    qc_general.generate_summary_sheet(output_path, df) 
-                    
-                    st.success(" General QC completed successfully!")
-                    with open(output_path, "rb") as f:
-                        st.download_button(
-                            label=" Download General QC Result",
-                            data=f,
-                            file_name=output_file,
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
+                    try:
+                        qc_general.generate_summary_sheet(output_path, df)
+                    except Exception as e:
+                        st.warning(f"Warning: generate_summary_sheet failed: {e}")
+
+                    # Offer the file for download
+                    try:
+                        with open(output_path, "rb") as f:
+                            st.success("✅ General QC completed successfully!")
+                            st.download_button(
+                                label="📥 Download General QC Result",
+                                data=f,
+                                file_name=output_file,
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
+                    except Exception as e:
+                        st.error(f"Could not provide download button: {e}")
+
                 except Exception as e:
-                    st.error(f" An error occurred during General QC: {e}")
+                    # Show a helpful error message; include str(e) for debugging
+                    st.error(f"❌ An error occurred while running General QC: {e}")
 
 
 # -----------------------------------------------------------
