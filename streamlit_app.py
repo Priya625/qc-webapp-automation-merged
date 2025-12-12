@@ -52,16 +52,22 @@ LOGO_PATH_4 = "images/Nielsen_Sports_logo.svg"
 st.set_page_config(page_title="NIELSEN QC Automation Portal", layout="wide")
 st.markdown("""
 <style>
-    /* Reduce large padding above tabs */
-    .block-container {
-        padding-top: 1rem !important;
-        padding-bottom: 1rem !important;
-    }
 
-    /* Reduce extra space above headers inside tabs */
-    h1, h2, h3 {
-        margin-top: 0.3rem !important;
-    }
+.qc-card {
+    background: #F7F9FC;
+    border: 1px solid #D0D7E2;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0px 1px 3px rgba(0,0,0,0.08);
+    font-size: 14px;
+    height: 140px;
+}
+
+.qc-card h4 {
+    margin-top: 0;
+    color: #0049BE;
+    font-size: 15px;
+}
 
 </style>
 """, unsafe_allow_html=True)
@@ -370,48 +376,83 @@ with main_qc_tab:
     st.write("---")
 
     # -----------------------------------------------------------
-    # 📘 NEW SECTION: QC CHECK EXPLANATION (Placed BEFORE Run Button)
+    # 📘 QC CHECKS OVERVIEW — DISPLAYED IN CARD BOXES
     # -----------------------------------------------------------
-    with st.expander("📊 Click to View Description of All QC Checks", expanded=True):
+
+    st.subheader("📊 General QC Checks Overview")
+
+    # Row 1 (Checks 1–4)
+    r1c1, r1c2, r1c3, r1c4 = st.columns(4)
+
+    with r1c1:
         st.markdown("""
-        ### **General QC Checks Performed**
-        
-        **1️⃣ Detect Monitoring Period**  
-        Reads monitoring start & end dates from Rosco.
+        <div class='qc-card'>
+            <h4>1️⃣ Period Check</h4>
+            Validates if each broadcast date falls within the monitoring start and end dates.
+        </div>
+        """, unsafe_allow_html=True)
 
-        **2️⃣ BSR Header Detection + Load**  
-        Automatically finds the correct header row.
+    with r1c2:
+        st.markdown("""
+        <div class='qc-card'>
+            <h4>2️⃣ Completeness Check</h4>
+            Ensures all required fields (Channel, ID, Teams, Audience, Source) are filled correctly.
+        </div>
+        """, unsafe_allow_html=True)
 
-        **3️⃣ Period Validation**  
-        Confirms each broadcast date lies within the monitoring window.
+    with r1c3:
+        st.markdown("""
+        <div class='qc-card'>
+            <h4>3️⃣ Overlap / Duplicate Check</h4>
+            Flags overlapping broadcasts, duplicates, and incorrect midnight daybreak transitions.
+        </div>
+        """, unsafe_allow_html=True)
 
-        **4️⃣ Completeness Check**  
-        Ensures required columns (Channel, Market, IDs, Audience, Teams, etc.) are filled.
+    with r1c4:
+        st.markdown("""
+        <div class='qc-card'>
+            <h4>4️⃣ Program Category Check</h4>
+            Determines if a program is Live, Delayed, Repeat, Highlights, or Magazine based on logic rules.
+        </div>
+        """, unsafe_allow_html=True)
 
-        **5️⃣ Overlap / Duplicate / Daybreak Check**  
-        Detects overlapping programs, duplicate broadcasts, or bad midnight transitions.
+    # Row 2 (Checks 5–8)
+    r2c1, r2c2, r2c3, r2c4 = st.columns(4)
 
-        **6️⃣ Program Category Classification**  
-        Assigns Live / Delayed / Repeat / Highlights / Magazine categories using rules, keywords, & fixtures.
+    with r2c1:
+        st.markdown("""
+        <div class='qc-card'>
+            <h4>5️⃣ Event–Matchday–Competition</h4>
+            Validates Competition, Event, Matchday, and Teams against fixture & reference rules.
+        </div>
+        """, unsafe_allow_html=True)
 
-        **7️⃣ Competition–Event–Matchday Integrity**  
-        Confirms Competition, Event, Matchday, and Teams match valid sports structures.
+    with r2c2:
+        st.markdown("""
+        <div class='qc-card'>
+            <h4>6️⃣ Market–Channel Consistency</h4>
+            Confirms Market–Channel pairs exist in the ROSCO reference file.
+        </div>
+        """, unsafe_allow_html=True)
 
-        **8️⃣ Market–Channel Consistency**  
-        Ensures Market–Channel pairs exist in ROSCO reference.
+    with r2c3:
+        st.markdown("""
+        <div class='qc-card'>
+            <h4>7️⃣ Rates & Ratings Check</h4>
+            Ensures exactly one audience rating is present — Metered OR Estimated (not both).
+        </div>
+        """, unsafe_allow_html=True)
 
-        **9️⃣ Rates & Ratings Validation**  
-        Ensures one and only one value is filled (Audience Estimated OR Metered).
+    with r2c4:
+        st.markdown("""
+        <div class='qc-card'>
+            <h4>8️⃣ Channel ID Consistency</h4>
+            Ensures each Market–Channel pair uses only one unique Channel ID across all rows.
+        </div>
+        """, unsafe_allow_html=True)
 
-        **🔟 Channel ID Consistency Check**  
-        Ensures each Market–Channel pair always uses one unique Channel ID.
-        """)
+    st.write("---")
 
-    st.write("---")  # Divider before RUN button
-
-    # -----------------------------------------------------------
-    # EXISTING RUN BUTTON
-    # -----------------------------------------------------------
     if st.button("🚀 Run General QC Checks"):
         if not main_rosco_file or not main_bsr_file or not config:
             st.error("⚠️ Please upload both Rosco and BSR files (and ensure config.json is loaded).")
