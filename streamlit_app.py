@@ -53,6 +53,22 @@ st.set_page_config(page_title="NIELSEN QC Automation Portal", layout="wide")
 st.markdown("""
 <style>
 
+/* Reduce huge top padding Streamlit adds */
+.block-container {
+    padding-top: 1rem !important;
+}
+
+/* Move Tabs Up */
+.stTabs {
+    margin-top: -30px !important;
+}
+
+/* Fix File Uploader Padding */
+div[data-testid="stFileUploader"] {
+    margin-top: -10px !important;
+}
+
+/* QC Cards */
 .qc-card {
     background: #F7F9FC;
     border: 1px solid #D0D7E2;
@@ -60,7 +76,10 @@ st.markdown("""
     border-radius: 8px;
     box-shadow: 0px 1px 3px rgba(0,0,0,0.08);
     font-size: 14px;
-    height: 140px;
+
+    /* MAKE HEIGHT AUTO SO TEXT NEVER GETS CUT */
+    height: auto !important;
+    min-height: 140px;
 }
 
 .qc-card h4 {
@@ -454,11 +473,10 @@ with main_qc_tab:
     # Row 2: Event/Matchday/Competition, Market-Channel Consistency, Rates & Ratings, Channel ID Consistency
     r2c1, r2c2, r2c3, r2c4 = st.columns(4)
     with r2c1:
-        st.markdown(
-            """
+        st.markdown("""
             <div class='qc-card'>
                 <h4>5️⃣ Event–Matchday–Competition</h4>
-                <div class='qc-small'>Checks Competition, Event and Matchday consistency and that Home/Away match data is valid against references (if available).</div>
+                Checks Competition, Event and Matchday consistency and that Home/Away match data is valid against references (if available).
             </div>
             """,
             unsafe_allow_html=True,
