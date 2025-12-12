@@ -295,31 +295,31 @@ with home_page_tab:
     st.markdown("<div class='header-title'> Nielsen  Automation Portal</div>", unsafe_allow_html=True)
     st.markdown("<p class='subtitle'>The central hub for data integrity, transformation, and complex market modeling for Sports BSR data.</p>", unsafe_allow_html=True)
     
-    # --- 1. Navigation Guide (Central Hero Section) ---
-    # st.markdown("<div class='nav-container'>", unsafe_allow_html=True)
-    st.markdown("<h3>Modules</h3>", unsafe_allow_html=True)
-    # st.markdown("<p style='color: #009DA8;'>Select a tab above  to access core functionality.</p>", unsafe_allow_html=True)
+    # # --- 1. Navigation Guide (Central Hero Section) ---
+    # # st.markdown("<div class='nav-container'>", unsafe_allow_html=True)
+    # st.markdown("<h3>Modules</h3>", unsafe_allow_html=True)
+    # # st.markdown("<p style='color: #009DA8;'>Select a tab above  to access core functionality.</p>", unsafe_allow_html=True)
     
-    # NOTE: Since we cannot programmatically link to Streamlit tabs via HTML/CSS, 
-    # this list is for display only, guiding the user to the top tabs.
-    st.markdown(
-        """
-        <ul class='nav-item-list'>
-            <li class='nav-item'>
-                <strong>Main QC Automation</strong>
-            </li>
-            <li class='nav-item'>
-                <strong>LaLiga Specific QC</strong>
-            </li>
-            <li class='nav-item'>
-                <strong>F1 Market Specific Checks</strong>
-            </li>
-        </ul>
-        """, unsafe_allow_html=True
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
+    # # NOTE: Since we cannot programmatically link to Streamlit tabs via HTML/CSS, 
+    # # this list is for display only, guiding the user to the top tabs.
+    # st.markdown(
+    #     """
+    #     <ul class='nav-item-list'>
+    #         <li class='nav-item'>
+    #             <strong>Main QC Automation</strong>
+    #         </li>
+    #         <li class='nav-item'>
+    #             <strong>LaLiga Specific QC</strong>
+    #         </li>
+    #         <li class='nav-item'>
+    #             <strong>F1 Market Specific Checks</strong>
+    #         </li>
+    #     </ul>
+    #     """, unsafe_allow_html=True
+    # )
+    # st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown("<h3 style='color: #1A5276; text-align: center; margin-top: 30px; margin-bottom: 25px;'>Key System Capabilities</h3>", unsafe_allow_html=True)
+    # st.markdown("<h3 style='color: #1A5276; text-align: center; margin-top: 30px; margin-bottom: 25px;'>Key System Capabilities</h3>", unsafe_allow_html=True)
 
     # --- 2. Core Capabilities Cards (STAGGERED GRID LAYOUT) ---
     
