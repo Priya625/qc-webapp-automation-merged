@@ -101,6 +101,7 @@ except Exception:
 
 
 # --- Use Tabs for Clear Separation (MODIFIED) ---
+LOGO_PATH_4 = "images/Nielsen_Sports_logo.svg"
 home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab , epl_tab= st.tabs([
     " Home Page", 
     " Main QC Automation", 
