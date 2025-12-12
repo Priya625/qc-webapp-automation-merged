@@ -50,6 +50,21 @@ if config is None:
 LOGO_PATH_4 = "images/Nielsen_Sports_logo.svg"
 
 st.set_page_config(page_title="NIELSEN QC Automation Portal", layout="wide")
+st.markdown("""
+<style>
+    /* Reduce large padding above tabs */
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 1rem !important;
+    }
+
+    /* Reduce extra space above headers inside tabs */
+    h1, h2, h3 {
+        margin-top: 0.3rem !important;
+    }
+
+</style>
+""", unsafe_allow_html=True)
 
 try:
     if os.path.exists(LOGO_PATH_4):
@@ -135,7 +150,7 @@ all_market_check_keys_epl = {
     "sa_nielsen_inclusion_check": "South Africa Nielsen Inclusion Check",
     "epl_live_vs_delay_validation": "Live vs Delay Validation",
     "pl_magazine_highlights_classification": "PL Magazine/Highlights Classification",
-    #"dedicated_program_duration_allignments": "Dedicated Program Duration Alignments"
+    "dedicated_program_duration_allignments": "Dedicated Program Duration Alignments"
 }
 
 
@@ -354,6 +369,49 @@ with main_qc_tab:
     
     st.write("---")
 
+    # -----------------------------------------------------------
+    # 📘 NEW SECTION: QC CHECK EXPLANATION (Placed BEFORE Run Button)
+    # -----------------------------------------------------------
+    with st.expander("📊 Click to View Description of All QC Checks", expanded=True):
+        st.markdown("""
+        ### **General QC Checks Performed**
+        
+        **1️⃣ Detect Monitoring Period**  
+        Reads monitoring start & end dates from Rosco.
+
+        **2️⃣ BSR Header Detection + Load**  
+        Automatically finds the correct header row.
+
+        **3️⃣ Period Validation**  
+        Confirms each broadcast date lies within the monitoring window.
+
+        **4️⃣ Completeness Check**  
+        Ensures required columns (Channel, Market, IDs, Audience, Teams, etc.) are filled.
+
+        **5️⃣ Overlap / Duplicate / Daybreak Check**  
+        Detects overlapping programs, duplicate broadcasts, or bad midnight transitions.
+
+        **6️⃣ Program Category Classification**  
+        Assigns Live / Delayed / Repeat / Highlights / Magazine categories using rules, keywords, & fixtures.
+
+        **7️⃣ Competition–Event–Matchday Integrity**  
+        Confirms Competition, Event, Matchday, and Teams match valid sports structures.
+
+        **8️⃣ Market–Channel Consistency**  
+        Ensures Market–Channel pairs exist in ROSCO reference.
+
+        **9️⃣ Rates & Ratings Validation**  
+        Ensures one and only one value is filled (Audience Estimated OR Metered).
+
+        **🔟 Channel ID Consistency Check**  
+        Ensures each Market–Channel pair always uses one unique Channel ID.
+        """)
+
+    st.write("---")  # Divider before RUN button
+
+    # -----------------------------------------------------------
+    # EXISTING RUN BUTTON
+    # -----------------------------------------------------------
     if st.button("🚀 Run General QC Checks"):
         if not main_rosco_file or not main_bsr_file or not config:
             st.error("⚠️ Please upload both Rosco and BSR files (and ensure config.json is loaded).")
@@ -692,7 +750,7 @@ with epl_tab:
         "sa_nielsen_inclusion_check": "South Africa Nielsen Inclusion Check",
         "epl_live_vs_delay_validation": "Live vs Delay Validation",
         "pl_magazine_highlights_classification": "PL Magazine/Highlights Classification",
-        #"dedicated_program_duration_allignments": "Dedicated Program Duration Alignments"
+        "dedicated_program_duration_allignments": "Dedicated Program Duration Alignments"
         
 
         
@@ -753,6 +811,7 @@ with epl_tab:
         check_ui("sa_nielsen_inclusion_check")
         check_ui("epl_live_vs_delay_validation")
         check_ui("pl_magazine_highlights_classification")
+        check_ui("dedicated_program_duration_allignments")
         
 
     st.write("---")

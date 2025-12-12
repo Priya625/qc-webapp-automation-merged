@@ -122,7 +122,7 @@ class EPLValidator:
         "sa_nielsen_inclusion_check": self._sa_nielsen_inclusion_check,
         "epl_live_vs_delay_validation": self._epl_live_vs_delay_validation,
         "pl_magazine_highlights_classification": self._pl_magazine_highlights_classification,
-       # "dedicated_program_duration_allignments": self._dedicated_program_duration_allignments
+        "dedicated_program_duration_allignments": self._dedicated_program_duration_allignments
         # Future EPL checks would be added here
     }
 
@@ -2499,6 +2499,61 @@ class EPLValidator:
             "details": {"rows_classified": len(report_df)}
         }
 
+    def _dedicated_program_duration_allignments(self):
+        """
+        Dedicated Program Duration Alignments:
+        For programs with 'Dedicated' in 'Type of program', 
+        ensures 'Duration (min)' matches actual duration between 'Start (UTC)' and 'End (UTC)'.
+        """
+        df = self.df.copy()
+
+        # Find 'Type of program' column
+        type_col = None
+        for col in df.columns:
+            if col.strip().lower() == "type of program":
+                type_col = col
+                break
+
+        if type_col is None:
+            return {
+                "check_key": "dedicated_program_duration_alignments",
+                "status": "Skipped",
+                "description": "Missing 'Type of program' column.",
+                "details": {}
+            }
+
+        # Identify Dedicated programs
+        dedicated_mask = df[type_col].astype(str).str.lower().str.contains("dedicated", na=False)
+
+        # Calculate actual duration
+        df["Start_DT"] = pd.to_datetime(df["Start (UTC)"], errors="coerce")
+        df["End_DT"] = pd.to_datetime(df["End (UTC)"], errors="coerce")
+
+        df["Actual_Duration_Min"] = (df["End_DT"] - df["Start_DT"]).dt.total_seconds() / 60
+
+        # Compare and align durations
+        duration_mismatch_mask = dedicated_mask & (
+            (df["Actual_Duration_Min"].notna()) & 
+            (df["Duration (min)"].notna()) & 
+            (df["Actual_Duration_Min"] != df["Duration (min)"])
+        )
+
+        rows_updated = duration_mismatch_mask.sum()
+
+        # Update durations
+        df.loc[duration_mismatch_mask, "Duration (min)"] = df.loc[duration_mismatch_mask, "Actual_Duration_Min"]
+
+        # Cleanup temp columns
+        df.drop(columns=["Start_DT", "End_DT", "Actual_Duration_Min"], inplace=True, errors="ignore")
+
+        self.df = df
+
+        return {
+            "check_key": "dedicated_program_duration_alignments",
+            "status": "Completed",
+            "description": f"Aligned durations for {rows_updated} Dedicated programs.",
+            "details": {"rows_updated": int(rows_updated)}
+        }
 
 # ----------------------------- ⚙️ Utility Functions (kept standalone) -----------------------------
 
