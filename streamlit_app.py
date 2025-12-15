@@ -599,8 +599,8 @@ with main_qc_tab:
     with r2c1:
         st.markdown("""
             <div class='qc-card'>
-                <h4>5️⃣ Event–Matchday–Competition</h4>
-                Checks Competition, Event and Matchday consistency and that Home/Away match data is valid against references (if available).
+                <h4>5️⃣ Event–Matchday Competition</h4>
+                <div class='Checks Competition,Event and Matchday consistency and Home/Away match data is valid against references.</div>
             </div>
             """,
             unsafe_allow_html=True,
