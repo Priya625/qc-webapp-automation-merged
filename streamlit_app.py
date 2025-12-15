@@ -600,7 +600,7 @@ with main_qc_tab:
         st.markdown("""
             <div class='qc-card'>
                 <h4>5️⃣ Event–Matchday Competition</h4>
-                <div class='Checks Competition,Event and Matchday consistency and Home/Away match data is valid against references.</div>
+                <div class='qc-small'>Checks Competition,Event and Matchday consistency and Home/Away match data is valid against references.</div>
             </div>
             """,
             unsafe_allow_html=True,
