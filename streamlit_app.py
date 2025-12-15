@@ -638,7 +638,15 @@ with main_qc_tab:
 # -----------------------------------------------------------
 
 with laliga_qc_tab:
-    st.header("⚽ Laliga Specific QC Checks")
+    LALIGA_LOGO_PATH = "images/laliga_logo.png"   # update name if different
+
+    # Display LaLiga logo at top of the tab
+    if os.path.exists(LALIGA_LOGO_PATH):
+        st.image(LALIGA_LOGO_PATH, width=120)
+    else:
+        st.warning("LaLiga logo not found. Please place the file in /images folder.")
+
+    st.markdown("<h2 style='margin-top:-10px;'>Laliga Specific QC Checks</h2>", unsafe_allow_html=True)
     st.markdown("Upload your **Rosco**, **BSR**, and **Macro Duplicator** files. This will run all Laliga QC checks.")
 
     col1, col2, col3 = st.columns(3)
