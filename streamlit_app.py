@@ -760,10 +760,30 @@ with laliga_qc_tab:
 #         🏎️ F1 MARKET SPECIFIC CHECKS TAB (COLLEAGUE'S LOGIC)
 # -----------------------------------------------------------
 with f1_tab:
-    st.header("🌍 Market Specific Checks & Channel Configuration")
+    F1_LOGO_PATH = "images/f1_logo.png"  # Assumed path for F1 logo
+    
+    # --- Logo and Title on one line ---
+    # Create columns: adjust the ratio (e.g., [1, 5]) if needed
+    logo_col, title_col = st.columns([1, 5]) 
+
+    # Place the logo in the first column
+    with logo_col:
+        # Assuming you have an os module import and the path is correct
+        try:
+            # Display F1 logo
+            st.image(F1_LOGO_PATH, width=120) 
+        except FileNotFoundError:
+             st.warning("F1 logo not found. Please place the file in /images folder.")
+        
+    # Place the title text in the second column
+    with title_col:
+        # Using a large markdown heading to replace st.header
+        st.markdown("<h2 style='margin-top:-10px;'>F1 Market Specific Checks & Channel Configuration</h2>", unsafe_allow_html=True)
+        
+    # --- Original description and file uploaders ---
     st.markdown("Upload the **BSR file** and the **F1 Obligation file** here to perform and log manual checks.")
 
-    col_file1, col_file2, col_file3,col_file4 = st.columns(4)
+    col_file1, col_file2, col_file3, col_file4 = st.columns(4)
     with col_file1:
         f1_bsr_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="market_check_file")
     with col_file2:
