@@ -153,10 +153,10 @@ all_market_check_keys = {
 
 all_market_check_keys_epl = {
     # --- Content Classification & Standardization ---
-    "impute_lt_live_status": "Auto-Live Imputation (L/T Tag): Automatically sets the program status to 'Live' if the 'L/T' tag is detected in the program data.",
+    "impute_lt_live_status": "Ensures all program description with L/T tag from India is included as Live",
     "consolidate_gillete_soccer": "Merges sequential program parts labeled 'Gillete Soccer' into a single entry if the gap between them is less than 30 minutes.",
     "check_sky_showcase_live": "Enforces that 'Sky Showcase' (UK) must not have any program marked as 'Live'.",
-    "standardize_uk_ire_region": "Regional Standardization (UK/Ireland): Enforces the region name 'Europe' for all entries originating from the United Kingdom and Ireland.",
+    "standardize_uk_ire_region": "Enforces the region name 'Europe' for all entries originating from the United Kingdom and Ireland.",
     "check_fixture_vs_case": "Standardizes the match separator from 'VS' or 'Vs' to the required lowercase 'vs' in program fixture names.",
     "check_pan_balkans_serbia_parity": "Ensures the Pan-Balkans market and the Serbia market have the exact same number of program rows.",
     "check_legacy_mapping": "Verifies that 'Market' and 'Channel' names adhere strictly to the established and required standard legacy mapping list.",
