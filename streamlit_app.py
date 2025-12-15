@@ -781,7 +781,7 @@ with f1_tab:
     with col_file3:
         f1_overnight_file = st.file_uploader("📈 Upload Overnight Audience File (.xlsx)", type=["xlsx"], key="overnight_file")
     with col_file4:
-        f1_macro_file = st.file_uploader("📋 4. BSA Duplicator File (Existence Check)", type=["xlsm", "xlsx"], key="macro_file")
+        f1_macro_file = st.file_uploader("📋BSA Duplicator File (Existence Check)", type=["xlsm", "xlsx"], key="macro_file")
     
     st.write("---")
 
