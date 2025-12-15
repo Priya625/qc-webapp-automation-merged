@@ -760,35 +760,33 @@ with laliga_qc_tab:
 #         🏎️ F1 MARKET SPECIFIC CHECKS TAB (COLLEAGUE'S LOGIC)
 # -----------------------------------------------------------
 with f1_tab:
- F1_LOGO_PATH = "images/Formula_1.png" # Using the name you provided: Formula_1.png
+    F1_LOGO_PATH = "images/f1_logo.png"
 
-# Set ratio to [1, 5] and width to 120px to match LaLiga for visual consistencylogo_col, title_col = st.columns([1, 5])
+    logo_col, title_col = st.columns([1, 8])
 
-with logo_col:
-    if os.path.exists(F1_LOGO_PATH):
-        st.image(F1_LOGO_PATH, width=120) # Standardized width
-    else:
-        st.warning("F1 logo not found. Please place the file in /images folder.") # Use st.warning for consistency
+    with logo_col:
+        if os.path.exists(F1_LOGO_PATH):
+            st.image(F1_LOGO_PATH, width=80)
+        else:
+            st.empty()
 
-with title_col:
-    st.markdown(
-    # Standardized style
-    "<h2 style='margin-top:-10px;'>F1 Market Specific Checks</h2>", 
-    unsafe_allow_html=True
-    )
-    # NOTE: The original subtitle text "Upload the BSR file and the F1 Obligation file here to perform and log manual checks." is kept here.
+    with title_col:
+        st.markdown(
+            "<h2 style='margin-top:14px;'>F1 Market Specific Checks</h2>",
+            unsafe_allow_html=True
+        )
     st.markdown("Upload the **BSR file** and the **F1 Obligation file** here to perform and log manual checks.")
 
     col_file1, col_file2, col_file3,col_file4 = st.columns(4)
     with col_file1:
         f1_bsr_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="market_check_file")
-        with col_file2:
-            f1_obligation_file = st.file_uploader("📄 Upload F1 Obligation File (.xlsx)", type=["xlsx"], key="obligation_file")
-            with col_file3:
-                f1_overnight_file = st.file_uploader("📈 Upload Overnight Audience File (.xlsx)", type=["xlsx"], key="overnight_file")
-            with col_file4:
-                f1_macro_file = st.file_uploader("📋 4. BSA Duplicator File (Existence Check)", type=["xlsm", "xlsx"], key="macro_file")
-            
+    with col_file2:
+        f1_obligation_file = st.file_uploader("📄 Upload F1 Obligation File (.xlsx)", type=["xlsx"], key="obligation_file")
+    with col_file3:
+        f1_overnight_file = st.file_uploader("📈 Upload Overnight Audience File (.xlsx)", type=["xlsx"], key="overnight_file")
+    with col_file4:
+        f1_macro_file = st.file_uploader("📋 4. BSA Duplicator File (Existence Check)", type=["xlsm", "xlsx"], key="macro_file")
+    
     st.write("---")
 
     for key in all_market_check_keys.keys():
