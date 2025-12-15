@@ -645,7 +645,7 @@ with main_qc_tab:
 with laliga_qc_tab:
     LALIGA_LOGO_PATH = "images/laliga_logo.png"
 
-    logo_col, title_col = st.columns([1, 8])  # adjust ratio if needed
+    logo_col, title_col = st.columns([1, 8])  
 
     with logo_col:
         if os.path.exists(LALIGA_LOGO_PATH):
@@ -658,6 +658,9 @@ with laliga_qc_tab:
             "<h2 style='margin-top:12px;'>Laliga Specific QC Checks</h2>",
             unsafe_allow_html=True
         )
+        
+    # The rest of your content remains below the columns
+    st.markdown("Upload your **Rosco**, **BSR**, and **Macro Duplicator** files. This will run all Laliga QC checks.")
 
     col1, col2, col3 = st.columns(3)
     with col1:
