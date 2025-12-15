@@ -762,7 +762,7 @@ with laliga_qc_tab:
 with f1_tab:
     F1_LOGO_PATH = "images/f1_logo.png"
 
-    logo_col, title_col = st.columns([1, 5])
+    logo_col, title_col = st.columns([1, 8])
 
     with logo_col:
         if os.path.exists(F1_LOGO_PATH):
