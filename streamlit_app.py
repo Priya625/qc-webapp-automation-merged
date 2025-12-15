@@ -643,28 +643,21 @@ with main_qc_tab:
 # -----------------------------------------------------------
 
 with laliga_qc_tab:
-    LALIGA_LOGO_PATH = "images/laliga_logo.png"  # update name if different
-    
-    # 1. Create two columns for the logo and the title
-    # Adjust the ratio (e.g., [1, 5]) to control the width of the logo column vs the title column
-    logo_col, title_col = st.columns([1, 5]) 
+    LALIGA_LOGO_PATH = "images/laliga_logo.png"
 
-    # 2. Place the logo in the first column
+    logo_col, title_col = st.columns([1, 8])  # adjust ratio if needed
+
     with logo_col:
         if os.path.exists(LALIGA_LOGO_PATH):
-            # The width here might need adjustment based on the column size
-            st.image(LALIGA_LOGO_PATH, width=120) 
+            st.image(LALIGA_LOGO_PATH, width=80)
         else:
-            st.warning("LaLiga logo not found. Please place the file in /images folder.")
+            st.empty()
 
-    # 3. Place the title in the second column
     with title_col:
-        # Use a slightly different style or an extra line break to visually align the text
-        # with the vertically centered logo, if necessary.
-        st.markdown("<h2 style='margin-top:-10px;'>Laliga Specific QC Checks</h2>", unsafe_allow_html=True)
-        
-    # The rest of your content remains below the columns
-    st.markdown("Upload your **Rosco**, **BSR**, and **Macro Duplicator** files. This will run all Laliga QC checks.")
+        st.markdown(
+            "<h2 style='margin-top:12px;'>Laliga Specific QC Checks</h2>",
+            unsafe_allow_html=True
+        )
 
     col1, col2, col3 = st.columns(3)
     with col1:
