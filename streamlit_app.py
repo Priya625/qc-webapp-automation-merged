@@ -760,7 +760,21 @@ with laliga_qc_tab:
 #         🏎️ F1 MARKET SPECIFIC CHECKS TAB (COLLEAGUE'S LOGIC)
 # -----------------------------------------------------------
 with f1_tab:
-    st.header("🌍 Market Specific Checks & Channel Configuration")
+    F1_LOGO_PATH = "images/f1_logo.png"
+
+    logo_col, title_col = st.columns([1, 8])
+
+    with logo_col:
+        if os.path.exists(F1_LOGO_PATH):
+            st.image(F1_LOGO_PATH, width=80)
+        else:
+            st.empty()
+
+    with title_col:
+        st.markdown(
+            "<h2 style='margin-top:14px;'>F1 Market Specific Checks</h2>",
+            unsafe_allow_html=True
+        )
     st.markdown("Upload the **BSR file** and the **F1 Obligation file** here to perform and log manual checks.")
 
     col_file1, col_file2, col_file3,col_file4 = st.columns(4)
