@@ -664,11 +664,11 @@ with laliga_qc_tab:
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        laliga_rosco_file = st.file_uploader("📘 Upload Rosco File (.xlsx)", type=["xlsx"], key="laliga_rosco")
+        laliga_rosco_file = st.file_uploader("📥 Upload Rosco File (.xlsx)", type=["xlsx"], key="laliga_rosco")
     with col2:
-        laliga_bsr_file = st.file_uploader("📗 Upload BSR File (.xlsx)", type=["xlsx"], key="laliga_bsr")
+        laliga_bsr_file = st.file_uploader("📥 Upload BSR File (.xlsx)", type=["xlsx"], key="laliga_bsr")
     with col3:
-        laliga_macro_file = st.file_uploader("📒 Upload Macro Duplicator File", type=["xlsx","xls","xlsm","xlsb"], key="laliga_macro")
+        laliga_macro_file = st.file_uploader("📥 Upload Macro Duplicator File", type=["xlsx","xls","xlsm","xlsb"], key="laliga_macro")
     
     st.write("---")
 
