@@ -907,7 +907,21 @@ with f1_tab:
                     st.error(f"❌ An error occurred during F1 checks: {e}")
 
 with epl_tab:
-    st.header(" EPL Specific Checks")
+    EPL_LOGO_PATH = "images/epl_logo.png"
+
+    logo_col, title_col = st.columns([1, 8])
+
+    with logo_col:
+        if os.path.exists(EPL_LOGO_PATH):
+            st.image(EPL_LOGO_PATH, width=80)
+        else:
+            st.empty()
+
+    with title_col:
+        st.markdown(
+            "<h2 style='margin-top:14px;'>EPL Specific QC Checks</h2>",
+            unsafe_allow_html=True
+        )
     st.markdown("Upload the required files here to perform and log manual checks.")
 
     # --- 0. Define Tooltips for Checks ---
