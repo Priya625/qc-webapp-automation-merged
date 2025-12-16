@@ -10,6 +10,10 @@ from typing import Optional, List
 
 BACKEND_BASE_URL = os.environ.get("STREAMLIT_BACKEND_URL", "http://localhost:8000")
 BACKEND_URL = BACKEND_BASE_URL + "/api"
+# --------------------------------
+# 🔗 LOOKER STUDIO DASHBOARD LINK
+DASHBOARD_URL = "https://lookerstudio.google.com/reporting/ac1aa82a-0c82-4a7a-af7a-2ccc7b0e1b22"
+# --------------------------------
 
 
 # --- Import ALL QC functions from ALL your files ---
@@ -50,6 +54,16 @@ if config is None:
 LOGO_PATH_4 = "images/Nielsen_Sports_logo.svg"
 
 st.set_page_config(page_title="NIELSEN QC Automation Portal", layout="wide")
+# --------------------------------------------------
+# 🔗 Sidebar Dashboard Link
+with st.sidebar:
+    st.markdown("## 📊 Quick Links")
+    st.link_button(
+        "🔍 Open Looker Dashboard",
+        DASHBOARD_URL
+    )
+    st.caption("Click to view the QC dashboard in a new tab")
+# --------------------------------------------------
 st.markdown("""
 <style>
 

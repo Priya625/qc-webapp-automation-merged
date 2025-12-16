@@ -122,6 +122,7 @@ class EPLValidator:
         "sa_nielsen_inclusion_check": self._sa_nielsen_inclusion_check,
         "epl_live_vs_delay_validation": self._epl_live_vs_delay_validation,
         "pl_magazine_highlights_classification": self._pl_magazine_highlights_classification,
+        #"relevant_only_in_the_uk": self._relevant_only_in_the_uk,
         #"dedicated_program_duration_allignments": self._dedicated_program_duration_allignments
         # Future EPL checks would be added here
     }
