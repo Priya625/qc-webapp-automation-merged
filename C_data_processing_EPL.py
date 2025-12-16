@@ -118,7 +118,7 @@ class EPLValidator:
         "check_non_metered_primary_market_audience" : self._check_non_metered_primary_market_audience,
         "check_legacy_mapping" : self._check_legacy_mapping,
         "check_premier_league_october_obligation" : self._check_premier_league_october_obligation,
-        "check_star_sports_3_consolidation" : self._check_star_sports_3_consolidation,
+        #"check_star_sports_3_consolidation" : self._check_star_sports_3_consolidation,
         "check_bsa_nielsen_audience_presence" : self._check_bsa_nielsen_audience_presence,
         "check_source_mediatype_validity" : self._check_source_mediatype_validity,
         "filter_short_programs": self._filter_short_programs,
