@@ -118,6 +118,9 @@ class EPLValidator:
         "check_non_metered_primary_market_audience" : self._check_non_metered_primary_market_audience,
         "check_legacy_mapping" : self._check_legacy_mapping,
         "check_premier_league_october_obligation" : self._check_premier_league_october_obligation,
+        "check_star_sports_3_consolidation" : self._check_star_sports_3_consolidation,
+        "check_bsa_nielsen_audience_presence" : self._check_bsa_nielsen_audience_presence,
+        "check_source_mediatype_validity" : self._check_source_mediatype_validity,
         "filter_short_programs": self._filter_short_programs,
         "sa_nielsen_inclusion_check": self._sa_nielsen_inclusion_check,
         "epl_live_vs_delay_validation": self._epl_live_vs_delay_validation,
@@ -163,7 +166,8 @@ class EPLValidator:
 
     # --- Private Loading/Parsing Methods (from old qc_checks.py) ---
     def _load_overnight_data(self):
-        """ Loads the CDT/Overnight file, handling the specific header offset (Row 9)
+        """
+        Loads the CDT/Overnight file, handling the specific header offset (Row 9)
         and standardizing columns for the Game of the Day check.
         """
         if not self.overnight_path: return None
@@ -173,7 +177,7 @@ class EPLValidator:
         
         # Columns we need to extract
         # Mapping: 'Date' -> Date, 'Start Time' -> Start, 'Matchweek' -> Matchday Source, 'Programme Title' -> Desc Source
-        OVN_USE_COLS = ['Date', 'Start Time', 'End Time', 'Matchweek', 'Programme Title', 'Broadcaster']
+        OVN_USE_COLS = ['Date', 'Start Time', 'End Time', 'Matchweek', 'Programme Title', 'Broadcaster','Channel']
         
         try:
             # Load with specific header row
@@ -412,11 +416,17 @@ class EPLValidator:
         # Detect the header row on the specified sheet
         header_row = self._detect_header_row(sheet_name=sheet_name_to_load)
 
+        # --- CRITICAL FIX: Limit the columns read ---
+        # Your data ends around column 46. We will read up to column "BZ" (approx 78 columns)
+        # to be safe, which prevents pandas from trying to read column 16,000.
+        SAFE_COLUMN_LIMIT = "A:BZ"
+
         # Load the full data using the detected header row and sheet name
         df = pd.read_excel(
             self.bsr_path, 
             sheet_name=sheet_name_to_load,  # Use the specific sheet name
-            header=header_row               # Use the dynamically detected header row
+            header=header_row,               # Use the dynamically detected header row
+            # usecols=SAFE_COLUMN_LIMIT
         )
         
         # Ensure column names are clean
@@ -452,12 +462,13 @@ class EPLValidator:
     def _impute_lt_live_status(self) -> Dict[str, Any]:
         """
         Classifies program as Live based on 'L/T' keyword in Combined column.
+        RESTRICTION: Only applies if 'Home Team' and 'Away Team' are NOT blank.
         Uses CONFIGURABLE market and keyword.
         """
         initial_rows = len(self.df)
         FLAG_COLUMN = 'QC_Recommended_Program_Type' 
         
-        #  READ FROM CONFIG
+        # 🟢 READ FROM CONFIG
         chk_config = self.config.get("impute_lt_live_status", {})
         TARGET_MARKET = chk_config.get("market", "INDIA")
         KEYWORD = chk_config.get("keyword", "L/T")
@@ -467,7 +478,7 @@ class EPLValidator:
         if 'Type of programme' in self.df.columns:
             TYPE_COL_NAME = 'Type of programme'
             
-        REQUIRED_COLS = ['Combined', TYPE_COL_NAME, 'Market']
+        REQUIRED_COLS = ['Combined', TYPE_COL_NAME, 'Market', 'Home Team', 'Away Team'] # Added Team cols
 
         self.df[FLAG_COLUMN] = 'Current Status OK'
         
@@ -480,30 +491,46 @@ class EPLValidator:
                  "details": {}
              }
 
-        # Normalize
+        # Normalize Columns
         combined_norm = self.df['Combined'].astype(str).str.upper()
-        # Use the dynamic column name found above
         type_of_program_norm = self.df[TYPE_COL_NAME].astype(str).str.lower()
         market_norm = self.df['Market'].astype(str).str.upper().str.strip()
+        
+        # Normalize Team Columns (Check for non-empty string content)
+        home_team_valid = self.df['Home Team'].astype(str).str.strip().str.upper()
+        away_team_valid = self.df['Away Team'].astype(str).str.strip().str.upper()
+        
+        # --- FILTERS ---
 
-        # Filter by Configured Market
+        # 1. Market Filter
         market_mask = market_norm == TARGET_MARKET.upper()
         
-        # Filter by Configured Keyword
-        is_lt_present_mask_global = combined_norm.str.contains(re.escape(KEYWORD), na=False)
-        is_lt_present_mask = is_lt_present_mask_global & market_mask
+        # 2. Keyword Filter
+        keyword_mask = combined_norm.str.contains(re.escape(KEYWORD), na=False)
         
-        # Apply Logic
-        self.df.loc[is_lt_present_mask, FLAG_COLUMN] = 'Recommended: Live'
+        # 3. Team Validity Filter (NEW REQUIREMENT)
+        # Must have valid content (not NaN, not empty, not 'NAN')
+        teams_present_mask = (home_team_valid != 'NAN') & (home_team_valid != '') & \
+                             (away_team_valid != 'NAN') & (away_team_valid != '')
 
+        # Combine Filters: Match L/T keyword AND Market AND Teams are present
+        target_rows_mask = keyword_mask & market_mask & teams_present_mask
+        
+        # --- Apply Logic ---
+        
+        # Apply the recommended status to valid target rows
+        self.df.loc[target_rows_mask, FLAG_COLUMN] = 'Recommended: Live'
+
+        # Check for anomalies (Target met but status is NOT Live)
         is_not_live_mask = type_of_program_norm != 'live'
-        anomalous_flag_mask = is_lt_present_mask & is_not_live_mask
-        self.df.loc[anomalous_flag_mask, FLAG_COLUMN] = 'ANOMALY: Should be Live (L/T Present)'
+        anomalous_flag_mask = target_rows_mask & is_not_live_mask
+        
+        self.df.loc[anomalous_flag_mask, FLAG_COLUMN] = 'ANOMALY: Should be Live (L/T Present & Teams Defined)'
         
         return {
             "check_key": "impute_lt_live_status",
             "status": "Flagged" if anomalous_flag_mask.sum() > 0 else "Completed",
-            "description": f"Audited {KEYWORD} status in {TARGET_MARKET}. Flagged {anomalous_flag_mask.sum()} anomalies.",
+            "description": f"Audited {KEYWORD} status in {TARGET_MARKET} (with Team Check). Flagged {anomalous_flag_mask.sum()} anomalies.",
             "details": {"rows_flagged": int(anomalous_flag_mask.sum()), "market": TARGET_MARKET, "keyword": KEYWORD}
         }
 
@@ -641,7 +668,7 @@ class EPLValidator:
         TARGET_CHANNEL_KEYWORD = 'SKY SHOWCASE' # Keyword in the TV-Channel name
         FORBIDDEN_STATUS = 'LIVE'
         
-        REQUIRED_COLS = ['Market', 'TV-Channel', 'Type of program']
+        REQUIRED_COLS = ['Market', 'TV-Channel', 'Type of programme']
         if not all(col in self.df.columns for col in REQUIRED_COLS):
             return {
                 "check_key": "check_sky_showcase_live", "status": "Skipped",
@@ -655,7 +682,7 @@ class EPLValidator:
         # 1. Normalize columns for reliable filtering
         market_norm = self.df['Market'].astype(str).str.strip().str.upper()
         channel_norm = self.df['TV-Channel'].astype(str).str.strip().str.upper()
-        type_norm = self.df['Type of program'].astype(str).str.strip().str.upper()
+        type_norm = self.df['Type of programme'].astype(str).str.strip().str.upper()
 
         # 2. Identify the target rows (Robust Market AND Channel Identification)
         
@@ -696,62 +723,148 @@ class EPLValidator:
             }
         }
 
+    # def _standardize_uk_ire_region(self) -> Dict[str, Any]:
+    #     """
+    #     Flags rows in the UK and Ireland markets where the 'Region' column is incorrectly 
+    #     designated (i.e., not 'Europe'), detecting inconsistent market spellings like 'U.K'.
+    #     """
+    #     initial_rows = len(self.df)
+    #     FLAG_COLUMN = 'QC_Region_Standardization_Flag'
+        
+    #     # Define the markets that need to be within the 'Europe' region
+    #     TARGET_MARKETS = ['UNITED KINGDOM', 'UK', 'IRELAND']
+    #     CANONICAL_REGION = 'Europe'
+        
+    #     REQUIRED_COLS = ['Market', 'Region']
+    #     # ... (Skipped initial checks for brevity) ...
+
+    #     self.df[FLAG_COLUMN] = 'OK'
+
+    #     # 1. Prepare normalized Market column
+    #     market_norm = self.df['Market'].astype(str).str.strip().str.upper()
+        
+    #     # --- CRITICAL FIX: Aggressively remove periods/punctuation from Market name ---
+    #     # This ensures 'U.K' becomes 'UK' for comparison.
+    #     market_norm = market_norm.str.replace(r'[^A-Z\s]', '', regex=True).str.strip() 
+        
+    #     # 2. Create the mask for all rows in the target markets
+    #     target_market_mask = market_norm.isin(TARGET_MARKETS)
+        
+    #     # 3. Identify rows where the Region column is currently INCORRECT (not Europe)
+    #     region_norm = self.df['Region'].astype(str).str.strip().str.title() 
+        
+    #     # Final mask identifies the inconsistency
+    #     inconsistency_mask = target_market_mask & (region_norm != CANONICAL_REGION)
+        
+    #     rows_flagged = inconsistency_mask.sum()
+        
+    #     # 4. Apply Flag
+    #     if rows_flagged > 0:
+            
+    #         # Action 1: Flag the row for auditing purposes
+    #         flag_message = f"Region INCONSISTENCY: Market should be '{CANONICAL_REGION}', but current value is non-standard."
+            
+    #         # Apply flag only to rows currently marked OK
+    #         rows_to_flag = inconsistency_mask & (self.df[FLAG_COLUMN] == 'OK')
+            
+    #         self.df.loc[rows_to_flag, FLAG_COLUMN] = flag_message
+
+    #     # 5. Final Summary
+    #     return {
+    #         "check_key": "standardize_uk_ire_region",
+    #         "status": "Flagged" if rows_flagged > 0 else "Completed",
+    #         "action": "Region Standardization", 
+    #         "description": f"Flagged {rows_flagged} UK/Ireland rows with regional designation inconsistencies.",
+    #         "details": {
+    #             "rows_flagged": int(rows_flagged),
+    #             "target_markets": TARGET_MARKETS,
+    #             "canonical_region": CANONICAL_REGION
+    #         }
+    #     }
+
     def _standardize_uk_ire_region(self) -> Dict[str, Any]:
         """
-        Flags rows in the UK and Ireland markets where the 'Region' column is incorrectly 
-        designated (i.e., not 'Europe'), detecting inconsistent market spellings like 'U.K'.
+        Audits Region Standardization for UK and Ireland markets.
+        
+        Checks:
+        1. Ireland Check: Flags 'Ireland' programs incorrectly labeled with 'United Kingdom' region (Should be 'Europe').
+        2. UK Check: Flags 'United Kingdom' programs incorrectly labeled with 'Europe' region (Should be 'United Kingdom').
         """
         initial_rows = len(self.df)
         FLAG_COLUMN = 'QC_Region_Standardization_Flag'
         
-        # Define the markets that need to be within the 'Europe' region
-        TARGET_MARKETS = ['UNITED KINGDOM', 'UK', 'IRELAND']
-        CANONICAL_REGION = 'Europe'
-        
         REQUIRED_COLS = ['Market', 'Region']
-        # ... (Skipped initial checks for brevity) ...
+        
+        # Check for required columns
+        if not all(col in self.df.columns for col in REQUIRED_COLS):
+            return {
+                "check_key": "audit_uk_ire_region", "status": "Skipped",
+                "action": "Region Standardization", 
+                "description": "Skipped: Missing required columns.",
+                "details": {"rows_flagged": 0}
+            }
 
-        self.df[FLAG_COLUMN] = 'OK'
+        # Initialize flag column if it doesn't exist, otherwise keep existing flags
+        if FLAG_COLUMN not in self.df.columns:
+            self.df[FLAG_COLUMN] = 'OK'
 
-        # 1. Prepare normalized Market column
-        market_norm = self.df['Market'].astype(str).str.strip().str.upper()
+        # 1. Prepare normalized Market and Region columns
+        # Remove punctuation to ensure 'IRELAND' matches 'Ireland.' or 'Ireland'
+        market_norm = self.df['Market'].astype(str).str.upper()
+        market_norm = market_norm.str.replace(r'[^A-Z\s]', '', regex=True).str.strip()
         
-        # --- CRITICAL FIX: Aggressively remove periods/punctuation from Market name ---
-        # This ensures 'U.K' becomes 'UK' for comparison.
-        market_norm = market_norm.str.replace(r'[^A-Z\s]', '', regex=True).str.strip() 
+        region_norm = self.df['Region'].astype(str).str.upper()
+        region_norm = region_norm.str.replace(r'[^A-Z\s]', '', regex=True).str.strip()
         
-        # 2. Create the mask for all rows in the target markets
-        target_market_mask = market_norm.isin(TARGET_MARKETS)
+        # 2. Define Groups
         
-        # 3. Identify rows where the Region column is currently INCORRECT (not Europe)
-        region_norm = self.df['Region'].astype(str).str.strip().str.title() 
+        # Group A: Ireland Markets
+        is_ireland_market = market_norm == 'IRELAND'
         
-        # Final mask identifies the inconsistency
-        inconsistency_mask = target_market_mask & (region_norm != CANONICAL_REGION)
+        # Group B: UK Markets (United Kingdom, UK, Great Britain)
+        uk_variations = ['UNITED KINGDOM', 'UK', 'GREAT BRITAIN']
+        is_uk_market = market_norm.isin(uk_variations)
         
-        rows_flagged = inconsistency_mask.sum()
+        # 3. Identify Inconsistencies
         
-        # 4. Apply Flag
-        if rows_flagged > 0:
-            
-            # Action 1: Flag the row for auditing purposes
-            flag_message = f"Region INCONSISTENCY: Market should be '{CANONICAL_REGION}', but current value is non-standard."
-            
-            # Apply flag only to rows currently marked OK
-            rows_to_flag = inconsistency_mask & (self.df[FLAG_COLUMN] == 'OK')
-            
+        # Error 1: Market is IRELAND, but Region is UK (Should be Europe)
+        # We detect if region is one of the UK variations
+        is_uk_region = region_norm.isin(uk_variations)
+        error_ireland = is_ireland_market & is_uk_region
+        
+        # Error 2: Market is UK, but Region is EUROPE (Should be UK)
+        is_europe_region = region_norm == 'EUROPE'
+        error_uk = is_uk_market & is_europe_region
+        
+        # 4. Apply Flags
+        
+        # Flag Ireland Errors
+        if error_ireland.any():
+            flag_message = "INCORRECT REGION: Ireland program detected with UK Region. Should be 'Europe'."
+            rows_to_flag = error_ireland & (self.df[FLAG_COLUMN] == 'OK')
             self.df.loc[rows_to_flag, FLAG_COLUMN] = flag_message
+            
+        # Flag UK Errors
+        if error_uk.any():
+            flag_message = "INCORRECT REGION: UK program detected with 'Europe' Region. Should be 'United Kingdom'."
+            rows_to_flag = error_uk & (self.df[FLAG_COLUMN] == 'OK')
+            self.df.loc[rows_to_flag, FLAG_COLUMN] = flag_message
+
+        # Calculate Total Flagged
+        # Note: Using bitwise OR to count unique rows flagged by either condition
+        total_rows_flagged = (error_ireland | error_uk).sum()
 
         # 5. Final Summary
         return {
-            "check_key": "standardize_uk_ire_region",
-            "status": "Flagged" if rows_flagged > 0 else "Completed",
+            "check_key": "audit_uk_ire_region",
+            "status": "Flagged" if total_rows_flagged > 0 else "Completed",
             "action": "Region Standardization", 
-            "description": f"Flagged {rows_flagged} UK/Ireland rows with regional designation inconsistencies.",
+            "description": f"Flagged {total_rows_flagged} rows with Region/Market inconsistencies.",
             "details": {
-                "rows_flagged": int(rows_flagged),
-                "target_markets": TARGET_MARKETS,
-                "canonical_region": CANONICAL_REGION
+                "rows_processed": int(initial_rows),
+                "total_flagged": int(total_rows_flagged),
+                "ireland_errors": int(error_ireland.sum()),
+                "uk_errors": int(error_uk.sum())
             }
         }
 
@@ -912,74 +1025,193 @@ class EPLValidator:
             }
         }
 
+    # def _audit_multi_match_status(self) -> Dict[str, Any]:
+    #     """
+    #     Audits rows containing 'Goal Rush' or 'Konferenz/Conference' (Multi-Match content). 
+    #     Flags rows if the 'Phase / Fixture / Episode Desc.' column does not contain 
+    #     the 'Multi-Match' classification (allowing for variations like MULTIMATCH, MULTI MATCH).
+    #     """
+    #     initial_rows = len(self.df)
+    #     FLAG_COLUMN = 'QC_Multi_Match_Audit_Flag'
+        
+    #     # Define keywords
+    #     MULTI_MATCH_KEYWORDS = ['GOAL RUSH', 'KONFERENZ', 'CONFERENCE']
+        
+    #     # Define Columns
+    #     DESCRIPTION_COL = 'Program Description'
+    #     FIXTURE_DESC_COL = 'Phase / Fixture / Episode Desc.'
+        
+    #     # --- CRITICAL FIX: Use Regex to catch "MULTIMATCH", "MULTI-MATCH", "MULTI MATCH" ---
+    #     # \s* matches zero or more spaces, \-? matches zero or one hyphen
+    #     EXPECTED_FIXTURE_REGEX = r'MULTI[\s\-]*MATCH' 
+        
+    #     REQUIRED_COLS = [DESCRIPTION_COL, FIXTURE_DESC_COL]
+    #     if not all(col in self.df.columns for col in REQUIRED_COLS):
+    #         return {
+    #             "check_key": "audit_multi_match", "status": "Skipped",
+    #             "action": "Multi-Match Audit", 
+    #             "description": "Skipped: Missing required BSR columns.",
+    #             "details": {"rows_flagged": 0}
+    #         }
+
+    #     self.df[FLAG_COLUMN] = 'OK'
+
+    #     # 1. Prepare normalized columns (Upper Case)
+    #     description_norm = self.df[DESCRIPTION_COL].astype(str).str.upper()
+    #     fixture_desc_norm = self.df[FIXTURE_DESC_COL].astype(str).str.upper()
+        
+    #     # 2. Identify the primary target: rows containing Multi-Match keywords in description
+    #     match_keyword_pattern = '|'.join([re.escape(k) for k in MULTI_MATCH_KEYWORDS])
+    #     target_mask = description_norm.str.contains(match_keyword_pattern, na=False)
+
+    #     # 3. Define Error Mask
+        
+    #     # Check if ANY variation of "Multi-Match" is present in the fixture description using Regex
+    #     fixture_tag_present_mask = fixture_desc_norm.str.contains(EXPECTED_FIXTURE_REGEX, regex=True, na=False)
+        
+    #     # The error is when the target is TRUE (It is Goal Rush), but the tag is FALSE (No MultiMatch tag)
+    #     error_mask = target_mask & (~fixture_tag_present_mask)
+
+    #     rows_flagged = error_mask.sum()
+        
+    #     # 4. Apply Flag
+    #     if error_mask.any():
+            
+    #         flag_message = f"FIXTURE TAG MISSING: Description indicates Multi-Match content, but '{FIXTURE_DESC_COL}' does not contain 'MULTIMATCH'."
+            
+    #         # Apply flag only to rows currently marked OK
+    #         rows_to_flag = error_mask & (self.df[FLAG_COLUMN] == 'OK')
+            
+    #         self.df.loc[rows_to_flag, FLAG_COLUMN] = flag_message
+            
+    #         # Re-calculate rows flagged after application
+    #         rows_flagged = rows_to_flag.sum()
+
+
+    #     # 5. Final Summary
+    #     return {
+    #         "check_key": "audit_multi_match",
+    #         "status": "Flagged" if rows_flagged > 0 else "Completed",
+    #         "action": "Multi-Match Audit", 
+    #         "description": f"Audited Multi-Match content. Flagged {rows_flagged} rows missing the required 'MULTIMATCH' tag.",
+    #         "details": {
+    #             "rows_processed": int(initial_rows),
+    #             "rows_flagged": int(rows_flagged),
+    #             "target_keywords": MULTI_MATCH_KEYWORDS
+    #         }
+    #     }
+
     def _audit_multi_match_status(self) -> Dict[str, Any]:
         """
-        Audits rows containing 'Goal Rush' or 'Konferenz/Conference' (Multi-Match content). 
-        Flags rows if the 'Phase / Fixture / Episode Desc.' column does not contain 
-        the 'Multi-Match' classification.
+        Audits Multi-Match content and Classification Codes.
+        
+        Logic:
+        1. Uses 'Combined' column exclusively for content checks.
+        2. Check A: If 'Combined' contains 'Goal Rush'/'Konferenz', 'Phase / Fixture / Episode Desc.' must have 'MULTIMATCH' tag.
+        3. Check B: If 'Combined' ends in 'NB' or 'VB', 'Type of program' must be 'Magazine & Support'.
+        4. Check C: If tagged 'MULTIMATCH', 'Type of program' must be 'Live' or 'Repeat'.
         """
         initial_rows = len(self.df)
         FLAG_COLUMN = 'QC_Multi_Match_Audit_Flag'
         
-        # Define keywords and target columns
+        # Define keywords
         MULTI_MATCH_KEYWORDS = ['GOAL RUSH', 'KONFERENZ', 'CONFERENCE']
-        DESCRIPTION_COL = 'Program Description'
+        VALID_MULTIMATCH_TYPES = ['LIVE', 'REPEAT']
+        
+        # Define Columns
+        COMBINED_COL = 'Combined'
         FIXTURE_DESC_COL = 'Phase / Fixture / Episode Desc.'
+        TYPE_COL = 'Type of programme'
         
-        # Define the expected classification tag that MUST be present in the fixture description
-        EXPECTED_FIXTURE_TAG = 'MULTI-MATCH' 
+        # Regex for valid tag and suffixes
+        EXPECTED_FIXTURE_REGEX = r'MULTI[\s\-]*MATCH' 
+        # Suffix regex: matches space followed by NB or VB at the end of the string
+        SUFFIX_REGEX = r'\s(NB|VB)$'  
         
-        REQUIRED_COLS = [DESCRIPTION_COL, FIXTURE_DESC_COL]
+        # Strict check for required columns
+        REQUIRED_COLS = [COMBINED_COL, FIXTURE_DESC_COL, TYPE_COL]
+        
         if not all(col in self.df.columns for col in REQUIRED_COLS):
-            return {
+             return {
                 "check_key": "audit_multi_match", "status": "Skipped",
-                "action": "Multi-Match Audit", 
-                "description": "Skipped: Missing required BSR columns.",
+                "action": "Multi-Match & Code Audit", 
+                "description": f"Skipped: Missing required columns (Need '{COMBINED_COL}', '{FIXTURE_DESC_COL}', '{TYPE_COL}').",
                 "details": {"rows_flagged": 0}
             }
 
         self.df[FLAG_COLUMN] = 'OK'
 
         # 1. Prepare normalized columns
-        description_norm = self.df[DESCRIPTION_COL].astype(str).str.upper()
-        fixture_desc_norm = self.df[FIXTURE_DESC_COL].astype(str).str.upper()
+        combined_norm = self.df[COMBINED_COL].astype(str).str.upper().fillna('')
+        fixture_desc_norm = self.df[FIXTURE_DESC_COL].astype(str).str.upper().fillna('')
+        type_norm = self.df[TYPE_COL].astype(str).str.strip().str.upper()
         
-        # 2. Identify the primary target: rows containing Multi-Match keywords in description
+        # 2. Define Condition Masks
+        
+        # A: Combined contains Multi-Match Keyword (e.g., "Goal Rush")
         match_keyword_pattern = '|'.join([re.escape(k) for k in MULTI_MATCH_KEYWORDS])
-        target_mask = description_norm.str.contains(match_keyword_pattern, na=False)
-
-        # 3. Define Error Mask: Target identified AND Fixture Description is missing the tag
+        combined_has_keyword = combined_norm.str.contains(match_keyword_pattern, na=False)
         
-        # Check if the expected tag (MULTI-MATCH) is present in the fixture description
-        fixture_tag_present_mask = fixture_desc_norm.str.contains(EXPECTED_FIXTURE_TAG, na=False)
+        # B: Fixture Column contains "MULTIMATCH" Tag
+        tag_is_present = fixture_desc_norm.str.contains(EXPECTED_FIXTURE_REGEX, regex=True, na=False)
         
-        # The error is when the target is TRUE, but the tag is FALSE
-        error_mask = target_mask & (~fixture_tag_present_mask)
-
-        rows_flagged = error_mask.sum()
+        # C: Combined ends with NB or VB
+        # This regex looks for whitespace + NB/VB + end of string
+        ends_with_code = combined_norm.str.contains(SUFFIX_REGEX, regex=True, na=False)
         
-        # 4. Apply Flag (No data change required, just flagging)
-        if error_mask.any():
-            
-            flag_message = f"FIXTURE TAG MISSING: Description contains Multi-Match content (Goal Rush/Konferenz), but '{FIXTURE_DESC_COL}' does not contain the required tag '{EXPECTED_FIXTURE_TAG}'."
-            
-            # Apply flag only to rows currently marked OK
-            rows_to_flag = error_mask & (self.df[FLAG_COLUMN] == 'OK')
-            
-            self.df.loc[rows_to_flag, FLAG_COLUMN] = flag_message
-            rows_flagged = (self.df[FLAG_COLUMN] != 'OK').sum() # Re-count rows that were actually flagged
+        # D: Type Checks
+        type_is_live_repeat = type_norm.isin(VALID_MULTIMATCH_TYPES)
+        type_is_magazine = type_norm == 'MAGAZINE & SUPPORT'
 
+        # 3. Identify Errors
+        
+        # Error 1: MISSING MULTI-MATCH TAG
+        # Logic: If Combined has Keyword (Goal Rush) -> Must have MULTIMATCH tag.
+        # EXCEPTION: If it is a Magazine (NB/VB), it might be "Goal Rush NB" which is a support show.
+        missing_tag_mask = (combined_has_keyword & ~ends_with_code) & (~tag_is_present)
+        
+        # Error 2: INVALID TYPE FOR NB/VB SUFFIX (The critical check requested)
+        # Logic: If Combined ends in NB or VB -> Type MUST be 'Magazine & Support'
+        invalid_magazine_mask = ends_with_code & (~type_is_magazine)
+        
+        # Error 3: INVALID TYPE FOR MULTIMATCH TAG
+        # Logic: If explicitly tagged MULTIMATCH -> Type MUST be Live or Repeat
+        invalid_multimatch_type_mask = tag_is_present & (~type_is_live_repeat)
+
+        # 4. Apply Flags (Priority Order)
+        
+        # Apply Error 2 (NB/VB Type Mismatch) - High Priority
+        if invalid_magazine_mask.any():
+            msg = f"TYPE MISMATCH: Combined description ends in NB/VB, so '{TYPE_COL}' must be 'Magazine & Support'."
+            rows_to_flag = invalid_magazine_mask & (self.df[FLAG_COLUMN] == 'OK')
+            self.df.loc[rows_to_flag, FLAG_COLUMN] = msg
+
+        # Apply Error 1 (Missing Multi-Match Tag)
+        if missing_tag_mask.any():
+            msg = f"FIXTURE TAG MISSING: Content indicates Multi-Match, but '{FIXTURE_DESC_COL}' is missing 'MULTIMATCH' tag."
+            rows_to_flag = missing_tag_mask & (self.df[FLAG_COLUMN] == 'OK')
+            self.df.loc[rows_to_flag, FLAG_COLUMN] = msg
+
+        # Apply Error 3 (Invalid Multi-Match Type)
+        if invalid_multimatch_type_mask.any():
+            msg = f"INVALID TYPE: Item is tagged 'MULTIMATCH', but '{TYPE_COL}' is not Live or Repeat."
+            rows_to_flag = invalid_multimatch_type_mask & (self.df[FLAG_COLUMN] == 'OK')
+            self.df.loc[rows_to_flag, FLAG_COLUMN] = msg
+
+        # Recalculate total flagged
+        total_flagged = (self.df[FLAG_COLUMN] != 'OK').sum()
 
         # 5. Final Summary
         return {
             "check_key": "audit_multi_match",
-            "status": "Flagged" if rows_flagged > 0 else "Completed",
-            "action": "Multi-Match Audit", 
-            "description": f"Audited Multi-Match content. Flagged {rows_flagged} rows missing the required '{EXPECTED_FIXTURE_TAG}' tag.",
+            "status": "Flagged" if total_flagged > 0 else "Completed",
+            "action": "Multi-Match & Code Audit", 
+            "description": f"Audited Multi-Match tags and NB/VB codes using 'Combined' column. Flagged {total_flagged} rows.",
             "details": {
                 "rows_processed": int(initial_rows),
-                "rows_flagged": int(rows_flagged),
-                "target_keywords": MULTI_MATCH_KEYWORDS
+                "nb_vb_errors": int(invalid_magazine_mask.sum()),
+                "missing_tag_errors": int(missing_tag_mask.sum()),
+                "invalid_type_errors": int(invalid_multimatch_type_mask.sum())
             }
         }
     
@@ -1060,7 +1292,7 @@ class EPLValidator:
                 "rows_flagged": int(total_flagged_rows),
                 "columns_checked": DATE_TIME_COLS_TO_CHECK
             }
-        }
+        } 
 
     def _check_live_broadcast_uniqueness(self) -> Dict[str, Any]:
             """
@@ -1585,9 +1817,8 @@ class EPLValidator:
                 
         # The map only contains the unique base channel names: {'BBC1': 'BBC1', 'SKY NEWS': 'SKY NEWS', ...}
         return channel_map
-
+    
     # --- CORE HARMONIZATION FUNCTION (Final Logic) ---
-
     def _harmonize_uk_ire_program_descriptions_simple(self) -> Dict[str, Any]:
         """
         Audits Program Description consistency between IRELAND (Source) and UK (Target).
@@ -1692,17 +1923,23 @@ class EPLValidator:
 
     def _check_game_of_the_day_match(self) -> Dict[str, Any]:
         """
-        Identifies BSR rows marked as 'Game of the day' and checks if corresponding 
-        data exists in the OVN/CDT file (same Date/Time). Flags rows for update.
+        Identifies BSR rows marked as 'Game of the day' in the UK and checks if 
+        corresponding LIVE data exists in the OVN/CDT file based on DATE and TIME only.
+        
+        CRITERIA:
+        1. BSR: 'Game of the day', UK Market, Non-empty Teams.
+        2. OVN: 'Live' Type of programme.
+        3. Match: Same Date, Start Time within 5 minutes (Channel ignored).
         """
         initial_rows = len(self.df)
         FLAG_COLUMN = 'QC_Game_of_Day_OVN_Flag'
         KEYWORD = "GAME OF THE DAY"
         TARGET_MARKET_REGEX = r'UNITED KINGDOM|UK'
+        TIME_TOLERANCE_MINUTES = 5
         
         self.df[FLAG_COLUMN] = 'OK'
         
-        REQUIRED_BSR_COLS = ['Program Description', 'Date (UTC/GMT)', 'Start (UTC)', 'Market']
+        REQUIRED_BSR_COLS = ['Program Description', 'Date (UTC/GMT)', 'Start (UTC)', 'Market', 'Home Team', 'Away Team']
         if not all(col in self.df.columns for col in REQUIRED_BSR_COLS):
             return {
                 "check_key": "check_game_of_the_day_match", "status": "Skipped",
@@ -1711,61 +1948,90 @@ class EPLValidator:
                 "details": {"rows_flagged": 0}
             }
 
-        # 1. Load the OVN Data
+        # 1. Load OVN Data
+        # Ensure your _load_overnight_data function returns 'Type of programme'
+        # If it doesn't, you may need to update the loader columns list.
         df_ovn = self._load_overnight_data()
         
-        if df_ovn is None or df_ovn.empty or 'Match_Key' not in df_ovn.columns:
-             return {
-                "check_key": "check_game_of_the_day_match", "status": "Skipped",
-                "action": "Game of Day Audit", 
-                "description": "Skipped: Overnight (CDT) file not loaded or empty.",
-                "details": {"rows_flagged": 0}
-            }
+        if df_ovn is None or df_ovn.empty:
+            return {"check_key": "check_game_of_the_day_match", "status": "Skipped", "description": "Skipped: Overnight file not loaded."}
 
-        # 2. Filter BSR for 'Game of the day' in UK
+        # --- Filter OVN for 'Live' ---
+        # Normalize column name check just in case
+        type_col = next((c for c in df_ovn.columns if 'Type of programme' in c), None)
+        
+        if type_col:
+            # Filter for Live/Near Live
+            df_ovn_live = df_ovn[df_ovn[type_col].astype(str).str.lower().str.contains('live', na=False)].copy()
+        else:
+            # Fallback: If column missing, assume all rows are valid candidates (or log warning)
+            df_ovn_live = df_ovn.copy()
+
+        # 2. Filter BSR Targets
         market_mask = self.df['Market'].astype(str).str.upper().str.contains(TARGET_MARKET_REGEX, regex=True, na=False)
         desc_mask = self.df['Program Description'].astype(str).str.upper().str.contains(KEYWORD, na=False)
+        teams_mask = (self.df['Home Team'].notna()) & (self.df['Home Team'].astype(str).str.strip() != '') & \
+                    (self.df['Away Team'].notna()) & (self.df['Away Team'].astype(str).str.strip() != '')
         
-        target_bsr_mask = market_mask & desc_mask
+        target_bsr_mask = market_mask & desc_mask & teams_mask
         
         if not target_bsr_mask.any():
-             return {
-                "check_key": "check_game_of_the_day_match", "status": "Completed",
-                "action": "Game of Day Audit", 
-                "description": "No 'Game of the day' entries found in UK market.",
-                "details": {"rows_flagged": 0}
-            }
-            
-        # 3. Prepare BSR Keys for Matching
-        try:
-            start_time_clean = self._safe_get_time_string(self.df.loc[target_bsr_mask, 'Start (UTC)'])
-            date_clean = pd.to_datetime(self.df.loc[target_bsr_mask, 'Date (UTC/GMT)'], errors='coerce').dt.strftime('%Y-%m-%d')
-            
-            bsr_keys = date_clean + '|' + start_time_clean
-            
-        except Exception as e:
-            return {"check_key": "check_game_of_the_day_match", "status": "Failed", "description": f"Key generation error: {e}"}
+            return {"check_key": "check_game_of_the_day_match", "status": "Completed", "action": "Game of Day Audit", "description": "No valid 'Game of the day' targets found.", "details": {"rows_flagged": 0}}
 
-        # 4. Perform the Match
-        ovn_keys_set = set(df_ovn['Match_Key'].unique())
-        match_found_mask = bsr_keys.isin(ovn_keys_set)
-        
-        indices_to_flag = bsr_keys[match_found_mask].index
-        rows_flagged = len(indices_to_flag)
-        
-        # 5. Apply Flag
-        if rows_flagged > 0:
-            flag_msg = "UPDATE REQUIRED: OVN Data Available (Matchday/Description found in Overnight)."
-            self.df.loc[indices_to_flag, FLAG_COLUMN] = flag_msg
+        # 3. Prepare Data for Merge
+        try:
+            # BSR Prep
+            df_bsr_targets = self.df.loc[target_bsr_mask].copy()
+            df_bsr_targets['BSR_Index'] = df_bsr_targets.index
             
+            # Clean Dates (Common Key)
+            df_bsr_targets['Date_Join'] = pd.to_datetime(df_bsr_targets['Date (UTC/GMT)'], errors='coerce').dt.strftime('%Y-%m-%d')
+            df_ovn_live['Date_Join'] = pd.to_datetime(df_ovn_live['Date'], errors='coerce').dt.strftime('%Y-%m-%d')
+
+            # Clean Times (For Delta Check)
+            # BSR
+            start_str_bsr = self._safe_get_time_string(df_bsr_targets['Start (UTC)'])
+            df_bsr_targets['Start_DT'] = pd.to_datetime(df_bsr_targets['Date_Join'] + ' ' + start_str_bsr)
+            
+            # OVN
+            start_str_ovn = self._safe_get_time_string(df_ovn_live['Start Time'])
+            df_ovn_live['Start_DT'] = pd.to_datetime(df_ovn_live['Date_Join'] + ' ' + start_str_ovn)
+
+            # 4. Perform Match (Join on Date, Filter on Time)
+            # Inner join creates a Cartesian product for that day (comparing every BSR row to every OVN row on that date)
+            merged = pd.merge(
+                df_bsr_targets,
+                df_ovn_live[['Date_Join', 'Start_DT']], # Only bring necessary cols
+                on='Date_Join',
+                suffixes=('_BSR', '_OVN')
+            )
+            
+            # Calculate Absolute Time Difference
+            merged['Time_Diff'] = (merged['Start_DT_BSR'] - merged['Start_DT_OVN']).abs()
+            
+            # Filter for matches within tolerance
+            matches = merged[merged['Time_Diff'] <= timedelta(minutes=TIME_TOLERANCE_MINUTES)]
+            
+            # Get unique BSR indices that found a match
+            indices_to_flag = matches['BSR_Index'].unique()
+            rows_flagged = len(indices_to_flag)
+            
+            # 5. Apply Flag
+            if rows_flagged > 0:
+                flag_msg = "UPDATE REQUIRED: OVN Live Match Available (Date Match + Time <= 5min)."
+                self.df.loc[indices_to_flag, FLAG_COLUMN] = flag_msg
+
+        except Exception as e:
+            return {"check_key": "check_game_of_the_day_match", "status": "Failed", "description": f"Error during matching: {e}"}
+
         return {
             "check_key": "check_game_of_the_day_match",
             "status": "Flagged" if rows_flagged > 0 else "Completed",
             "action": "Game of Day Audit", 
-            "description": f"Flagged {rows_flagged} 'Game of the day' rows where OVN data is available for update.",
+            "description": f"Flagged {rows_flagged} 'Game of the day' rows with matching Live OVN data.",
             "details": {
                 "rows_flagged": int(rows_flagged),
-                "ovn_records_loaded": len(df_ovn)
+                "ovn_records_checked": len(df_ovn_live)
             }
         }
 
@@ -2064,9 +2330,7 @@ class EPLValidator:
         dt_series = pd.to_datetime(series_str, errors='coerce', format='mixed')
         time_series = dt_series.dt.strftime('%H:%M:%S').fillna('00:00:00')
         return time_series
-
     # --- THE CHECK FUNCTION ---
-
     def _check_premier_league_october_obligation(self) -> Dict[str, Any]:
         """
         Checks BSR rows against the Obligation sheet (CDT Audiences tab) for specific 
@@ -2167,6 +2431,278 @@ class EPLValidator:
             "details": {
                 "rows_flagged": int(rows_flagged),
                 "obligation_entries_count": len(required_keys)
+            }
+        }
+
+    def _check_star_sports_3_consolidation(self) -> Dict[str, Any]:
+        """
+        Consolidates 'Star Sports 3' data in India. If the same fixture/event appears 
+        on both the Main Channel and the Malayalam Region channel, the Malayalam 
+        entry is retained (prioritized) and the Main channel entry is flagged.
+        """
+        initial_rows = len(self.df)
+        FLAG_COLUMN = 'QC_Star_Sports_Consolidation_Flag'
+        
+        # Constraints
+        TARGET_MARKET = 'INDIA'
+        TARGET_CHANNEL_KEYWORD = 'STAR SPORTS 3'
+        REGION_KEYWORD = 'MALAYALAM'
+        
+        # Columns used for matching unique events
+        # We use Start Time + Fixture Name to ensure we are comparing the exact same broadcast slot
+        MATCH_COLS = ['Phase / Fixture / Episode Desc.', 'Start (UTC)']
+        
+        REQUIRED_COLS = ['Market', 'TV-Channel', 'Region'] + MATCH_COLS
+        if not all(col in self.df.columns for col in REQUIRED_COLS):
+            return {
+                "check_key": "check_star_sports_3_consolidation", "status": "Skipped",
+                "action": "Star Sports 3 Consolidation", 
+                "description": "Skipped: Missing required columns.",
+                "details": {"rows_flagged": 0}
+            }
+
+        self.df[FLAG_COLUMN] = 'OK'
+
+        # 1. Normalize Columns
+        market_norm = self.df['Market'].astype(str).str.strip().str.upper()
+        channel_norm = self.df['TV-Channel'].astype(str).str.strip().str.upper()
+        region_norm = self.df['Region'].astype(str).str.strip().str.upper()
+        
+        # 2. Identify Star Sports 3 Rows in India
+        ss3_mask = (market_norm == TARGET_MARKET) & (channel_norm.str.contains(TARGET_CHANNEL_KEYWORD, na=False))
+        
+        if not ss3_mask.any():
+            return {"check_key": "check_star_sports_3_consolidation", "status": "Completed", "description": "No Star Sports 3 rows found in India.", "details": {}}
+
+        # 3. Create Unique Event Keys for matching
+        # We create a temporary key column to compare the Main vs Malayalam datasets
+        # Key format: "FIXTURE_NAME|START_TIME"
+        fixture_col = self.df['Phase / Fixture / Episode Desc.'].astype(str).str.strip().str.upper()
+        start_col = self.df['Start (UTC)'].astype(str).str.strip()
+        
+        # Assign key only to relevant rows
+        self.df.loc[ss3_mask, 'Temp_SS3_Key'] = fixture_col[ss3_mask] + '|' + start_col[ss3_mask]
+
+        # 4. Split into Main vs Malayalam Datasets (Indices)
+        # Malayalam (Priority)
+        malayalam_mask = ss3_mask & (region_norm.str.contains(REGION_KEYWORD, na=False))
+        # Main (Asia & Oceania/Other)
+        main_mask = ss3_mask & (~region_norm.str.contains(REGION_KEYWORD, na=False))
+        
+        # Get the set of keys present in the Malayalam region (The Priority Keys)
+        malayalam_keys_set = set(self.df.loc[malayalam_mask, 'Temp_SS3_Key'].unique())
+        
+        # 5. Check for Conflicts (Main rows that have a matching key in Malayalam)
+        # If a Main row has a key that exists in Malayalam, the Main row is the duplicate to be flagged.
+        conflict_mask = main_mask & self.df['Temp_SS3_Key'].isin(malayalam_keys_set)
+        
+        rows_flagged = conflict_mask.sum()
+        
+        if rows_flagged > 0:
+            flag_msg = "DUPLICATE: Suppressed. Event exists in Malayalam Region (Priority 2)."
+            self.df.loc[conflict_mask, FLAG_COLUMN] = flag_msg
+
+        # Cleanup
+        self.df.drop(columns=['Temp_SS3_Key'], inplace=True, errors='ignore')
+
+        return {
+            "check_key": "check_star_sports_3_consolidation",
+            "status": "Flagged" if rows_flagged > 0 else "Completed",
+            "action": "Star Sports 3 Consolidation", 
+            "description": f"Flagged {rows_flagged} Main Channel rows that were duplicated in the Malayalam Region.",
+            "details": {
+                "rows_flagged": int(rows_flagged),
+                "malayalam_events_count": len(malayalam_keys_set)
+            }
+        }
+
+    def _check_bsa_nielsen_audience_presence(self) -> Dict[str, Any]:
+        """
+        Audits rows where Source is 'BSA + Nielsen'. Flags any row where the 
+        'Aud Metered (000s) 3+' column is missing or zero, as audience data is mandatory.
+        """
+        initial_rows = len(self.df)
+        FLAG_COLUMN = 'QC_BSA_Nielsen_Audience_Flag'
+        
+        SOURCE_COL = 'Source'
+        AUDIENCE_COL = 'Aud Metered (000s) 3+'
+        TARGET_SOURCE_KEYWORD = 'BSA + NIELSEN'
+        
+        self.df[FLAG_COLUMN] = 'OK'
+        
+        if not all(col in self.df.columns for col in [SOURCE_COL, AUDIENCE_COL]):
+            return {
+                "check_key": "check_bsa_nielsen_audience", "status": "Skipped",
+                "action": "BSA+Nielsen Audience Check", 
+                "description": "Skipped: Missing required Source or Audience columns.",
+                "details": {"rows_flagged": 0}
+            }
+
+        # 1. Identify Target Rows (Source contains "BSA + Nielsen")
+        source_norm = self.df[SOURCE_COL].astype(str).str.strip().str.upper()
+        target_source_mask = source_norm.str.contains(re.escape(TARGET_SOURCE_KEYWORD), na=False)
+        
+        # 2. Identify Missing Audience
+        # Coerce to numeric, turn NaN to 0, then check if <= 0
+        audience_values = pd.to_numeric(self.df[AUDIENCE_COL], errors='coerce').fillna(0)
+        missing_audience_mask = audience_values <= 0
+        
+        # Final Error Mask: Target Source AND Missing Audience
+        error_mask = target_source_mask & missing_audience_mask
+        
+        rows_flagged = error_mask.sum()
+        
+        # 3. Apply Flag
+        if rows_flagged > 0:
+            flag_msg = "Audience data required. (Source is BSA + Nielsen but Audience is 0/NaN)"
+            
+            # Apply flag only to rows currently marked OK
+            rows_to_flag = error_mask & (self.df[FLAG_COLUMN] == 'OK')
+            self.df.loc[rows_to_flag, FLAG_COLUMN] = flag_msg
+
+        return {
+            "check_key": "check_bsa_nielsen_audience",
+            "status": "Flagged" if rows_flagged > 0 else "Completed",
+            "action": "BSA+Nielsen Audience Check", 
+            "description": f"Flagged {rows_flagged} rows where 'BSA + Nielsen' source was missing audience data.",
+            "details": {
+                "rows_flagged": int(rows_flagged),
+                "target_source": TARGET_SOURCE_KEYWORD
+            }
+        }
+
+    def _check_source_mediatype_validity(self) -> Dict[str, Any]:
+        """
+        Validates that 'Source', 'Source 2', and 'Media Type' columns only contain 
+        specific predefined values. Flags any deviations as 'Out of predefined range'.
+        """
+        initial_rows = len(self.df)
+        FLAG_COLUMN = 'QC_Source_MediaType_Validity_Flag'
+        
+        # Define the strict allowed values for each column (Normalized to Upper)
+        # NOTE: 'Duplicated from BC Data - Ghana / Factor -1' is very specific. 
+        # Ensure this matches your data generation logic exactly.
+        ALLOWED_VALUES = {
+            'Source': {
+                'DUPLICATED FROM BC DATA - GHANA / FACTOR -1', 
+                'BC DATA',
+                'BSA',
+                'Duplicated from GfK/AGF Overnights - Germany / Factor 0,07',
+                'IBOPE',
+                'EURODATA',
+                'Nielsen',
+                'Duplicated from BSA + Nielsen - Serbia / Factor 0,67',
+                'Duplicated from BSA - Serbia / Factor -1',
+                'Duplicated from BC Data - United Kingdom / Factor -1',
+                'GfK/AGF Overnights',
+                'BARC',
+                'Duplicated from BARB - United Kingdom / Factor 0,09',
+                'Duplicated from BARB - United Kingdom / Factor 0,14',
+                'Duplicated from BARB - United Kingdom / Factor 0,07',
+                'Duplicated from BC Data - South Africa / Factor 0,25',
+                'Duplicated from BC Data - Sub-Saharan Africa (excl, South Africa & Nigeria) / Factor -1',
+                'Duplicated from BC Data - South Africa / Factor 0,1',
+                'Duplicated from BC Data - South Africa / Factor 0,51',
+                'Duplicated from BC Data - South Africa / Factor 1,4',
+                'Kantar Media',
+                'Duplicated from Nielsen - Serbia / Factor 0,75',
+                'Duplicated from BSA + Nielsen - Serbia / Factor 0,75',
+                'Duplicated from BSA + Nielsen - Serbia / Factor 0,36',
+                'Duplicated from BC Data - Pan-Balkans / Factor -1',
+                'Duplicated from BARC - India / Factor 0,16',
+                'BC Data + Eurodata',
+                'BSA + Nielsen',
+                'BC Data + Nielsen',
+                'Duplicated from BC Data - South Africa / Factor 0,37',
+                'Duplicated from BC Data - South Africa / Factor 0,46',
+                'Duplicated from BC Data - South Africa / Factor 0,3',
+                'Duplicated from BC Data - South Africa / Factor 0,45',
+                'Duplicated from BC Data - South Africa / Factor 0,67',
+                'Duplicated from BC Data - South Africa / Factor 1,12',
+                'BC Data + MMS',
+                'Duplicated from EURODATA - France / Factor 0,05',
+                'Duplicated from BC Data - France / Factor -1',
+                'BARB',
+                'Duplicated from BC Data - Germany / Factor -1',
+                'Duplicated from BC Data - Nordics, Netherlands, Poland / Factor 0,23',
+                'Duplicated from BC Data - Nordics, Netherlands, Poland / Factor 0,11',
+                'Duplicated from BC Data - Nordics, Netherlands, Poland / Factor 0,15',
+                'Duplicated from BC Data - Nordics, Netherlands, Poland / Factor 0,19',
+                'Duplicated from BC Data - Nordics, Netherlands, Poland / Factor 0,06',
+                'Duplicated from BC Data - Nordics, Netherlands, Poland / Factor 0,26',
+
+            },
+            'Source 2': {
+                'BC DATA', 
+                'BSR DATASET'
+            },
+            'Media Type': {
+                'LINEAR', 
+                'OTT'
+            }
+        }
+        
+        REQUIRED_COLS = list(ALLOWED_VALUES.keys())
+        if not all(col in self.df.columns for col in REQUIRED_COLS):
+            return {
+                "check_key": "check_source_mediatype_validity", "status": "Skipped",
+                "action": "Source/Media Validity Check", 
+                "description": f"Skipped: Missing one or more required columns {REQUIRED_COLS}.",
+                "details": {"rows_flagged": 0}
+            }
+
+        self.df[FLAG_COLUMN] = 'OK'
+        
+        rows_flagged = 0
+        
+        # Iterate through each column and check validity
+        for col, allowed_set in ALLOWED_VALUES.items():
+            
+           # 1. Normalize the BSR column data (Upper, Strip)
+            # Treat NaNs as string 'NAN' to catch missing values if they aren't allowed
+            col_series_norm = self.df[col].astype(str).str.strip().str.upper().fillna('NAN')
+            
+            # 2. Normalize the Allowed Set (CRITICAL FIX)
+            # Convert all allowed options to UPPERCASE for the comparison
+            allowed_set_norm = {x.upper().strip() for x in allowed_set}
+            
+            # 3. Find invalid rows (Values NOT in the normalized allowed set)
+            invalid_mask = ~col_series_norm.isin(allowed_set_norm)
+            
+            if invalid_mask.any():
+                current_flagged_count = invalid_mask.sum()
+                rows_flagged += current_flagged_count
+                
+                # 3. Construct Flag Message
+                # We append to the existing flag if a row has multiple errors
+                existing_flags = self.df[FLAG_COLUMN].replace('OK', '')
+                
+                # Create specific error message for this column
+                new_error_msg = f"[{col}: Out of predefined range]"
+                
+                # Apply update: If row was OK, set to Error. If row had Error, append new Error.
+                # Using a mask logic to handle the append cleanly
+                
+                # Rows currently 'OK' get just the new message
+                rows_to_set_new = invalid_mask & (self.df[FLAG_COLUMN] == 'OK')
+                self.df.loc[rows_to_set_new, FLAG_COLUMN] = new_error_msg
+                
+                # Rows already flagged get the message appended
+                rows_to_append = invalid_mask & (self.df[FLAG_COLUMN] != 'OK')
+                if rows_to_append.any():
+                    self.df.loc[rows_to_append, FLAG_COLUMN] = self.df.loc[rows_to_append, FLAG_COLUMN] + "; " + new_error_msg
+
+        # Final recount of unique rows flagged (since one row could have errors in multiple columns)
+        total_unique_flagged = (self.df[FLAG_COLUMN] != 'OK').sum()
+
+        return {
+            "check_key": "check_source_mediatype_validity",
+            "status": "Flagged" if total_unique_flagged > 0 else "Completed",
+            "action": "Source/Media Validity Check", 
+            "description": f"Audited {REQUIRED_COLS}. Flagged {total_unique_flagged} rows with values out of predefined range.",
+            "details": {
+                "rows_flagged": int(total_unique_flagged),
+                "allowed_values": {k: list(v) for k, v in ALLOWED_VALUES.items()}
             }
         }
 
