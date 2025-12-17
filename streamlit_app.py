@@ -1027,6 +1027,8 @@ with epl_tab:
      "check_source_mediatype_validity": (
         "Validates that 'Source', 'Source 2', and 'Media Type' columns contain only authorized values (e.g., 'BC Data', 'Linear'), flagging deviations."
     ),
+     "filter_short_programs": (
+        "Identifies and flags programs with durations under 5 minutes, except for specified markets (Austria and New Zealand).")
 }
 
     # --- Dedicated Upload for Manual Checks (MODIFIED) ---
