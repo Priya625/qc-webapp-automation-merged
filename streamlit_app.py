@@ -67,22 +67,58 @@ with st.sidebar:
 st.markdown("""
 <style>
 
-/* Reduce huge top padding Streamlit adds */
+/* ----------------------------------
+   Global layout cleanup
+----------------------------------- */
+
+/* Reduce excessive top padding */
 .block-container {
     padding-top: 1rem !important;
 }
 
-/* Move Tabs Up */
+/* ----------------------------------
+   Tabs positioning & behavior
+----------------------------------- */
+
+/* Move tabs slightly up (NOT too aggressive) */
 .stTabs {
     margin-top: -10px !important;
 }
 
-/* Fix File Uploader Padding */
-div[data-testid="stFileUploader"] {
-    margin-top: -10px !important;
+/* Make tabs responsive & scrollable */
+.stTabs [data-baseweb="tab-list"] {
+    display: flex;
+    justify-content: flex-start !important;
+    gap: 12px !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    scrollbar-width: thin;
 }
 
-/* QC Cards */
+/* Nice scrollbar (Chrome / Edge) */
+.stTabs [data-baseweb="tab-list"]::-webkit-scrollbar {
+    height: 6px;
+}
+.stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 10px;
+}
+
+/* Space between tabs and tab content */
+.stTabs [data-baseweb="tab-panel"] {
+    padding-top: 15px;
+}
+
+/* ----------------------------------
+   File uploader spacing fix
+----------------------------------- */
+div[data-testid="stFileUploader"] {
+    margin-top: 0px !important;
+}
+
+/* ----------------------------------
+   QC Cards
+----------------------------------- */
 .qc-card {
     background: #F7F9FC;
     border: 1px solid #D0D7E2;
@@ -90,8 +126,6 @@ div[data-testid="stFileUploader"] {
     border-radius: 8px;
     box-shadow: 0px 1px 3px rgba(0,0,0,0.08);
     font-size: 14px;
-
-    /* MAKE HEIGHT AUTO SO TEXT NEVER GETS CUT */
     height: auto !important;
     min-height: 140px;
 }
