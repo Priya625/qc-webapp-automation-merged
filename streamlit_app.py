@@ -74,7 +74,7 @@ st.markdown("""
 
 /* Move Tabs Up */
 .stTabs {
-    margin-top: -30px !important;
+    margin-top: -10px !important;
 }
 
 /* Fix File Uploader Padding */
@@ -227,7 +227,7 @@ with home_page_tab:
             }
             .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb {
                 background: #c1c1c1;
-                border-radius: 10px;
+                border-radius: 15px;
             }
             
             
