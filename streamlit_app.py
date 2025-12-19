@@ -70,32 +70,30 @@ st.markdown("""
 /* ----------------------------------
    Global layout cleanup
 ----------------------------------- */
-
-/* Reduce excessive top padding */
 .block-container {
     padding-top: 1rem !important;
 }
 
 /* ----------------------------------
-   Tabs positioning & behavior
+   Tabs positioning
 ----------------------------------- */
-
-/* Move tabs slightly up (NOT too aggressive) */
 .stTabs {
     margin-top: -10px !important;
 }
 
-/* Make tabs responsive & scrollable */
+/* ----------------------------------
+   Tabs layout & scroll
+----------------------------------- */
 .stTabs [data-baseweb="tab-list"] {
     display: flex;
     justify-content: flex-start !important;
-    gap: 12px !important;
+    gap: 16px !important;
     overflow-x: auto !important;
     white-space: nowrap !important;
     scrollbar-width: thin;
 }
 
-/* Nice scrollbar (Chrome / Edge) */
+/* Scrollbar styling */
 .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar {
     height: 6px;
 }
@@ -104,7 +102,36 @@ st.markdown("""
     border-radius: 10px;
 }
 
-/* Space between tabs and tab content */
+/* ----------------------------------
+   TAB TEXT VISIBILITY FIX (IMPORTANT)
+----------------------------------- */
+
+/* Inactive tabs — clearly visible */
+.stTabs [data-baseweb="tab"] {
+    color: #6B6B6B !important;          /* Medium grey */
+    font-weight: 500;
+}
+
+/* Hover effect */
+.stTabs [data-baseweb="tab"]:hover {
+    color: #B30095 !important;          /* Light red hover */
+}
+
+/* Active tab — ALWAYS visible */
+.stTabs [aria-selected="true"] {
+    color: #B30095 !important;          /* Strong red */
+    font-weight: 700;
+    border-bottom: 3px solid #B30095 !important;
+}
+
+/* Remove default faint underline */
+.stTabs [data-baseweb="tab"] > div {
+    border-bottom: none !important;
+}
+
+/* ----------------------------------
+   Space between tabs and content
+----------------------------------- */
 .stTabs [data-baseweb="tab-panel"] {
     padding-top: 15px;
 }
