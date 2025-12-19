@@ -214,8 +214,20 @@ with home_page_tab:
             }
 
             .stTabs [data-baseweb="tab-list"] {
-                justify-content: center;
-                gap: 50px; /* INCREASED GAP for more space between tabs */
+                justify-content: flex-start !important;
+                gap: 12px !important;
+                overflow-x: auto !important;
+                white-space: nowrap !important;
+                scrollbar-width: thin;
+            }
+
+            /* Optional: nicer scrollbar */
+            .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar {
+                height: 6px;
+            }
+            .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb {
+                background: #c1c1c1;
+                border-radius: 10px;
             }
             
             
