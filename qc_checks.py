@@ -157,20 +157,35 @@ def detect_period_from_rosco(rosco_path):
 
 # ----------------------------- 2️⃣ Load BSR -----------------------------
 def detect_header_row(bsr_path):
-    df_sample = pd.read_excel(bsr_path, header=None, nrows=200)
-    for i, row in df_sample.iterrows():
-        row_str = " ".join(row.dropna().astype(str).tolist()).lower()
-        if "region" in row_str and "market" in row_str and "broadcaster" in row_str:
-            return i
-        if "date" in row_str and ("utc" in row_str or "gmt" in row_str):
-            return i
-    raise ValueError("Could not detect header row in BSR file.")
+    # Increased nrows to 300 just in case there's a long disclaimer
+    df_sample = pd.read_excel(bsr_path, header=None, nrows=300)
+    
+    # These are unique enough that if 3+ appear, we've found the header
+    target_columns = {
+        "region", "market id", "broadcaster", "tv-channel", 
+        "pay/free tv", "program title", "aud. estimates"
+    }
 
+    for i, row in df_sample.iterrows():
+        # Clean the row: convert to string, lowercase, and remove extra whitespace
+        row_values = [str(val).lower().strip() for val in row.dropna()]
+        row_str = " ".join(row_values)
+
+        # Count how many of our target keywords appear in this row
+        match_count = sum(1 for key in target_columns if key in row_str)
+
+        # If we match 3 or more headers, we've definitely found it
+        if match_count >= 3:
+            return i
+            
+    raise ValueError("Could not detect header row. Please check if the file format has changed.")
 
 def load_bsr(bsr_path):
-    header_row = detect_header_row(bsr_path)
-    df = pd.read_excel(bsr_path, header=header_row)
-    df.columns = [str(c).strip() for c in df.columns]
+    header_idx = detect_header_row(bsr_path)
+    df = pd.read_excel(bsr_path, header=header_idx)
+    
+    # Clean column names (removes newlines and leading/trailing spaces)
+    df.columns = [str(c).strip().replace('\n', ' ') for c in df.columns]
     return df
 
 
