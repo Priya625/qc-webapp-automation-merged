@@ -157,39 +157,41 @@ def detect_period_from_rosco(rosco_path):
 
 # ----------------------------- 2️⃣ Load BSR -----------------------------
 def detect_header_row(bsr_path):
-    # 1. Scan more rows (300) to be safe
+    # Use engine='openpyxl' for modern .xlsx files
     df_sample = pd.read_excel(bsr_path, header=None, nrows=300)
     
-    # 2. Use a list of unique keywords from your specific file
-    # If 3 or more of these are found in a row, it's the header.
-    critical_columns = [
-        "region", "market id", "broadcaster", "tv-channel", 
-        "program title", "aud. estimates", "fixture analysis"
+    # We look for unique fragments of your specific BSR headers
+    fragments = [
+        "region", "market", "broadcaster", "channel", 
+        "pay/free", "program", "estimates", "fixture"
     ]
 
     for i, row in df_sample.iterrows():
-        # Clean the row data for searching
+        # Clean row: convert everything to a lowercase string and join
         row_values = [str(val).lower().strip() for val in row.values if pd.notna(val)]
         row_str = " ".join(row_values)
 
-        # Count how many matches we find
-        match_count = sum(1 for col in critical_columns if col in row_str)
+        # Count how many fragments appear in this specific row string
+        matches = sum(1 for frag in fragments if frag in row_str)
 
-        # Logic: If at least 3 unique header names match, we found it
-        if match_count >= 3:
+        # If 3 or more fragments are found, this is definitely the header
+        if matches >= 3:
             return i
             
-    raise ValueError(f"Could not detect header row in {bsr_path}. Checked 300 rows.")
+    # FALLBACK: If keyword detection fails, check if Row 0 has many non-empty cells
+    # Some BSRs start exactly on Row 0 without a header signature
+    first_row_count = df_sample.iloc[0].dropna().count()
+    if first_row_count > 10: 
+        return 0
+
+    raise ValueError(f"Could not detect header row in {bsr_path}. Tried keywords and fallback.")
 
 def load_bsr(bsr_path):
-    header_row = detect_header_row(bsr_path)
-    # Load with detected header
-    df = pd.read_excel(bsr_path, header=header_row)
+    idx = detect_header_row(bsr_path)
+    df = pd.read_excel(bsr_path, header=idx)
     
-    # CRITICAL: Clean column names to remove newlines (\n) 
-    # and spaces which often appear in "Aud. Estimates ['000s]"
-    df.columns = [str(c).strip().replace('\n', ' ') for c in df.columns]
-    
+    # Clean up column names immediately
+    df.columns = [str(c).strip().replace('\n', ' ').replace('  ', ' ') for c in df.columns]
     return df
 
 
