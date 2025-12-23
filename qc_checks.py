@@ -157,35 +157,39 @@ def detect_period_from_rosco(rosco_path):
 
 # ----------------------------- 2️⃣ Load BSR -----------------------------
 def detect_header_row(bsr_path):
-    # Increased nrows to 300 just in case there's a long disclaimer
+    # 1. Scan more rows (300) to be safe
     df_sample = pd.read_excel(bsr_path, header=None, nrows=300)
     
-    # These are unique enough that if 3+ appear, we've found the header
-    target_columns = {
+    # 2. Use a list of unique keywords from your specific file
+    # If 3 or more of these are found in a row, it's the header.
+    critical_columns = [
         "region", "market id", "broadcaster", "tv-channel", 
-        "pay/free tv", "program title", "aud. estimates"
-    }
+        "program title", "aud. estimates", "fixture analysis"
+    ]
 
     for i, row in df_sample.iterrows():
-        # Clean the row: convert to string, lowercase, and remove extra whitespace
-        row_values = [str(val).lower().strip() for val in row.dropna()]
+        # Clean the row data for searching
+        row_values = [str(val).lower().strip() for val in row.values if pd.notna(val)]
         row_str = " ".join(row_values)
 
-        # Count how many of our target keywords appear in this row
-        match_count = sum(1 for key in target_columns if key in row_str)
+        # Count how many matches we find
+        match_count = sum(1 for col in critical_columns if col in row_str)
 
-        # If we match 3 or more headers, we've definitely found it
+        # Logic: If at least 3 unique header names match, we found it
         if match_count >= 3:
             return i
             
-    raise ValueError("Could not detect header row. Please check if the file format has changed.")
+    raise ValueError(f"Could not detect header row in {bsr_path}. Checked 300 rows.")
 
 def load_bsr(bsr_path):
-    header_idx = detect_header_row(bsr_path)
-    df = pd.read_excel(bsr_path, header=header_idx)
+    header_row = detect_header_row(bsr_path)
+    # Load with detected header
+    df = pd.read_excel(bsr_path, header=header_row)
     
-    # Clean column names (removes newlines and leading/trailing spaces)
+    # CRITICAL: Clean column names to remove newlines (\n) 
+    # and spaces which often appear in "Aud. Estimates ['000s]"
     df.columns = [str(c).strip().replace('\n', ' ') for c in df.columns]
+    
     return df
 
 
