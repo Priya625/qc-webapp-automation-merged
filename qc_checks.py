@@ -156,63 +156,140 @@ def detect_period_from_rosco(rosco_path):
 
 
 # ----------------------------- 2️⃣ Load BSR -----------------------------
-def detect_header_row(bsr_path):
-    df_sample = pd.read_excel(bsr_path, header=None, nrows=200)
+BSR_CANONICAL_COLUMNS = {
+    "region": ["region"],
+    "market": ["market"],
+    "market_id": ["market id", "marketid"],
+    "broadcaster": ["broadcaster"],
+    "tv_channel": ["tv channel", "tv-channel", "channel"],
+    "channel_id": ["channel id", "channelid"],
+    "date_utc": ["date (utc)", "date utc", "date (utc/gmt)"],
+    "start_utc": ["start (utc)", "start utc"],
+    "end_utc": ["end (utc)", "end utc"],
+    "program_title": ["program title", "title"],
+}
 
-    required_keywords = {"region", "market", "broadcaster"}
+def detect_data_start_row(df):
+    """
+    Finds the first row that looks like real BSR data,
+    not headers or titles.
+    """
+    for i in range(len(df)):
+        row = df.iloc[i]
 
-    for start_row in range(0, len(df_sample) - 4):
-        collected = []
+        # Heuristic: data rows have a DATE + TIME + TEXT together
+        has_date = row.astype(str).str.contains(r"\d{2}[-/]\d{2}[-/]\d{4}", regex=True).any()
+        has_time = row.astype(str).str.contains(r"\d{1,2}:\d{2}", regex=True).any()
+        has_text = row.astype(str).str.len().gt(3).sum() > 5
 
-        # Combine 4 consecutive rows (handles badly split headers)
-        for r in range(start_row, start_row + 4):
-            collected.extend(
-                df_sample.iloc[r]
-                .dropna()
-                .astype(str)
-                .str.strip()
-                .tolist()
-            )
+        if has_date and has_time and has_text:
+            return i
 
-        row_str = " ".join(collected).lower()
+    raise ValueError("Could not detect start of BSR data rows.")
 
-        if required_keywords.issubset(row_str.split()):
-            return start_row
+def infer_columns(df, header_search_rows=10):
+    inferred_columns = {}
 
-        # Fallback: loose contains check
-        if all(k in row_str for k in required_keywords):
-            return start_row
+    for col in df.columns:
+        col_values = (
+            df[col]
+            .iloc[:header_search_rows]
+            .astype(str)
+            .str.lower()
+            .str.strip()
+            .tolist()
+        )
 
-    raise ValueError(
-        "Could not detect header row. "
-        "File has heavily split or formatted headers."
-    )
+        combined = " ".join(col_values)
 
+        for canonical, aliases in BSR_CANONICAL_COLUMNS.items():
+            if any(alias in combined for alias in aliases):
+                inferred_columns[col] = canonical
+                break
 
-def load_bsr(bsr_path):
-    header_row = detect_header_row(bsr_path)
+    if "region" not in inferred_columns.values():
+        raise ValueError("BSR structure not detected: Region column missing")
 
+    return inferred_columns
+
+def load_bsr_universal(bsr_path):
+    # Read everything raw
     df_raw = pd.read_excel(bsr_path, header=None)
 
-    # Take next 4 rows as header candidates
-    header_block = df_raw.iloc[header_row:header_row + 4].fillna("")
+    # Step 1: detect data start
+    data_start = detect_data_start_row(df_raw)
 
-    combined_headers = []
-    for col in header_block.columns:
-        parts = (
-            header_block[col]
-            .astype(str)
-            .str.strip()
-            .replace("", pd.NA)
-            .dropna()
-            .unique()
-        )
-        combined_headers.append(" ".join(parts))
+    # Step 2: infer columns
+    column_map = infer_columns(df_raw.iloc[:data_start + 5])
 
-    df = df_raw.iloc[header_row + 4:].reset_index(drop=True)
-    df.columns = [c.strip() for c in combined_headers]
+    # Step 3: slice real data
+    df_data = df_raw.iloc[data_start:].reset_index(drop=True)
 
-    return df
+    # Step 4: apply canonical names
+    df_data = df_data.rename(columns=column_map)
+
+    # Drop fully empty columns
+    df_data = df_data.dropna(axis=1, how="all")
+
+    return df_data
+
+# def detect_header_row(bsr_path):
+#     df_sample = pd.read_excel(bsr_path, header=None, nrows=200)
+
+#     required_keywords = {"region", "market", "broadcaster"}
+
+#     for start_row in range(0, len(df_sample) - 4):
+#         collected = []
+
+#         # Combine 4 consecutive rows (handles badly split headers)
+#         for r in range(start_row, start_row + 4):
+#             collected.extend(
+#                 df_sample.iloc[r]
+#                 .dropna()
+#                 .astype(str)
+#                 .str.strip()
+#                 .tolist()
+#             )
+
+#         row_str = " ".join(collected).lower()
+
+#         if required_keywords.issubset(row_str.split()):
+#             return start_row
+
+#         # Fallback: loose contains check
+#         if all(k in row_str for k in required_keywords):
+#             return start_row
+
+#     raise ValueError(
+#         "Could not detect header row. "
+#         "File has heavily split or formatted headers."
+#     )
+
+
+# def load_bsr(bsr_path):
+#     header_row = detect_header_row(bsr_path)
+
+#     df_raw = pd.read_excel(bsr_path, header=None)
+
+#     # Take next 4 rows as header candidates
+#     header_block = df_raw.iloc[header_row:header_row + 4].fillna("")
+
+#     combined_headers = []
+#     for col in header_block.columns:
+#         parts = (
+#             header_block[col]
+#             .astype(str)
+#             .str.strip()
+#             .replace("", pd.NA)
+#             .dropna()
+#             .unique()
+#         )
+#         combined_headers.append(" ".join(parts))
+
+#     df = df_raw.iloc[header_row + 4:].reset_index(drop=True)
+#     df.columns = [c.strip() for c in combined_headers]
+
+#     return df
 
 
 # ----------------------------- 3️⃣ Period Check -----------------------------
