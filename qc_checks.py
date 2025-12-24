@@ -157,41 +157,58 @@ def detect_period_from_rosco(rosco_path):
 
 # ----------------------------- 2️⃣ Load BSR -----------------------------
 def detect_header_row(bsr_path):
-    # Use engine='openpyxl' for modern .xlsx files
-    df_sample = pd.read_excel(bsr_path, header=None, nrows=300)
-    
-    # We look for unique fragments of your specific BSR headers
-    fragments = [
-        "region", "market", "broadcaster", "channel", 
-        "pay/free", "program", "estimates", "fixture"
-    ]
+    df_sample = pd.read_excel(bsr_path, header=None, nrows=200)
 
-    for i, row in df_sample.iterrows():
-        # Clean row: convert everything to a lowercase string and join
-        row_values = [str(val).lower().strip() for val in row.values if pd.notna(val)]
-        row_str = " ".join(row_values)
+    required_keywords = ["region", "market", "broadcaster"]
 
-        # Count how many fragments appear in this specific row string
-        matches = sum(1 for frag in fragments if frag in row_str)
+    for i in range(len(df_sample) - 1):
+        combined_cells = []
 
-        # If 3 or more fragments are found, this is definitely the header
-        if matches >= 3:
+        # Combine current row + next row to handle split headers
+        for j in [i, i + 1]:
+            combined_cells.extend(
+                df_sample.iloc[j]
+                .dropna()
+                .astype(str)
+                .str.strip()
+                .tolist()
+            )
+
+        row_str = " ".join(combined_cells).lower()
+
+        if all(k in row_str for k in required_keywords):
             return i
-            
-    # FALLBACK: If keyword detection fails, check if Row 0 has many non-empty cells
-    # Some BSRs start exactly on Row 0 without a header signature
-    first_row_count = df_sample.iloc[0].dropna().count()
-    if first_row_count > 10: 
-        return 0
 
-    raise ValueError(f"Could not detect header row in {bsr_path}. Tried keywords and fallback.")
+    raise ValueError(
+        "Header row not detected. File may contain pivot data "
+        "or non-standard header formatting."
+    )
+
 
 def load_bsr(bsr_path):
-    idx = detect_header_row(bsr_path)
-    df = pd.read_excel(bsr_path, header=idx)
-    
-    # Clean up column names immediately
-    df.columns = [str(c).strip().replace('\n', ' ').replace('  ', ' ') for c in df.columns]
+    header_row = detect_header_row(bsr_path)
+
+    # Read header row + next row
+    df_raw = pd.read_excel(bsr_path, header=None)
+    header_1 = df_raw.iloc[header_row].fillna("").astype(str)
+    header_2 = df_raw.iloc[header_row + 1].fillna("").astype(str)
+
+    # Combine headers
+    combined_headers = []
+    for h1, h2 in zip(header_1, header_2):
+        if h1 and h2 and h1.lower() != h2.lower():
+            combined_headers.append(f"{h1} {h2}".strip())
+        else:
+            combined_headers.append(h1 or h2)
+
+    df = pd.read_excel(
+        bsr_path,
+        header=None,
+        skiprows=header_row + 2
+    )
+
+    df.columns = [c.strip() for c in combined_headers]
+
     return df
 
 
