@@ -171,21 +171,41 @@ BSR_CANONICAL_COLUMNS = {
 
 def detect_data_start_row(df):
     """
-    Finds the first row that looks like real BSR data,
-    not headers or titles.
+    Robust detection of first BSR data row.
+    Works with Excel serial dates, float times, and sparse rows.
     """
+
     for i in range(len(df)):
         row = df.iloc[i]
 
-        # Heuristic: data rows have a DATE + TIME + TEXT together
-        has_date = row.astype(str).str.contains(r"\d{2}[-/]\d{2}[-/]\d{4}", regex=True).any()
-        has_time = row.astype(str).str.contains(r"\d{1,2}:\d{2}", regex=True).any()
-        has_text = row.astype(str).str.len().gt(3).sum() > 5
+        non_null = row.dropna()
+        if len(non_null) < 4:
+            continue  # too empty to be data
 
-        if has_date and has_time and has_text:
+        # Count numeric-like cells
+        numeric_cnt = sum(
+            isinstance(v, (int, float)) and not pd.isna(v)
+            for v in non_null
+        )
+
+        # Try parsing date-like values
+        date_like = 0
+        for v in non_null:
+            try:
+                d = pd.to_datetime(v, errors="coerce")
+                if pd.notna(d):
+                    date_like += 1
+            except Exception:
+                pass
+
+        # Heuristic decision
+        if numeric_cnt >= 2 and date_like >= 1:
             return i
 
-    raise ValueError("Could not detect start of BSR data rows.")
+    raise ValueError(
+        "Could not detect start of BSR data rows. "
+        "File may not contain a raw BSR schedule table."
+    )
 
 def infer_columns(df, header_search_rows=10):
     inferred_columns = {}
