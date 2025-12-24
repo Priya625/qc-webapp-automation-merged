@@ -990,7 +990,7 @@ def check_event_matchday_competition(df_worksheet, df_data=None, rosco_path=None
         ])
 
     # Precompute a lowercase set for quick lookup
-    reference_comps_lower = set(x.lower() for x in reference_comps)
+    reference_comps_lower = set(str(x).strip().lower() for x in reference_comps if pd.notna(x))
 
     # --- Prepare output columns ---
     df = df_worksheet.copy()
@@ -1050,7 +1050,7 @@ def check_event_matchday_competition(df_worksheet, df_data=None, rosco_path=None
                 remarks.append("Missing Home/Away or Match field")
 
         # 2) Validate competition against reference list
-        comp_l = competition.lower()
+        comp_l = str(competition).strip().lower()
         # some competitions appear with extra words, do a contains check
         comp_matches_reference = False
         for rc in reference_comps_lower:
@@ -1071,7 +1071,7 @@ def check_event_matchday_competition(df_worksheet, df_data=None, rosco_path=None
                     remarks.append("Unusual matchday format")
 
         # 4) If we have a reference expected counts mapping (from df_data), count per (competition, matchday)
-        comp_key = (competition.strip().lower(), matchday.strip().lower())
+        comp_key = str(competition).strip().lower(), str(matchday.strip().lower())
         grouped_counts.setdefault(comp_key, 0)
         grouped_counts[comp_key] += 1
 
