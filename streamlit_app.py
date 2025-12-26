@@ -492,7 +492,7 @@ with main_qc_tab:
     if st.button("🚀 Run General QC Checks"):
         # Basic validations
         if not main_rosco_file or not main_bsr_file or not config:
-            st.error("⚠️ Please upload both Rosco and BSR files and ensure config.json is loaded.")
+            st.error(" Please upload both Rosco and BSR files and ensure config.json is loaded.")
         else:
             with st.spinner("Running General QC checks..."):
                 try:
