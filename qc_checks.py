@@ -156,102 +156,63 @@ def detect_period_from_rosco(rosco_path):
 
 
 # ----------------------------- 2️⃣ Load BSR -----------------------------
-BSR_CANONICAL_COLUMNS = {
-    "region": ["region"],
-    "market": ["market"],
-    "market_id": ["market id", "marketid"],
-    "broadcaster": ["broadcaster"],
-    "tv_channel": ["tv channel", "tv-channel", "channel"],
-    "channel_id": ["channel id", "channelid"],
-    "date_utc": ["date (utc)", "date utc", "date (utc/gmt)"],
-    "start_utc": ["start (utc)", "start utc"],
-    "end_utc": ["end (utc)", "end utc"],
-    "program_title": ["program title", "title"],
-}
+def detect_header_row(bsr_path):
+    df_sample = pd.read_excel(bsr_path, header=None, nrows=200)
 
-def detect_data_start_row(df):
-    """
-    Robust detection of first BSR data row.
-    Works with Excel serial dates, float times, and sparse rows.
-    """
+    required_keywords = {"region", "market", "broadcaster"}
 
-    for i in range(len(df)):
-        row = df.iloc[i]
+    for start_row in range(0, len(df_sample) - 4):
+        collected = []
 
-        non_null = row.dropna()
-        if len(non_null) < 4:
-            continue  # too empty to be data
+        # Combine 4 consecutive rows (handles badly split headers)
+        for r in range(start_row, start_row + 4):
+            collected.extend(
+                df_sample.iloc[r]
+                .dropna()
+                .astype(str)
+                .str.strip()
+                .tolist()
+            )
 
-        # Count numeric-like cells
-        numeric_cnt = sum(
-            isinstance(v, (int, float)) and not pd.isna(v)
-            for v in non_null
-        )
+        row_str = " ".join(collected).lower()
 
-        # Try parsing date-like values
-        date_like = 0
-        for v in non_null:
-            try:
-                d = pd.to_datetime(v, errors="coerce")
-                if pd.notna(d):
-                    date_like += 1
-            except Exception:
-                pass
+        if required_keywords.issubset(row_str.split()):
+            return start_row
 
-        # Heuristic decision
-        if numeric_cnt >= 2 and date_like >= 1:
-            return i
+        # Fallback: loose contains check
+        if all(k in row_str for k in required_keywords):
+            return start_row
 
     raise ValueError(
-        "Could not detect start of BSR data rows. "
-        "File may not contain a raw BSR schedule table."
+        "Could not detect header row. "
+        "File has heavily split or formatted headers."
     )
 
-def infer_columns(df, header_search_rows=10):
-    inferred_columns = {}
 
-    for col in df.columns:
-        col_values = (
-            df[col]
-            .iloc[:header_search_rows]
-            .astype(str)
-            .str.lower()
-            .str.strip()
-            .tolist()
-        )
+def load_bsr(bsr_path):
+    header_row = detect_header_row(bsr_path)
 
-        combined = " ".join(col_values)
-
-        for canonical, aliases in BSR_CANONICAL_COLUMNS.items():
-            if any(alias in combined for alias in aliases):
-                inferred_columns[col] = canonical
-                break
-
-    if "region" not in inferred_columns.values():
-        raise ValueError("BSR structure not detected: Region column missing")
-
-    return inferred_columns
-
-def load_bsr_universal(bsr_path):
-    # Read everything raw
     df_raw = pd.read_excel(bsr_path, header=None)
 
-    # Step 1: detect data start
-    data_start = detect_data_start_row(df_raw)
+    # Take next 4 rows as header candidates
+    header_block = df_raw.iloc[header_row:header_row + 4].fillna("")
 
-    # Step 2: infer columns
-    column_map = infer_columns(df_raw.iloc[:data_start + 5])
+    combined_headers = []
+    for col in header_block.columns:
+        parts = (
+            header_block[col]
+            .astype(str)
+            .str.strip()
+            .replace("", pd.NA)
+            .dropna()
+            .unique()
+        )
+        combined_headers.append(" ".join(parts))
 
-    # Step 3: slice real data
-    df_data = df_raw.iloc[data_start:].reset_index(drop=True)
+    df = df_raw.iloc[header_row + 4:].reset_index(drop=True)
+    df.columns = [c.strip() for c in combined_headers]
 
-    # Step 4: apply canonical names
-    df_data = df_data.rename(columns=column_map)
-
-    # Drop fully empty columns
-    df_data = df_data.dropna(axis=1, how="all")
-
-    return df_data
+    return df
 
 
 # ----------------------------- 3️⃣ Period Check -----------------------------
@@ -990,7 +951,7 @@ def check_event_matchday_competition(df_worksheet, df_data=None, rosco_path=None
         ])
 
     # Precompute a lowercase set for quick lookup
-    reference_comps_lower = set(str(x).strip().lower() for x in reference_comps if pd.notna(x))
+    reference_comps_lower = set(x.lower() for x in reference_comps)
 
     # --- Prepare output columns ---
     df = df_worksheet.copy()
@@ -1050,7 +1011,7 @@ def check_event_matchday_competition(df_worksheet, df_data=None, rosco_path=None
                 remarks.append("Missing Home/Away or Match field")
 
         # 2) Validate competition against reference list
-        comp_l = str(competition).strip().lower()
+        comp_l = competition.lower()
         # some competitions appear with extra words, do a contains check
         comp_matches_reference = False
         for rc in reference_comps_lower:
@@ -1071,7 +1032,7 @@ def check_event_matchday_competition(df_worksheet, df_data=None, rosco_path=None
                     remarks.append("Unusual matchday format")
 
         # 4) If we have a reference expected counts mapping (from df_data), count per (competition, matchday)
-        comp_key = str(competition).strip().lower(), str(matchday.strip().lower())
+        comp_key = (competition.strip().lower(), matchday.strip().lower())
         grouped_counts.setdefault(comp_key, 0)
         grouped_counts[comp_key] += 1
 
