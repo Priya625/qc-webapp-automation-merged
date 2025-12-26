@@ -158,60 +158,19 @@ def detect_period_from_rosco(rosco_path):
 # ----------------------------- 2️⃣ Load BSR -----------------------------
 def detect_header_row(bsr_path):
     df_sample = pd.read_excel(bsr_path, header=None, nrows=200)
-
-    required_keywords = {"region", "market", "broadcaster"}
-
-    for start_row in range(0, len(df_sample) - 4):
-        collected = []
-
-        # Combine 4 consecutive rows (handles badly split headers)
-        for r in range(start_row, start_row + 4):
-            collected.extend(
-                df_sample.iloc[r]
-                .dropna()
-                .astype(str)
-                .str.strip()
-                .tolist()
-            )
-
-        row_str = " ".join(collected).lower()
-
-        if required_keywords.issubset(row_str.split()):
-            return start_row
-
-        # Fallback: loose contains check
-        if all(k in row_str for k in required_keywords):
-            return start_row
-
-    raise ValueError(
-        "Could not detect header row. "
-        "File has heavily split or formatted headers."
-    )
+    for i, row in df_sample.iterrows():
+        row_str = " ".join(row.dropna().astype(str).tolist()).lower()
+        if "region" in row_str and "market" in row_str and "broadcaster" in row_str:
+            return i
+        if "date" in row_str and ("utc" in row_str or "gmt" in row_str):
+            return i
+    raise ValueError("Could not detect header row in BSR file.")
 
 
 def load_bsr(bsr_path):
     header_row = detect_header_row(bsr_path)
-
-    df_raw = pd.read_excel(bsr_path, header=None)
-
-    # Take next 4 rows as header candidates
-    header_block = df_raw.iloc[header_row:header_row + 4].fillna("")
-
-    combined_headers = []
-    for col in header_block.columns:
-        parts = (
-            header_block[col]
-            .astype(str)
-            .str.strip()
-            .replace("", pd.NA)
-            .dropna()
-            .unique()
-        )
-        combined_headers.append(" ".join(parts))
-
-    df = df_raw.iloc[header_row + 4:].reset_index(drop=True)
-    df.columns = [c.strip() for c in combined_headers]
-
+    df = pd.read_excel(bsr_path, header=header_row)
+    df.columns = [str(c).strip() for c in df.columns]
     return df
 
 
