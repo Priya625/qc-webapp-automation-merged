@@ -518,7 +518,7 @@ with main_qc_tab:
 
                     # 1. Load BSR (detect header row inside function)
                     try:
-                        df = qc_general.load_bsr_universal(bsr_path)
+                        df = qc_general.load_bsr(bsr_path)
                     except Exception as e:
                         raise RuntimeError(f"Error loading BSR file: {e}")
 
@@ -783,7 +783,7 @@ with laliga_qc_tab:
                     start_date, end_date = qc_general.detect_period_from_rosco(rosco_path)
                     
                     # 1. FIX: Removed col_map["bsr"]
-                    df = qc_general.load_bsr_universal(bsr_path)
+                    df = qc_general.load_bsr(bsr_path)
 
                     # Run the 9 General Checks
                     # 2. FIX: Removed col_map["bsr"]
