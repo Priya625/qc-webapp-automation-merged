@@ -125,6 +125,7 @@ class EPLValidator:
         "sa_nielsen_inclusion_check": self._sa_nielsen_inclusion_check,
         "epl_live_vs_delay_validation": self._epl_live_vs_delay_validation,
         "pl_magazine_highlights_classification": self._pl_magazine_highlights_classification,
+        "audit_uk_ire_duplication_alignment" : self._audit_uk_ire_duplication_alignment,
         #"relevant_only_in_the_uk": self._relevant_only_in_the_uk,
         #"dedicated_program_duration_allignments": self._dedicated_program_duration_allignments
         # Future EPL checks would be added here
@@ -2623,6 +2624,102 @@ class EPLValidator:
             "status": "Completed",
             "description": f"Classified {len(report_df)} rows.",
             "details": {"rows_classified": len(report_df)}
+        }
+    
+    def _audit_uk_ire_duplication_alignment(self) -> Dict[str, Any]:
+        """
+        UK–Ireland Program Duplication & Description Alignment Check.
+        
+        Logic:
+        1. Filters for UK and Ireland markets.
+        2. Aligns rows based on Date, Channel, and a 3-minute Start/End time tolerance.
+        3. Identifies missing rows (Present in UK but not IRE, or vice-versa).
+        4. Compares Descriptions: Overwrites UK with Ireland description if mismatched.
+        5. Produces an anomaly report and an aligned dataset.
+        """
+        FLAG_COLUMN = 'UK_IRL_Duplication_Consistency_Flag'
+        TOLERANCE = timedelta(minutes=3)
+        UK_VARIANTS = ['UNITED KINGDOM', 'UK']
+        IRE_VARIANTS = ['IRELAND', 'IRE']
+
+        # 1. Prepare Data
+        df_work = self.df.copy()
+        df_work[FLAG_COLUMN] = 'OK'
+        
+        # Standardize Time/Date for matching
+        df_work['_start_dt'] = pd.to_datetime(df_work['Date'].astype(str) + ' ' + df_work['Start'].astype(str), errors='coerce')
+        df_work['_end_dt'] = pd.to_datetime(df_work['Date'].astype(str) + ' ' + df_work['End'].astype(str), errors='coerce')
+        df_work['_chan_norm'] = df_work['TV-Channel'].astype(str).str.strip().str.upper()
+        df_work['_market_norm'] = df_work['Market'].astype(str).str.strip().str.upper()
+
+        # Split into UK and Ireland
+        uk_df = df_work[df_work['_market_norm'].isin(UK_VARIANTS)].copy()
+        ire_df = df_work[df_work['_market_norm'].isin(IRE_VARIANTS)].copy()
+
+        anomalies = []
+        matched_uk_indices = set()
+        matched_ire_indices = set()
+
+        # 2. Iterate through Ireland (Source) to find UK matches
+        for i_idx, i_row in ire_df.iterrows():
+            # Find candidate matches: Same Channel, Start Time within 3 mins
+            mask = (
+                (uk_df['_chan_norm'] == i_row['_chan_norm']) &
+                (uk_df['_start_dt'] >= i_row['_start_dt'] - TOLERANCE) &
+                (uk_df['_start_dt'] <= i_row['_start_dt'] + TOLERANCE)
+            )
+            
+            potential_matches = uk_df[mask]
+
+            if potential_matches.empty:
+                anomalies.append({
+                    'Market': 'IRELAND', 'Channel': i_row['TV-Channel'], 
+                    'Issue': 'Missing in UK', 'Details': f"Starts {i_row['Start']}"
+                })
+                self.df.loc[i_idx, FLAG_COLUMN] = "ANOMALY: No matching UK row found"
+            else:
+                u_idx = potential_matches.index[0]
+                u_row = potential_matches.iloc[0]
+                
+                matched_uk_indices.add(u_idx)
+                matched_ire_indices.add(i_idx)
+
+                # Description Check & Overwrite
+                if str(i_row['Program Description']).strip() != str(u_row['Program Description']).strip():
+                    # AUTO-CORRECT: Overwrite UK with Ireland Description
+                    self.df.loc[u_idx, 'Program Description'] = i_row['Program Description']
+                    self.df.loc[u_idx, FLAG_COLUMN] = "CORRECTED: Description aligned with Ireland"
+                    self.df.loc[i_idx, FLAG_COLUMN] = "ALIGNED: Description pushed to UK"
+                    
+                    anomalies.append({
+                        'Market': 'UK/IRE', 'Channel': i_row['TV-Channel'], 
+                        'Issue': 'Description Mismatch', 
+                        'Details': f"UK '{u_row['Program Description']}' -> IRE '{i_row['Program Description']}'"
+                    })
+
+        # 3. Identify UK rows that never found an Ireland counterpart
+        unmatched_uk = uk_df[~uk_df.index.isin(matched_uk_indices)]
+        for u_idx, u_row in unmatched_uk.iterrows():
+            anomalies.append({
+                'Market': 'UNITED KINGDOM', 'Channel': u_row['TV-Channel'], 
+                'Issue': 'Missing in Ireland', 'Details': f"Starts {u_row['Start']}"
+            })
+            self.df.loc[u_idx, FLAG_COLUMN] = "ANOMALY: No matching Ireland row found"
+
+        # 4. Store Anomaly Report and Aligned Dataset
+        self.uk_ire_anomaly_report = pd.DataFrame(anomalies)
+        # The Aligned Dataset is simply the filtered UK/IRE rows from the now-updated self.df
+        self.aligned_uk_ire_dataset = self.df[self.df['Market'].str.upper().isin(UK_VARIANTS + IRE_VARIANTS)].copy()
+
+        return {
+            "check_key": "audit_uk_ire_duplication_alignment",
+            "status": "Flagged" if anomalies else "Completed",
+            "description": f"Audited UK/IRE alignment. Found {len(anomalies)} anomalies. Descriptions harmonized.",
+            "details": {
+                "total_anomalies": len(anomalies),
+                "ire_rows": len(ire_df),
+                "uk_rows": len(uk_df)
+            }
         }
 
 

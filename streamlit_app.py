@@ -254,6 +254,7 @@ all_market_check_keys_epl = {
     "sa_nielsen_inclusion_check": "South Africa Nielsen Inclusion Check",
     "epl_live_vs_delay_validation": "Live vs Delay Validation",
     "pl_magazine_highlights_classification": "PL Magazine/Highlights Classification",
+    "audit_uk_ire_duplication_alignment" : "UK/Ireland Duplication Alignment",
     "dedicated_program_duration_allignments": "Dedicated Program Duration Alignments",
     
     
@@ -1034,6 +1035,7 @@ with epl_tab:
         "sa_nielsen_inclusion_check": "South Africa Nielsen Inclusion Check",
         "epl_live_vs_delay_validation": "Live vs Delay Validation",
         "pl_magazine_highlights_classification": "PL Magazine/Highlights Classification",
+        "audit_uk_ire_duplication_alignment" : "Audit UK/IRE Duplication Alignments",
         "dedicated_program_duration_allignments": "Dedicated Program Duration Alignments"
         
 
@@ -1159,6 +1161,7 @@ with epl_tab:
         check_ui("sa_nielsen_inclusion_check")
         check_ui("epl_live_vs_delay_validation")
         check_ui("pl_magazine_highlights_classification")
+        check_ui("audit_uk_ire_duplication_alignment")
         check_ui("dedicated_program_duration_allignments")
         
 
