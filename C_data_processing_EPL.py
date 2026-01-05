@@ -127,6 +127,7 @@ class EPLValidator:
         "pl_magazine_highlights_classification": self._pl_magazine_highlights_classification,
         "audit_uk_ire_duplication_alignment" : self._audit_uk_ire_duplication_alignment,
         "audit_ott_broadcast_consolidation": self._audit_ott_broadcast_consolidation,
+        "check_missing_live_games" : self._check_missing_live_games,
         #"relevant_only_in_the_uk": self._relevant_only_in_the_uk,
         #"dedicated_program_duration_allignments": self._dedicated_program_duration_allignments
         # Future EPL checks would be added here
@@ -2787,6 +2788,77 @@ class EPLValidator:
                 "secondary_sources_checked": SECONDARY_SOURCES,
                 "restricted_type": RESTRICTED_TYPE
             }
+        }
+    
+    def _check_missing_live_games(self) -> Dict[str, Any]:
+        """
+        EPL Missing Live Games Check – Market & Logs Based
+        
+        Logic:
+        1. Identifies "Live" matches that SHOULD be in the BSR based on a Fixture List.
+        2. Checks if mandatory OTT broadcasters (Fubo, DAZN, TOD, etc.) have a matching entry.
+        3. If an entry is missing, it auto-creates a new row with zero audience.
+        """
+        FLAG_COLUMN = 'QC_Missing_Live_Game_Flag'
+        
+        # --- FIXED BROADCASTER OBLIGATION LIST (Example based on current rights) ---
+        # You can expand this or move it to a config file.
+        OBLIGATED_BROADCASTERS = {
+            'CANADA': ['FUBOTV'], 
+            'USA': ['PEACOCK', 'USA NETWORK'],
+            'SPAIN': ['DAZN'],
+            'GERMANY': ['DAZN', 'SKY SPORT'],
+            'MENA': ['BEIN SPORTS', 'TOD'],
+            'AUSTRALIA': ['OPTUS SPORT', 'STAN SPORT']
+        }
+
+        # 1. Load Fixture List (assuming it's a separate dataframe stored in self)
+        # For this implementation, we assume 'self.fixture_df' is populated.
+        if not hasattr(self, 'fixture_df') or self.fixture_df is None:
+             return {"check_key": "missing_live_games", "status": "Skipped", "description": "No fixture list provided."}
+
+        initial_rows = len(self.df)
+        missing_entries = []
+
+        # Normalize existing BSR data for matching
+        df_norm = self.df.copy()
+        df_norm['Match_Key'] = df_norm['Date'].astype(str) + "|" + df_norm['Market'].str.upper() + "|" + df_norm['TV-Channel'].str.upper()
+
+        # 2. Iterate through Fixtures to find gaps
+        for _, fix_row in self.fixture_df.iterrows():
+            fix_date = str(fix_row['Date'])
+            
+            # Check all markets/broadcasters for this fixture date
+            for market, broadcasters in OBLIGATED_BROADCASTERS.items():
+                for broadcaster in broadcasters:
+                    match_key = f"{fix_date}|{market}|{broadcaster}"
+                    
+                    # If this match/broadcaster combo is NOT in the BSR
+                    if match_key not in df_norm['Match_Key'].values:
+                        # 3. AUTO-CREATE the missing entry
+                        new_row = {
+                            'Market': market,
+                            'TV-Channel': broadcaster,
+                            'Program Description': fix_row['Match'],
+                            'Type of program': 'LIVE',
+                            'Date': fix_row['Date'],
+                            'Start (UTC)': fix_row['Start (UTC)'],
+                            'End (UTC)': fix_row['End (UTC)'],
+                            'Audience': 0, # Mandated zero audience
+                            FLAG_COLUMN: 'AUTO-CREATED: Missing Live Match'
+                        }
+                        missing_entries.append(new_row)
+
+        # 4. Append missing rows to main DataFrame
+        if missing_entries:
+            missing_df = pd.DataFrame(missing_entries)
+            self.df = pd.concat([self.df, missing_df], ignore_index=True)
+
+        return {
+            "check_key": "missing_live_games",
+            "status": "Flagged" if missing_entries else "Completed",
+            "description": f"Audited fixtures. Auto-created {len(missing_entries)} missing Live match entries.",
+            "details": {"rows_created": len(missing_entries)}
         }
 
 # ----------------------------- ⚙️ Utility Functions (kept standalone) -----------------------------
