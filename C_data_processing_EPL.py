@@ -126,6 +126,7 @@ class EPLValidator:
         "epl_live_vs_delay_validation": self._epl_live_vs_delay_validation,
         "pl_magazine_highlights_classification": self._pl_magazine_highlights_classification,
         "audit_uk_ire_duplication_alignment" : self._audit_uk_ire_duplication_alignment,
+        "audit_ott_broadcast_consolidation": self._audit_ott_broadcast_consolidation,
         #"relevant_only_in_the_uk": self._relevant_only_in_the_uk,
         #"dedicated_program_duration_allignments": self._dedicated_program_duration_allignments
         # Future EPL checks would be added here
@@ -2721,7 +2722,72 @@ class EPLValidator:
                 "uk_rows": len(uk_df)
             }
         }
+    
+    def _audit_ott_broadcast_consolidation(self) -> Dict[str, Any]:
+        """
+        OTT Broadcast Consolidation Audit.
+        
+        Logic:
+        1. Identifies rows from secondary sources (BSA, Aura, Nielsen).
+        2. Detects any "Live" program types within those secondary sources.
+        3. Flags these rows as invalid because Live content must only come from BC Logs.
+        4. Exports invalid rows to self.bsa_live_errors_df.
+        """
+        initial_rows = len(self.df)
+        FLAG_COLUMN = 'QC_OTT_Consolidation_Flag'
+        
+        # Define Secondary Sources and Restricted Type
+        SECONDARY_SOURCES = ['BSA', 'AURA', 'NIELSEN']
+        RESTRICTED_TYPE = 'LIVE'
+        
+        # Robust column detection for 'Type of program' variants
+        TYPE_COL = next((c for c in self.df.columns if 'type' in c.lower() and 'program' in c.lower()), 'Type of programme')
+        SOURCE_COL = 'Source'
 
+        self.df[FLAG_COLUMN] = 'OK'
+
+        # 1. Check for required columns
+        if SOURCE_COL not in self.df.columns or TYPE_COL not in self.df.columns:
+            return {
+                "check_key": "audit_ott_consolidation", 
+                "status": "Skipped",
+                "description": f"Missing columns: {SOURCE_COL} or {TYPE_COL}",
+                "details": {}
+            }
+
+        # 2. Normalize for comparison
+        source_norm = self.df[SOURCE_COL].astype(str).str.strip().str.upper()
+        type_norm = self.df[TYPE_COL].astype(str).str.strip().str.upper()
+
+        # 3. Identify Invalid Rows
+        # Condition: Source is in {BSA, Aura, Nielsen} AND Type is "Live"
+        source_mask = source_norm.isin(SECONDARY_SOURCES)
+        type_mask = type_norm == RESTRICTED_TYPE
+        
+        invalid_mask = source_mask & type_mask
+        rows_flagged = invalid_mask.sum()
+
+        # 4. Apply Flag and Prepare Error Export
+        if rows_flagged > 0:
+            flag_msg = f"INVALID LIVE SOURCE: '{RESTRICTED_TYPE}' content found in secondary source ({SECONDARY_SOURCES})."
+            self.df.loc[invalid_mask, FLAG_COLUMN] = flag_msg
+            
+            # Create the separate error dataframe for export
+            self.bsa_live_errors_df = self.df[invalid_mask].copy()
+        else:
+            self.bsa_live_errors_df = pd.DataFrame(columns=self.df.columns)
+
+        return {
+            "check_key": "audit_ott_consolidation",
+            "status": "Flagged" if rows_flagged > 0 else "Completed",
+            "action": "OTT Source Consolidation",
+            "description": f"Audited {initial_rows} rows. Found {rows_flagged} invalid Live entries from secondary sources.",
+            "details": {
+                "invalid_rows_count": int(rows_flagged),
+                "secondary_sources_checked": SECONDARY_SOURCES,
+                "restricted_type": RESTRICTED_TYPE
+            }
+        }
 
 # ----------------------------- ⚙️ Utility Functions (kept standalone) -----------------------------
 
