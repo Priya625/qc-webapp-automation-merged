@@ -167,9 +167,34 @@ def detect_header_row(bsr_path):
     raise ValueError("Could not detect header row in BSR file.")
 
 
+# def load_bsr(bsr_path):
+#     header_row = detect_header_row(bsr_path)
+#     df = pd.read_excel(bsr_path, header=header_row)
+#     df.columns = [str(c).strip() for c in df.columns]
+#     return df
+
 def load_bsr(bsr_path):
-    header_row = detect_header_row(bsr_path)
-    df = pd.read_excel(bsr_path, header=header_row)
+    # Load the Excel file to check sheet names
+    xl = pd.ExcelFile(bsr_path)
+    sheet_names = xl.sheet_names
+    
+    # Check if 'Worksheet' or 'Database' (case-insensitive) exists
+    target_sheet = None
+    for sheet in sheet_names:
+        if sheet.lower().strip() in ["worksheet", "database"]:
+            target_sheet = sheet
+            break
+    
+    if not target_sheet:
+        # If neither sheet is found, we raise an error or return None 
+        # based on how you want to handle "non-workfiles"
+        raise ValueError(f"Skipping file: No 'Worksheet' or 'Database' sheet found in {os.path.basename(bsr_path)}")
+
+    # Detect header row specifically within that target sheet
+    header_row = detect_header_row_in_sheet(bsr_path, target_sheet)
+    
+    # Load only the identified sheet
+    df = pd.read_excel(bsr_path, sheet_name=target_sheet, header=header_row)
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
