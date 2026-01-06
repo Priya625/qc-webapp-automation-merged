@@ -128,6 +128,7 @@ class EPLValidator:
         "audit_uk_ire_duplication_alignment" : self._audit_uk_ire_duplication_alignment,
         "audit_ott_broadcast_consolidation": self._audit_ott_broadcast_consolidation,
         "check_missing_live_games" : self._check_missing_live_games,
+        "dedicated_program_duration_alignments": self._dedicated_program_duration_alignments
         #"relevant_only_in_the_uk": self._relevant_only_in_the_uk,
         #"dedicated_program_duration_allignments": self._dedicated_program_duration_allignments
         # Future EPL checks would be added here
@@ -2859,6 +2860,71 @@ class EPLValidator:
             "status": "Flagged" if missing_entries else "Completed",
             "description": f"Audited fixtures. Auto-created {len(missing_entries)} missing Live match entries.",
             "details": {"rows_created": len(missing_entries)}
+        }
+    
+    def _dedicated_program_duration_alignments(self) -> Dict[str, Any]:
+        """
+        Dedicated Program Duration Alignment Check.
+        
+        Logic:
+        1. Calculates duration for every row based on Start (UTC) and End (UTC).
+        2. Compares the duration against expected windows for specific program types.
+        3. Flags rows where the category (Type of Program) does not match the actual duration.
+        """
+        FLAG_COLUMN = 'QC_Duration_Alignment_Flag'
+        self.df[FLAG_COLUMN] = 'OK'
+        
+        # --- CONFIGURATION: Define expected duration ranges (in minutes) ---
+        # These can be adjusted based on specific broadcaster requirements.
+        DURATION_RULES = {
+            'LIVE':      {'min': 100, 'max': 300}, # Matches + Wraparound
+            'RELIVE':    {'min': 90,  'max': 150}, # Full match playback
+            'DELAYED':   {'min': 90,  'max': 150}, # Full match playback
+            'REPEAT':    {'min': 45,  'max': 150}, # Full match or half-match
+            'HIGHLIGHTS':{'min': 5,   'max': 60},  # Short/Long highlights
+            'MAGAZINE':  {'min': 5,   'max': 65}   # Support programming
+        }
+
+        # 1. Setup column names (handling potential naming variations)
+        TYPE_COL = next((c for c in self.df.columns if 'type' in c.lower() and 'program' in c.lower()), 'Type of programme')
+        
+        # 2. Calculate Durations
+        # Reuse internal logic for date/time parsing and midnight rollover
+        df_work = self.df.copy()
+        df_work['_start_dt'] = pd.to_datetime(df_work['Date'].astype(str) + ' ' + df_work['Start (UTC)'].astype(str), errors='coerce')
+        df_work['_end_dt'] = pd.to_datetime(df_work['Date'].astype(str) + ' ' + df_work['End (UTC)'].astype(str), errors='coerce')
+        
+        # Handle rollover (End time earlier than start time)
+        rollover = df_work['_end_dt'] < df_work['_start_dt']
+        df_work.loc[rollover, '_end_dt'] += pd.Timedelta(days=1)
+        
+        df_work['Actual_Duration'] = (df_work['_end_dt'] - df_work['_start_dt']).dt.total_seconds() / 60
+
+        # 3. Apply Validation Rules
+        flagged_count = 0
+        for p_type, limits in DURATION_RULES.items():
+            # Create a mask for rows matching this program type
+            type_mask = df_work[TYPE_COL].astype(str).str.upper().str.contains(p_type, na=False)
+            
+            # Check for duration violations (too short or too long)
+            invalid_mask = type_mask & (
+                (df_work['Actual_Duration'] < limits['min']) | 
+                (df_work['Actual_Duration'] > limits['max'])
+            )
+            
+            if invalid_mask.any():
+                indices = df_work[invalid_mask].index
+                self.df.loc[indices, FLAG_COLUMN] = (
+                    f"DURATION MISMATCH: {p_type} expected {limits['min']}-{limits['max']} mins, "
+                    f"but found {df_work.loc[indices, 'Actual_Duration'].iloc[0]:.1f} mins."
+                )
+                flagged_count += len(indices)
+
+        return {
+            "check_key": "dedicated_program_duration_allignments",
+            "status": "Flagged" if flagged_count > 0 else "Completed",
+            "description": f"Audited duration alignments for {len(df_work)} rows. Flagged {flagged_count} mismatches.",
+            "details": {"rows_flagged": flagged_count}
         }
 
 # ----------------------------- ⚙️ Utility Functions (kept standalone) -----------------------------

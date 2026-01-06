@@ -257,7 +257,7 @@ all_market_check_keys_epl = {
     "audit_uk_ire_duplication_alignment" : "UK/Ireland Duplication Alignment",
     "audit_ott_broadcast_consolidation": "OTT Broadcast Consolidation",
     "check_missing_live_games" : "EPL Missing Live Games Check",
-    "dedicated_program_duration_allignments": "Dedicated Program Duration Alignments",
+    "dedicated_program_duration_alignments": "Dedicated Program Duration Alignments",
     
     
 }
@@ -1040,7 +1040,7 @@ with epl_tab:
         "audit_uk_ire_duplication_alignment" : "Audit UK/IRE Duplication Alignments",
         "audit_ott_broadcast_consolidation": "OTT Broadcast Consolidation",
         "check_missing_live_games": "EPL Missing Live Games Check",
-        "dedicated_program_duration_allignments": "Dedicated Program Duration Alignments"
+        "dedicated_program_duration_alignments": "Dedicated Program Duration Alignments"
         
 
         
