@@ -156,15 +156,36 @@ def detect_period_from_rosco(rosco_path):
 
 
 # ----------------------------- 2️⃣ Load BSR -----------------------------
+ALLOWED_SHEETS = {"worksheet", "work", "database"}
+
 def detect_header_row(bsr_path):
-    df_sample = pd.read_excel(bsr_path, header=None, nrows=200)
-    for i, row in df_sample.iterrows():
-        row_str = " ".join(row.dropna().astype(str).tolist()).lower()
-        if "region" in row_str and "market" in row_str and "broadcaster" in row_str:
-            return i
-        if "date" in row_str and ("utc" in row_str or "gmt" in row_str):
-            return i
-    raise ValueError("Could not detect header row in BSR file.")
+    xls = pd.ExcelFile(bsr_path)
+    for sheet in xls.sheet_names:
+        sheet_lower = sheet.strip().lower()
+        if sheet_lower not in ALLOWED_SHEETS:
+            continue  #  skip unwanted sheets
+        df_sample = pd.read_excel(
+            bsr_path,
+            sheet_name=sheet,
+            header=None,
+            nrows=200
+        )
+        for i, row in df_sample.iterrows():
+            row_str = " ".join(row.dropna().astype(str)).lower()
+            if (
+                "region" in row_str
+                and "market" in row_str
+                and "broadcaster" in row_str
+            ):
+                return sheet, i
+            if (
+                "date" in row_str
+                and ("utc" in row_str or "gmt" in row_str)
+            ):
+                return sheet, i
+    raise ValueError(
+        "Could not detect header row in sheets: worksheet / work / database"
+    )
 
 
 # def load_bsr(bsr_path):
@@ -174,30 +195,10 @@ def detect_header_row(bsr_path):
 #     return df
 
 def load_bsr(bsr_path):
-    # Load the Excel file to check sheet names
-    xl = pd.ExcelFile(bsr_path)
-    sheet_names = xl.sheet_names
-    
-    # Check if 'Worksheet' or 'Database' (case-insensitive) exists
-    target_sheet = None
-    for sheet in sheet_names:
-        if sheet.lower().strip() in ["worksheet", "database"]:
-            target_sheet = sheet
-            break
-    
-    if not target_sheet:
-        # If neither sheet is found, we raise an error or return None 
-        # based on how you want to handle "non-workfiles"
-        raise ValueError(f"Skipping file: No 'Worksheet' or 'Database' sheet found in {os.path.basename(bsr_path)}")
-
-    # Detect header row specifically within that target sheet
-    header_row = detect_header_row_in_sheet(bsr_path, target_sheet)
-    
-    # Load only the identified sheet
-    df = pd.read_excel(bsr_path, sheet_name=target_sheet, header=header_row)
+    sheet_name, header_row = detect_header_row(bsr_path)
+    df = pd.read_excel(bsr_path,sheet_name=sheet_name,header=header_row)
     df.columns = [str(c).strip() for c in df.columns]
     return df
-
 
 # ----------------------------- 3️⃣ Period Check -----------------------------
 def period_check(df, start_date, end_date):
