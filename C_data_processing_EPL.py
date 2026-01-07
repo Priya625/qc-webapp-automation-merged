@@ -119,7 +119,7 @@ class EPLValidator:
         "check_legacy_mapping" : self._check_legacy_mapping,
         "check_premier_league_october_obligation" : self._check_premier_league_october_obligation,
         "audit_ovn_whistle_to_whistle" : self._audit_ovn_whistle_to_whistle,
-        #"check_star_sports_3_consolidation" : self._check_star_sports_3_consolidation,
+        "check_star_sports_3_consolidation" : self._check_star_sports_3_consolidation,
         #"check_bsa_nielsen_audience_presence" : self._check_bsa_nielsen_audience_presence,
         #"check_source_mediatype_validity" : self._check_source_mediatype_validity,
         "filter_short_programs": self._filter_short_programs,
@@ -3048,6 +3048,86 @@ class EPLValidator:
             "details": {
                 "ovn_matches_found": len(ovn_keys),
                 "bsr_rows_flagged": int(rows_flagged)
+            }
+        }
+    
+    def _check_star_sports_3_consolidation(self) -> Dict[str, Any]:
+        """
+        Consolidates 'Star Sports 3' data in India. If the same fixture/event appears 
+        on both the Main Channel and the Malayalam Region channel, the 
+        MAIN CHANNEL entry is retained (Prioritized) and the Malayalam entry is flagged.
+        """
+        initial_rows = len(self.df)
+        FLAG_COLUMN = 'QC_Star_Sports_Consolidation_Flag'
+        
+        # Constraints
+        TARGET_MARKET = 'INDIA'
+        TARGET_CHANNEL_KEYWORD = 'STAR SPORTS 3'
+        REGION_KEYWORD = 'MALAYALAM'
+        
+        # Columns used for matching unique events
+        MATCH_COLS = ['Phase / Fixture / Episode Desc.', 'Start (UTC)']
+        
+        REQUIRED_COLS = ['Market', 'TV-Channel', 'Region'] + MATCH_COLS
+        if not all(col in self.df.columns for col in REQUIRED_COLS):
+            return {
+                "check_key": "check_star_sports_3_consolidation", "status": "Skipped",
+                "action": "Star Sports 3 Consolidation", 
+                "description": "Skipped: Missing required columns.",
+                "details": {"rows_flagged": 0}
+            }
+
+        self.df[FLAG_COLUMN] = 'OK'
+
+        # 1. Normalize Columns
+        market_norm = self.df['Market'].astype(str).str.strip().str.upper()
+        channel_norm = self.df['TV-Channel'].astype(str).str.strip().str.upper()
+        region_norm = self.df['Region'].astype(str).str.strip().str.upper()
+        
+        # 2. Identify Star Sports 3 Rows in India
+        ss3_mask = (market_norm == TARGET_MARKET) & (channel_norm.str.contains(TARGET_CHANNEL_KEYWORD, na=False))
+        
+        if not ss3_mask.any():
+            return {"check_key": "check_star_sports_3_consolidation", "status": "Completed", "description": "No Star Sports 3 rows found in India.", "details": {}}
+
+        # 3. Create Unique Event Keys for matching
+        # Key format: "FIXTURE_NAME|START_TIME"
+        fixture_col = self.df['Phase / Fixture / Episode Desc.'].astype(str).str.strip().str.upper()
+        start_col = self.df['Start (UTC)'].astype(str).str.strip()
+        
+        self.df.loc[ss3_mask, 'Temp_SS3_Key'] = fixture_col[ss3_mask] + '|' + start_col[ss3_mask]
+
+        # 4. Split into Main vs Malayalam Datasets (Indices)
+        # Malayalam (To be checked/Flagged)
+        malayalam_mask = ss3_mask & (region_norm.str.contains(REGION_KEYWORD, na=False))
+        # Main (Priority - To be retained)
+        main_mask = ss3_mask & (~region_norm.str.contains(REGION_KEYWORD, na=False))
+        
+        #  UPDATED: Get the set of keys from the MAIN CHANNEL (Priority)
+        main_keys_set = set(self.df.loc[main_mask, 'Temp_SS3_Key'].unique())
+        
+        # 5. Check for Conflicts
+        #  UPDATED: Check MALAYALAM rows. If they exist in the MAIN set, flag them.
+        conflict_mask = malayalam_mask & self.df['Temp_SS3_Key'].isin(main_keys_set)
+        
+        rows_flagged = conflict_mask.sum()
+        
+        if rows_flagged > 0:
+            #  UPDATED: Flag message reflects that Main is priority
+            flag_msg = "DUPLICATE: Suppressed. Event exists on Main Channel (Priority 1)."
+            self.df.loc[conflict_mask, FLAG_COLUMN] = flag_msg
+
+        # Cleanup
+        self.df.drop(columns=['Temp_SS3_Key'], inplace=True, errors='ignore')
+
+        return {
+            "check_key": "check_star_sports_3_consolidation",
+            "status": "Flagged" if rows_flagged > 0 else "Completed",
+            "action": "Star Sports 3 Consolidation", 
+            "description": f"Flagged {rows_flagged} Malayalam rows that were duplicated on the Main Channel.",
+            "details": {
+                "rows_flagged": int(rows_flagged),
+                "main_events_count": len(main_keys_set)
             }
         }
 

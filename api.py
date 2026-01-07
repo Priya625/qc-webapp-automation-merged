@@ -254,6 +254,7 @@ EPL_CHECK_KEYS = {
     "check_premier_league_october_obligation"
     "filter_short_programs",
     "audit_ovn_whistle_to_whistle",
+    "check_star_sports_3_consolidation",
     } 
 
 @app.post("/api/market_check_and_process", response_model=None)

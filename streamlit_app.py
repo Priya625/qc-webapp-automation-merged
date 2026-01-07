@@ -248,7 +248,7 @@ all_market_check_keys_epl = {
     "audit_ovn_whistle_to_whistle":"Cross check for any Whistle to Whistle match from ovn sheet",
 
     # "check_premier_league_october_obligation" : "Cross Checking of channels from CDT/OVN Sheet ",
-    # "check_star_sports_3_consolidation" : "Prioritizing Malayalam region over Start Sports 3 ",
+    "check_star_sports_3_consolidation" : "Prioritizing Malayalam region over Start Sports 3 ",
     # "check_bsa_nielsen_audience_presence" : "Make sure Non-metered Data (Time Bands) has Audience ",    
     "filter_short_programs": "5 Minute Program Filter: Remove programs shorter than 5 minutes (except Austria/NZ)",
     "sa_nielsen_inclusion_check": "South Africa Nielsen Inclusion Check",
@@ -1031,7 +1031,7 @@ with epl_tab:
         "check_legacy_mapping": "Cross-references channel names against the legacy mapping table.",
         "audit_ovn_whistle_to_whistle" : "Cross Check whistle to whistle in ovn sheet",
         # "check_premier_league_october_obligation": "Cross Checking of channels from CDT/OVN Sheet",
-        # "check_star_sports_3_consolidation": "Prioritizing Malayalam over Star Sports 3",
+        "check_star_sports_3_consolidation": "Prioritizing Malayalam over Star Sports 3",
         # "check_bsa_nielsen_audience_presence": "Make sure Non-metered Data (Time Bands) has Audience",
         "check_source_mediatype_validity": "Only Predefined Values in the Source,Source 2,Media Type",
         "filter_short_programs": "5 Minute Program Filter: Remove programs shorter than 5 minutes (except Austria/NZ)",
@@ -1105,7 +1105,9 @@ with epl_tab:
     # ),
      
     # "check_premier_league_october_obligation": "Cross Checking of channels from CDT/OVN Sheet",
-    # "check_star_sports_3_consolidation": "Prioritizing Malayalam over Star Sports 3",
+     "check_star_sports_3_consolidation":(
+        "Prioritizing Malayalam over Star Sports 3"
+    ),
     # "check_bsa_nielsen_audience_presence": "Make sure Non-metered Data (Time Bands) has Audience",
      "check_source_mediatype_validity": (
         "Validates that 'Source', 'Source 2', and 'Media Type' columns contain only authorized values (e.g., 'BC Data', 'Linear'), flagging deviations."
@@ -1163,7 +1165,7 @@ with epl_tab:
         check_ui("check_legacy_mapping")
         check_ui("audit_ovn_whistle_to_whistle")
         # check_ui("check_premier_league_october_obligation")
-        # check_ui("check_star_sports_3_consolidation")
+        check_ui("check_star_sports_3_consolidation")
         # check_ui("check_bsa_nielsen_audience_presence")
         check_ui("check_source_mediatype_validity")
         check_ui("filter_short_programs")
