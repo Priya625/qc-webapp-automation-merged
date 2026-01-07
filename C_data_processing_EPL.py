@@ -2580,7 +2580,7 @@ class EPLValidator:
             return None
 
         # Detect required columns
-        col_progtype = find_col(df, "type of program")
+        col_progtype = find_col(df, "type of program","type of programme")
         col_combined = find_col(df, "combined")
 
         missing = []
