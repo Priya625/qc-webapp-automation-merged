@@ -1149,9 +1149,7 @@ with epl_tab:
                 value=st.session_state.epl_all_state, 
                 key="select_all_epl", 
                 on_change=toggle_all_epl)
-    
-    st.write("---")
-    
+
     # Initialize check states in session_state if not present
     for key in all_market_check_keys_epl.keys():
         if key not in st.session_state:
