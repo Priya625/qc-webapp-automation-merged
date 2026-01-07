@@ -1528,7 +1528,7 @@ class EPLValidator:
         
     #     return time_series
 
-    # def _harmonize_uk_ire_program_descriptions_strict(self) -> Dict[str, Any]:
+    def _harmonize_uk_ire_program_descriptions_strict(self) -> Dict[str, Any]:
         """
         Harmonizes Program Description from IRELAND (Source) to UK (Target) for matching 
         time slots, using the 3-minute delta and complex channel matching rules.
