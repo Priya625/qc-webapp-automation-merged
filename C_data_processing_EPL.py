@@ -2504,42 +2504,47 @@ class EPLValidator:
         # ----------------------------
         # MAIN LOGIC
         # ----------------------------
-        tolerance = 60  # minutes
+        tolerance = 70  # 1 hour 10 minutes
         flagged_rows = []
 
+        # Identify the first scheduled kickoff time for every date in the fixture list
+        first_kickoffs = df_fix.groupby("_date")["_fix_start"].min()
+
         for i, row in df.iterrows():
-            h = row["_home"]
-            a = row["_away"]
-            d = row["_date"]
+            h, a, d = row["_home"], row["_away"], row["_date"]
             bsr_start = row["_bsr_start"]
 
             if pd.isna(bsr_start) or pd.isna(d):
                 continue
 
-            # Fixture match
-            fx = df_fix[
-                (df_fix["_home"] == h)
-                & (df_fix["_away"] == a)
-                & (df_fix["_date"] == d)
-            ]
-
+            # 1. Find the corresponding fixture from the master list
+            fx = df_fix[(df_fix["_home"] == h) & (df_fix["_away"] == a) & (df_fix["_date"] == d)]
+            
             if fx.empty:
-                # no fixture → skip silently
-                continue
+                continue # No matching fixture found, skip
 
             fix_start = fx["_fix_start"].iloc[0]
-            if pd.isna(fix_start):
-                continue
-
+            
+            # 2. Calculate the difference (in minutes)
             diff = abs((bsr_start - fix_start).total_seconds() / 60)
+            
+            # 3. Check if this match was the first scheduled game of that day
+            is_first_of_day = (fix_start == first_kickoffs.get(d))
 
-            # LIVE
+            # 4. Apply Flagging Logic
             if diff <= tolerance:
-                df.at[i, FLAG] = f"LIVE: within ±{tolerance} min"
-                flagged_rows.append(i)
+                # If it's exactly on time or within the 70-min window
+                df.at[i, FLAG] = "LIVE"
             else:
-                df.at[i, FLAG] = f"DELAYED: diff={diff:.1f} min"
-                flagged_rows.append(i)
+                # If it crosses the window
+                if is_first_of_day:
+                    # Specific requirement: If it's the first match and late, it's DELAYED
+                    df.at[i, FLAG] = f"DELAYED (First Match of Day - diff: {diff:.1f}m)"
+                else:
+                    # For subsequent matches crossing the window
+                    df.at[i, FLAG] = f"DELAYED (diff: {diff:.1f}m)"
+            
+            flagged_rows.append(i)
 
         # ----------------------------
         # Save flagged rows for export
