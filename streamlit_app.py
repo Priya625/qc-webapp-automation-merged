@@ -1010,6 +1010,24 @@ with epl_tab:
         )
     st.markdown("Upload the required files here to perform and log manual checks.")
 
+    # --- SELECT ALL LOGIC ---
+    def toggle_all_epl():
+        st.session_state.epl_all_state = st.session_state.select_all_epl
+        for key in all_market_check_keys_epl.keys():
+            st.session_state[key] = st.session_state.select_all_epl
+
+    # Initialize select all state if not exists
+    if 'epl_all_state' not in st.session_state:
+        st.session_state.epl_all_state = False
+
+    # Create the master checkbox
+    st.checkbox("✅ Select All EPL Checks", 
+                value=st.session_state.epl_all_state, 
+                key="select_all_epl", 
+                on_change=toggle_all_epl)
+    
+    st.write("---")
+
     # --- 0. Define Tooltips for Checks ---
     # Add your detailed descriptions here
     epl_tooltips = {
