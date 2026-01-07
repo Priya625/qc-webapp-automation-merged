@@ -156,35 +156,25 @@ def detect_period_from_rosco(rosco_path):
 
 
 # ----------------------------- 2️⃣ Load BSR -----------------------------
-ALLOWED_SHEETS = {"worksheet", "work", "database"}
+def detect_header_row_in_sheet(bsr_path, sheet_name):
+    df_sample = pd.read_excel(
+        bsr_path,
+        sheet_name=sheet_name,   #  LOCKED to this sheet
+        header=None,
+        nrows=200
+    )
 
-def detect_header_row(bsr_path):
-    xls = pd.ExcelFile(bsr_path)
-    for sheet in xls.sheet_names:
-        sheet_lower = sheet.strip().lower()
-        if sheet_lower not in ALLOWED_SHEETS:
-            continue  #  skip unwanted sheets
-        df_sample = pd.read_excel(
-            bsr_path,
-            sheet_name=sheet,
-            header=None,
-            nrows=200
-        )
-        for i, row in df_sample.iterrows():
-            row_str = " ".join(row.dropna().astype(str)).lower()
-            if (
-                "region" in row_str
-                and "market" in row_str
-                and "broadcaster" in row_str
-            ):
-                return sheet, i
-            if (
-                "date" in row_str
-                and ("utc" in row_str or "gmt" in row_str)
-            ):
-                return sheet, i
+    for i, row in df_sample.iterrows():
+        row_str = " ".join(row.dropna().astype(str)).lower()
+
+        if "region" in row_str and "market" in row_str and "broadcaster" in row_str:
+            return i
+
+        if "date" in row_str and ("utc" in row_str or "gmt" in row_str):
+            return i
+
     raise ValueError(
-        "Could not detect header row in sheets: worksheet / work / database"
+        f"Header not found in sheet '{sheet_name}'"
     )
 
 
@@ -195,8 +185,32 @@ def detect_header_row(bsr_path):
 #     return df
 
 def load_bsr(bsr_path):
-    sheet_name, header_row = detect_header_row(bsr_path)
-    df = pd.read_excel(bsr_path,sheet_name=sheet_name,header=header_row)
+    xl = pd.ExcelFile(bsr_path)
+
+    allowed_sheets = {"worksheet", "database"}
+    target_sheet = None
+
+    #  Find ONLY worksheet / database
+    for sheet in xl.sheet_names:
+        if sheet.strip().lower() in allowed_sheets:
+            target_sheet = sheet
+            break
+
+    if not target_sheet:
+        raise ValueError(
+            f"No valid sheet ('Worksheet' or 'Database') found in {os.path.basename(bsr_path)}"
+        )
+
+    #  Header detection ONLY on the chosen sheet
+    header_row = detect_header_row_in_sheet(bsr_path, target_sheet)
+
+    #  Load ONLY that sheet
+    df = pd.read_excel(
+        bsr_path,
+        sheet_name=target_sheet,
+        header=header_row
+    )
+
     df.columns = [str(c).strip() for c in df.columns]
     return df
 
