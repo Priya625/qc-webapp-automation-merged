@@ -245,7 +245,7 @@ all_market_check_keys_epl = {
     "suppress_duplicated_audience": "Sets the audience figure to zero for any row identified as 'Duplicated from BSA' to prevent inflated counts.",
     "check_non_metered_primary_market_audience": "Ensures the 'Audience' column is zero for specified primary market data sources that should not contain metered audience data.",
     "harmonize_uk_ire_program_descriptions_strict": "Copies the program description from the Ireland entry to the UK entry only if the start times are an exact match.",
-
+    "audit_ovn_whistle_to_whistle":"Cross check for any Whistle to Whistle match from ovn sheet",
 
     # "check_premier_league_october_obligation" : "Cross Checking of channels from CDT/OVN Sheet ",
     # "check_star_sports_3_consolidation" : "Prioritizing Malayalam region over Start Sports 3 ",
@@ -1029,6 +1029,7 @@ with epl_tab:
         "check_game_of_the_day_match": "Verifies the 'Game of the Day' logic matches the primary broadcast schedule.",
         "check_non_metered_primary_market_audience": "Audits audience numbers for non-metered markets to ensure they are not zero.",
         "check_legacy_mapping": "Cross-references channel names against the legacy mapping table.",
+        "audit_ovn_whistle_to_whistle" : "Cross Check whistle to whistle in ovn sheet",
         # "check_premier_league_october_obligation": "Cross Checking of channels from CDT/OVN Sheet",
         # "check_star_sports_3_consolidation": "Prioritizing Malayalam over Star Sports 3",
         # "check_bsa_nielsen_audience_presence": "Make sure Non-metered Data (Time Bands) has Audience",
@@ -1095,6 +1096,9 @@ with epl_tab:
      "check_legacy_mapping": (
         "Flags any 'Market' or 'Channel' name that is non-standard or deprecated."
     ),
+     "audit_ovn_whistle_to_whistle": (
+        "Cross Check Whistle to Whistle in Ovn sheet" 
+    ),
 
     # "live_date_integrity": (
     #     "Compares 'Live' programs against the Official F1 Schedule and flags rows where the date does not match the official calendar."
@@ -1157,6 +1161,7 @@ with epl_tab:
         check_ui("check_game_of_the_day_match")
         check_ui("check_non_metered_primary_market_audience")
         check_ui("check_legacy_mapping")
+        check_ui("audit_ovn_whistle_to_whistle")
         # check_ui("check_premier_league_october_obligation")
         # check_ui("check_star_sports_3_consolidation")
         # check_ui("check_bsa_nielsen_audience_presence")

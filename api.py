@@ -252,7 +252,8 @@ EPL_CHECK_KEYS = {
     "check_non_metered_primary_market_audience",
     "check_legacy_mapping",
     "check_premier_league_october_obligation"
-    "filter_short_programs"
+    "filter_short_programs",
+    "audit_ovn_whistle_to_whistle",
     } 
 
 @app.post("/api/market_check_and_process", response_model=None)

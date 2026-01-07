@@ -118,6 +118,7 @@ class EPLValidator:
         "check_non_metered_primary_market_audience" : self._check_non_metered_primary_market_audience,
         "check_legacy_mapping" : self._check_legacy_mapping,
         "check_premier_league_october_obligation" : self._check_premier_league_october_obligation,
+        "audit_ovn_whistle_to_whistle" : self._audit_ovn_whistle_to_whistle,
         #"check_star_sports_3_consolidation" : self._check_star_sports_3_consolidation,
         #"check_bsa_nielsen_audience_presence" : self._check_bsa_nielsen_audience_presence,
         #"check_source_mediatype_validity" : self._check_source_mediatype_validity,
@@ -2926,6 +2927,129 @@ class EPLValidator:
     #         "description": f"Audited duration alignments for {len(df_work)} rows. Flagged {flagged_count} mismatches.",
     #         "details": {"rows_flagged": flagged_count}
     #     }
+
+    def _audit_ovn_whistle_to_whistle(self, ovn_df: pd.DataFrame = None) -> Dict[str, Any]:
+        """
+        Cross-checks loaded OVN data against the BSR.
+        
+        Logic:
+        1. Loads OVN data if not provided via _load_overnight_data().
+        2. Filters OVN sheet for 'Programme Title' containing 'Whistle-to-Whistle'.
+        3. Captures the Date and Start Time from these OVN rows.
+        4. Searches for BSR rows in 'United Kingdom' with the SAME Date and Time.
+        5. Flags matches with instructions to update audience figures.
+        """
+        initial_rows = len(self.df)
+        FLAG_COLUMN = 'QC_Audience_Update_Flag'
+        
+        # Configuration for OVN Columns (Adjust these if your OVN headers differ)
+        OVN_TITLE_COL = 'Programme Title'
+        OVN_DATE_COL = 'Date'
+        OVN_START_COL = 'Start Time' # Assumed OVN header for time
+        
+        # Target keyword
+        TARGET_KEYWORD = 'Whistle-to-Whistle'
+        TARGET_MARKET = 'UNITED KINGDOM'
+        
+        # Initialize Flag Column
+        if FLAG_COLUMN not in self.df.columns:
+            self.df[FLAG_COLUMN] = 'OK'
+
+        # --- 1. Load/Validate OVN Data ---
+        # Checks if OVN df is provided; if not, attempts to load it.
+        if ovn_df is None:
+            ovn_df = self._load_overnight_data()
+
+        if ovn_df is None or ovn_df.empty:
+            return {
+                "check_key": "audit_whistle_update", 
+                "status": "Skipped", 
+                "description": "OVN DataFrame is empty or could not be loaded."
+            }
+            
+        required_ovn_cols = [OVN_TITLE_COL, OVN_DATE_COL, OVN_START_COL]
+        if not all(col in ovn_df.columns for col in required_ovn_cols):
+             return {
+                "check_key": "audit_whistle_update", 
+                "status": "Skipped", 
+                "description": f"Skipped: OVN sheet missing columns. Needs: {required_ovn_cols}"
+            }
+
+        # --- 2. Extract Keys from OVN (The "Whistle-to-Whistle" list) ---
+        
+        # Filter OVN for the keyword (Case Insensitive)
+        ovn_matches = ovn_df[
+            ovn_df[OVN_TITLE_COL].astype(str).str.contains(TARGET_KEYWORD, case=False, na=False)
+        ].copy()
+        
+        if ovn_matches.empty:
+            return {
+                "check_key": "audit_whistle_update",
+                "status": "Completed",
+                "description": f"No '{TARGET_KEYWORD}' rows found in OVN sheet.",
+                "details": {"rows_flagged": 0}
+            }
+
+        # Create a "Join Key" in OVN: YYYY-MM-DD + HH:MM
+        # We normalize to HH:MM to avoid mismatch on seconds (e.g. 17:30 vs 17:30:00)
+        try:
+            ovn_dates = pd.to_datetime(ovn_matches[OVN_DATE_COL], errors='coerce').dt.strftime('%Y-%m-%d')
+            # Normalize time to HH:MM string
+            ovn_times = pd.to_datetime(ovn_matches[OVN_START_COL].astype(str), format='%H:%M:%S', errors='coerce').fillna(
+                        pd.to_datetime(ovn_matches[OVN_START_COL].astype(str), format='%H:%M', errors='coerce')
+                        ).dt.strftime('%H:%M')
+            
+            # Create the set of keys we are looking for
+            # Set structure: {'2025-09-13_11:30', '2025-09-14_15:00'}
+            ovn_keys = set((ovn_dates + '_' + ovn_times).unique())
+            
+        except Exception as e:
+             return {
+                "check_key": "audit_whistle_update", "status": "Failed", 
+                "description": f"Date/Time parsing error in OVN sheet: {str(e)}"
+            }
+
+        # --- 3. Scan BSR for Matches ---
+        
+        # Normalize BSR Market
+        bsr_market_norm = self.df['Market'].astype(str).str.upper().str.strip()
+        is_uk_market = bsr_market_norm == TARGET_MARKET
+        
+        # Normalize BSR Dates/Times to create the same key (YYYY-MM-DD_HH:MM)
+        bsr_dates = pd.to_datetime(self.df['Date'], errors='coerce').dt.strftime('%Y-%m-%d')
+        bsr_times = pd.to_datetime(self.df['Start'].astype(str), errors='coerce').dt.strftime('%H:%M')
+        
+        bsr_keys = bsr_dates + '_' + bsr_times
+        
+        # Check if the BSR key exists in our OVN "Hit List"
+        is_time_match = bsr_keys.isin(ovn_keys)
+        
+        # Combine: Must be UK Market AND match the Date/Time from OVN
+        rows_to_flag_mask = is_uk_market & is_time_match
+        
+        rows_flagged = rows_to_flag_mask.sum()
+
+        # --- 4. Apply Flag ---
+        if rows_flagged > 0:
+            flag_msg = f"Need to update the audience from OVN sheet under the keyword {TARGET_KEYWORD}"
+            
+            # Only flag rows that are currently OK
+            final_mask = rows_to_flag_mask & (self.df[FLAG_COLUMN] == 'OK')
+            self.df.loc[final_mask, FLAG_COLUMN] = flag_msg
+            
+            # Update count based on actual applied flags
+            rows_flagged = final_mask.sum()
+
+        return {
+            "check_key": "audit_whistle_update",
+            "status": "Flagged" if rows_flagged > 0 else "Completed",
+            "action": "OVN Audience Check",
+            "description": f"Flagged {rows_flagged} UK rows matching '{TARGET_KEYWORD}' times from OVN sheet.",
+            "details": {
+                "ovn_matches_found": len(ovn_keys),
+                "bsr_rows_flagged": int(rows_flagged)
+            }
+        }
 
 # ----------------------------- ⚙️ Utility Functions (kept standalone) -----------------------------
 
