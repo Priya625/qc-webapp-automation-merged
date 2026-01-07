@@ -2401,165 +2401,124 @@ class EPLValidator:
     
     def _epl_live_vs_delay_validation(self):
         """
-        NEW EPL Live vs Delay Validation
-        Logic:
-        For each broadcast row:
-            - Match fixture using home, away, date
-            - Compare Start(UTC) with fixture kickoff time
-            - If within ±60 minutes -> LIVE
-            - Else -> DELAYED
-        Output:
-        - Adds 'EPL_LiveDelay_Flag'
-        - Produces self.live_delay_flags_df
+        EPL: Live vs Delay Validation
+        Scraped and adapted logic to validate 'Live' status based on fixture match.
         """
-
         FLAG = "EPL_LiveDelay_Flag"
         self.df[FLAG] = ""
-
+        
         # ----------------------------
-        # Load fixture sheet 
+        # 1. Load Fixture Sheet
         # ----------------------------
         bsr_path = self.bsr_path
         try:
             xl = pd.ExcelFile(bsr_path)
-        except:
-            return {
-                "check_key": "epl_live_vs_delay_validation",
-                "status": "Skipped",
-                "description": "Unable to read BSR file for fixture sheet.",
-                "details": {}
-            }
+        except Exception:
+            return {"check_key": "epl_live_vs_delay_validation", "status": "Skipped", "description": "Unable to read BSR file."}
 
-        # detect fixture sheet
-        fixture_keywords = ["fixture", "fixtures"]
+        # Detect fixture sheet using your keyword logic
         fixture_sheet = None
+        fixture_keywords = ["fixture", "fixtures"]
         for s in xl.sheet_names:
             if any(k in s.lower() for k in fixture_keywords):
                 fixture_sheet = s
                 break
 
-        if fixture_sheet is None:
-            return {
-                "check_key": "epl_live_vs_delay_validation",
-                "status": "Skipped",
-                "description": "Fixture sheet not found",
-                "details": {}
-            }
+        if not fixture_sheet:
+            return {"check_key": "epl_live_vs_delay_validation", "status": "Skipped", "description": "Fixture sheet not found"}
 
         df_fix = xl.parse(fixture_sheet)
 
-        # required columns in fixture
-        needed_fix_cols = ["Home Team", "Away Team", "Date", "Start Time", "End Time"]
-        for c in needed_fix_cols:
-            if c not in df_fix.columns:
-                return {
-                    "check_key": "epl_live_vs_delay_validation",
-                    "status": "Skipped",
-                    "description": f"Missing fixture column: {c}",
-                    "details": {}
-                }
-
         # ----------------------------
-        # Prepare fixture lookup
+        # 2. Helper Functions (Scraped from source)
         # ----------------------------
         def clean(x):
             if pd.isna(x): return ""
-            x = str(x).lower().strip()
-            x = re.sub(r"[^\w\s]", " ", x)
+            x = str(x).strip().lower()
+            x = x.replace("\u00A0", " ").replace("\u200b", "").strip()
+            x = re.sub(r"[^\w\s&]", " ", x)
             return re.sub(r"\s+", " ", x).strip()
 
+        def parse_dt(date_raw, time_raw):
+            # Simplified robust parse based on your parse_datetime_candidate
+            try:
+                if pd.isna(date_raw) or pd.isna(time_raw): return pd.NaT
+                # Try combined parse
+                dt = pd.to_datetime(f"{date_raw} {time_raw}", errors='coerce')
+                if pd.isna(dt):
+                    # Fallback for Excel serial numbers
+                    dt = pd.to_datetime(date_raw, errors='coerce')
+                return dt.replace(tzinfo=None) if dt else pd.NaT
+            except: return pd.NaT
+
+        # ----------------------------
+        # 3. Prepare Data
+        # ----------------------------
+        # Fixture Preparation
         df_fix["_home"] = df_fix["Home Team"].map(clean)
         df_fix["_away"] = df_fix["Away Team"].map(clean)
         df_fix["_date"] = pd.to_datetime(df_fix["Date"], errors="coerce").dt.date
+        df_fix["_fix_start"] = [parse_dt(df_fix.at[i, "Date"], df_fix.at[i, "Start Time"]) for i in df_fix.index]
+        
+        # Get earliest kickoff per day
+        first_kickoffs = df_fix.groupby("_date")["_fix_start"].min()
 
-        # Combine fixture datetime
-        df_fix["_fix_start"] = [
-            pd.to_datetime(str(df_fix.at[i, "Date"]) + " " + str(df_fix.at[i, "Start Time"]), errors="coerce")
-            for i in df_fix.index
-        ]
-
-        # ----------------------------
-        # Prepare BSR
-        # ----------------------------
+        # BSR Preparation
         df = self.df
-
-        required_bsr_cols = ["Home Team", "Away Team", "Date", "Start (UTC)"]
-        missing = [c for c in required_bsr_cols if c not in df.columns]
-        if missing:
-            return {
-                "check_key": "epl_live_vs_delay_validation",
-                "status": "Skipped",
-                "description": f"Missing BSR columns: {missing}",
-                "details": {}
-            }
-
         df["_home"] = df["Home Team"].map(clean)
         df["_away"] = df["Away Team"].map(clean)
         df["_date"] = pd.to_datetime(df["Date"], errors="coerce").dt.date
-        df["_bsr_start"] = [
-            pd.to_datetime(str(df.at[i, "Date"]) + " " + str(df.at[i, "Start (UTC)"]), errors="coerce")
-            for i in df.index
-        ]
+        df["_bsr_start"] = [parse_dt(df.at[i, "Date"], df.at[i, "Start (UTC)"]) for i in df.index]
 
         # ----------------------------
-        # MAIN LOGIC
+        # 4. Main Validation Loop
         # ----------------------------
-        tolerance = 70  # 1 hour 10 minutes
+        tolerance = 70  # 1 hour 10 mins
         flagged_rows = []
 
-        # Identify the first scheduled kickoff time for every date in the fixture list
-        first_kickoffs = df_fix.groupby("_date")["_fix_start"].min()
-
         for i, row in df.iterrows():
-            h, a, d = row["_home"], row["_away"], row["_date"]
-            bsr_start = row["_bsr_start"]
+            h, a, d, bsr_start = row["_home"], row["_away"], row["_date"], row["_bsr_start"]
 
             if pd.isna(bsr_start) or pd.isna(d):
                 continue
 
-            # 1. Find the corresponding fixture from the master list
+            # Match Fixture
             fx = df_fix[(df_fix["_home"] == h) & (df_fix["_away"] == a) & (df_fix["_date"] == d)]
-            
             if fx.empty:
-                continue # No matching fixture found, skip
+                continue
 
             fix_start = fx["_fix_start"].iloc[0]
-            
-            # 2. Calculate the difference (in minutes)
-            diff = abs((bsr_start - fix_start).total_seconds() / 60)
-            
-            # 3. Check if this match was the first scheduled game of that day
+            if pd.isna(fix_start):
+                continue
+
+            # Logic Calculation
+            diff_min = abs((bsr_start - fix_start).total_seconds() / 60)
             is_first_of_day = (fix_start == first_kickoffs.get(d))
 
-            # 4. Apply Flagging Logic
-            if diff <= tolerance:
-                # If it's exactly on time or within the 70-min window
+            if diff_min <= tolerance:
                 df.at[i, FLAG] = "LIVE"
             else:
-                # If it crosses the window
                 if is_first_of_day:
-                    # Specific requirement: If it's the first match and late, it's DELAYED
-                    df.at[i, FLAG] = f"DELAYED (First Match of Day - diff: {diff:.1f}m)"
+                    df.at[i, FLAG] = f"DELAYED: First match of day (diff={diff_min:.1f} min)"
                 else:
-                    # For subsequent matches crossing the window
-                    df.at[i, FLAG] = f"DELAYED (diff: {diff:.1f}m)"
+                    df.at[i, FLAG] = f"DELAYED: diff={diff_min:.1f} min"
             
             flagged_rows.append(i)
 
         # ----------------------------
-        # Save flagged rows for export
+        # 5. Reporting
         # ----------------------------
         self.live_delay_flags_df = df.loc[flagged_rows].copy()
-
-        # Cleanup
+        
+        # Cleanup internal columns
         df.drop(columns=["_home", "_away", "_date", "_bsr_start"], errors="ignore", inplace=True)
+        self.df = df
 
-        total_flagged = len(flagged_rows)
         return {
             "check_key": "epl_live_vs_delay_validation",
-            "status": "Flagged" if total_flagged else "Completed",
-            "description": f"Checked Live vs Delay using fixture ±1 hour tolerance. Flagged {total_flagged} rows.",
-            "details": {"rows_flagged": total_flagged}
+            "status": "Completed",
+            "description": f"Validated {len(flagged_rows)} rows against fixtures (Tolerance: {tolerance}m).",
+            "details": {"rows_validated": len(flagged_rows)}
         }
 
 
