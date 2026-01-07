@@ -1166,7 +1166,7 @@ with epl_tab:
         check_ui("epl_live_vs_delay_validation")
         check_ui("pl_magazine_highlights_classification")
         check_ui("audit_uk_ire_duplication_alignment")
-        check_ui("dedicated_program_duration_allignments")
+        #check_ui("dedicated_program_duration_allignments")
         check_ui("audit_ott_broadcast_consolidation")
         check_ui("check_missing_live_games")
         
