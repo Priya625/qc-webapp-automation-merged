@@ -2572,21 +2572,17 @@ class EPLValidator:
         df = self.df.copy()
 
         # ---------- Helper to find column robustly ----------
-        def find_col(df, names):
-            # Ensure names is a list even if a single string is passed
-            if isinstance(names, str):
-                names = [names]
-            
-            # Normalize list for comparison
-            names = [n.strip().lower() for n in names]
+        def find_col(df, *names):
+            # names will be a tuple of all strings passed after df
+            search_names = [n.strip().lower() for n in names]
             
             for col in df.columns:
-                if col.strip().lower() in names:
+                if col.strip().lower() in search_names:
                     return col
             return None
 
         # Detect required columns
-        col_progtype = find_col(df, ["type of program","type of programme"])
+        col_progtype = find_col(df, "type of program", "type of programme")
         col_combined = find_col(df, "combined")
 
         missing = []
