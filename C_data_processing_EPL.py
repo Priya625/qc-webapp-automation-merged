@@ -3131,6 +3131,60 @@ class EPLValidator:
             }
         }
 
+    def _check_bsa_nielsen_audience_presence(self) -> Dict[str, Any]:
+        """
+        Audits rows where Source is 'BSA + Nielsen'. Flags any row where the 
+        'Aud Metered (000s) 3+' column is missing or zero, as audience data is mandatory.
+        """
+        initial_rows = len(self.df)
+        FLAG_COLUMN = 'QC_BSA_Nielsen_Audience_Flag'
+        
+        SOURCE_COL = 'Source'
+        AUDIENCE_COL = 'Aud Metered (000s) 3+'
+        TARGET_SOURCE_KEYWORD = 'BSA + NIELSEN'
+        
+        self.df[FLAG_COLUMN] = 'OK'
+        
+        if not all(col in self.df.columns for col in [SOURCE_COL, AUDIENCE_COL]):
+            return {
+                "check_key": "check_bsa_nielsen_audience", "status": "Skipped",
+                "action": "BSA+Nielsen Audience Check", 
+                "description": "Skipped: Missing required Source or Audience columns.",
+                "details": {"rows_flagged": 0}
+            }
+
+        # 1. Identify Target Rows (Source contains "BSA + Nielsen")
+        source_norm = self.df[SOURCE_COL].astype(str).str.strip().str.upper()
+        target_source_mask = source_norm.str.contains(re.escape(TARGET_SOURCE_KEYWORD), na=False)
+        
+        # 2. Identify Missing Audience
+        # Coerce to numeric, turn NaN to 0, then check if <= 0
+        audience_values = pd.to_numeric(self.df[AUDIENCE_COL], errors='coerce').fillna(0)
+        missing_audience_mask = audience_values <= 0
+        
+        # Final Error Mask: Target Source AND Missing Audience
+        error_mask = target_source_mask & missing_audience_mask
+        
+        rows_flagged = error_mask.sum()
+        
+        # 3. Apply Flag
+        if rows_flagged > 0:
+            flag_msg = "Audience data required. (Source is BSA + Nielsen but Audience is 0/NaN)"
+            
+            # Apply flag only to rows currently marked OK
+            rows_to_flag = error_mask & (self.df[FLAG_COLUMN] == 'OK')
+            self.df.loc[rows_to_flag, FLAG_COLUMN] = flag_msg
+
+        return {
+            "check_key": "check_bsa_nielsen_audience",
+            "status": "Flagged" if rows_flagged > 0 else "Completed",
+            "action": "BSA+Nielsen Audience Check", 
+            "description": f"Flagged {rows_flagged} rows where 'BSA + Nielsen' source was missing audience data.",
+            "details": {
+                "rows_flagged": int(rows_flagged),
+                "target_source": TARGET_SOURCE_KEYWORD
+            }
+        }
 # ----------------------------- ⚙️ Utility Functions (kept standalone) -----------------------------
 
 
