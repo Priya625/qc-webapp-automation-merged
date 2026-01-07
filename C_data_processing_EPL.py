@@ -19,8 +19,21 @@ RED_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="soli
 HEADER_FILL = PatternFill(start_color="BDD7EE", end_color="BDD7EE", fill_type="solid")
 
 
-
 class EPLValidator:
+
+    def _create_canonical_channel_key(self, channel_series: pd.Series) -> pd.Series:
+        """
+        Helper: Normalizes TV-Channel names to create a reliable join key.
+        Logic: Convert to Upper Case -> Remove all non-alphanumeric chars (spaces, hyphens).
+        Ex: "Sky Sports Premier League" -> "SKYSPORTSPREMIERLEAGUE"
+        """
+        return (
+            channel_series.astype(str)
+            .str.upper()
+            .str.replace(r'[^A-Z0-9]', '', regex=True) # Keep only letters/numbers
+            .str.strip()
+        )
+    
     """
     Handles loading, validating, and processing of BSR data.
     The dependency on the Rosco file has been removed.
@@ -111,7 +124,7 @@ class EPLValidator:
         "audit_multi_match_status" : self._audit_multi_match_status,
         "check_date_time_format_integrity" : self._check_date_time_format_integrity,
         "check_live_broadcast_uniqueness" : self._check_live_broadcast_uniqueness,
-        "audit_channel_line_item_count" : self._audit_channel_line_item_count,
+        #"audit_channel_line_item_count" : self._audit_channel_line_item_count,
         "check_combined_archive_status": self._check_combined_archive_status,
         "suppress_duplicated_audience" : self._suppress_duplicated_audience,
         "harmonize_uk_ire_program_descriptions_strict" : self._harmonize_uk_ire_program_descriptions_simple,
@@ -121,8 +134,8 @@ class EPLValidator:
         "check_premier_league_october_obligation" : self._check_premier_league_october_obligation,
         "audit_ovn_whistle_to_whistle" : self._audit_ovn_whistle_to_whistle,
         "check_star_sports_3_consolidation" : self._check_star_sports_3_consolidation,
-        #"check_bsa_nielsen_audience_presence" : self._check_bsa_nielsen_audience_presence,
-        #"check_source_mediatype_validity" : self._check_source_mediatype_validity,
+        "check_bsa_nielsen_audience_presence" : self._check_bsa_nielsen_audience_presence,
+        "check_source_mediatype_validity" : self._check_source_mediatype_validity,
         "filter_short_programs": self._filter_short_programs,
         "sa_nielsen_inclusion_check": self._sa_nielsen_inclusion_check,
         "epl_live_vs_delay_validation": self._epl_live_vs_delay_validation,
@@ -1277,52 +1290,52 @@ class EPLValidator:
                 }
             }
     
-    def _audit_channel_line_item_count(self) -> Dict[str, Any]:
-        """
-        Calculates the total number of line items (programs) for each unique TV-Channel 
-        in the BSR and returns this summary as a separate DataFrame for reporting.
-        """
-        initial_rows = len(self.df)
-        FLAG_COLUMN = 'QC_Channel_Count_Audit_Flag'
+    # def _audit_channel_line_item_count(self) -> Dict[str, Any]:
+    #     """
+    #     Calculates the total number of line items (programs) for each unique TV-Channel 
+    #     in the BSR and returns this summary as a separate DataFrame for reporting.
+    #     """
+    #     initial_rows = len(self.df)
+    #     FLAG_COLUMN = 'QC_Channel_Count_Audit_Flag'
         
-        CHANNEL_COL = 'TV-Channel'
+    #     CHANNEL_COL = 'TV-Channel'
         
-        if CHANNEL_COL not in self.df.columns:
-            return {
-                "check_key": "audit_channel_line_item_count", "status": "Skipped",
-                "action": "Deliverable Count Audit", 
-                "description": "Skipped: Missing required BSR 'TV-Channel' column.",
-                "details": {"report_generated": False}
-            }
+    #     if CHANNEL_COL not in self.df.columns:
+    #         return {
+    #             "check_key": "audit_channel_line_item_count", "status": "Skipped",
+    #             "action": "Deliverable Count Audit", 
+    #             "description": "Skipped: Missing required BSR 'TV-Channel' column.",
+    #             "details": {"report_generated": False}
+    #         }
 
-        # Initialize the flag column for audit (optional, but good practice)
-        self.df[FLAG_COLUMN] = 'OK' 
+    #     # Initialize the flag column for audit (optional, but good practice)
+    #     self.df[FLAG_COLUMN] = 'OK' 
 
-        # 1. Normalize and Calculate Counts
+    #     # 1. Normalize and Calculate Counts
         
-        # Normalize channel names for accurate grouping (UPPER/strip)
-        channel_norm = self.df[CHANNEL_COL].astype(str).str.strip().str.upper()
+    #     # Normalize channel names for accurate grouping (UPPER/strip)
+    #     channel_norm = self.df[CHANNEL_COL].astype(str).str.strip().str.upper()
         
-        # Calculate the current line item count for each unique channel
-        channel_counts_df = channel_norm.value_counts().reset_index()
-        channel_counts_df.columns = ['TV-Channel_Norm', 'Program_Count']
+    #     # Calculate the current line item count for each unique channel
+    #     channel_counts_df = channel_norm.value_counts().reset_index()
+    #     channel_counts_df.columns = ['TV-Channel_Norm', 'Program_Count']
         
-        # Sort for better readability in the final report
-        channel_counts_df = channel_counts_df.sort_values(by='Program_Count', ascending=False)
+    #     # Sort for better readability in the final report
+    #     channel_counts_df = channel_counts_df.sort_values(by='Program_Count', ascending=False)
         
-        # 2. Final Summary
-        return {
-            "check_key": "audit_channel_line_item_count",
-            "status": "Completed",
-            "action": "Deliverable Count Audit", 
-            "description": f"Generated line item count summary for {len(channel_counts_df)} unique channels.",
-            "details": {
-                "total_channels": int(len(channel_counts_df)),
-                "report_generated": True,
-                # CRITICAL: Return the DataFrame itself for saving to a separate tab
-                "channel_count_report_df": channel_counts_df.to_dict('records')
-            }
-        }
+    #     # 2. Final Summary
+    #     return {
+    #         "check_key": "audit_channel_line_item_count",
+    #         "status": "Completed",
+    #         "action": "Deliverable Count Audit", 
+    #         "description": f"Generated line item count summary for {len(channel_counts_df)} unique channels.",
+    #         "details": {
+    #             "total_channels": int(len(channel_counts_df)),
+    #             "report_generated": True,
+    #             # CRITICAL: Return the DataFrame itself for saving to a separate tab
+    #             "channel_count_report_df": channel_counts_df.to_dict('records')
+    #         }
+    #     }
 
     def _check_combined_archive_status(self) -> Dict[str, Any]:
         """
@@ -1710,19 +1723,6 @@ class EPLValidator:
         # Normalize Market and Channel names
         df_temp['Market_Norm'] = df_temp['Market'].astype(str).str.upper().str.strip()
         df_temp['Canonical_Channel'] = self._create_canonical_channel_key(df_temp['TV-Channel'])
-
-    def _create_canonical_channel_key(self, channel_series: pd.Series) -> pd.Series:
-        """
-        Helper: Normalizes TV-Channel names to create a reliable join key.
-        Logic: Convert to Upper Case -> Remove all non-alphanumeric chars (spaces, hyphens).
-        Ex: "Sky Sports Premier League" -> "SKYSPORTSPREMIERLEAGUE"
-        """
-        return (
-            channel_series.astype(str)
-            .str.upper()
-            .str.replace(r'[^A-Z0-9]', '', regex=True) # Keep only letters/numbers
-            .str.strip()
-        )
 
         # Time parsing (assumed functional helper call)
         try:
@@ -3196,6 +3196,141 @@ class EPLValidator:
             "details": {
                 "rows_flagged": int(rows_flagged),
                 "target_source": TARGET_SOURCE_KEYWORD
+            }
+        }
+    
+    def _check_source_mediatype_validity(self) -> Dict[str, Any]:
+        """
+        Validates that 'Source', 'Source 2', and 'Media Type' columns only contain 
+        specific predefined values. Flags any deviations as 'Out of predefined range'.
+        """
+        initial_rows = len(self.df)
+        FLAG_COLUMN = 'QC_Source_MediaType_Validity_Flag'
+        
+        # Define the strict allowed values for each column (Normalized to Upper)
+        # NOTE: 'Duplicated from BC Data - Ghana / Factor -1' is very specific. 
+        # Ensure this matches your data generation logic exactly.
+        ALLOWED_VALUES = {
+            'Source': {
+                'DUPLICATED FROM BC DATA - GHANA / FACTOR -1', 
+                'BC DATA',
+                'BSA',
+                'Duplicated from GfK/AGF Overnights - Germany / Factor 0,07',
+                'IBOPE',
+                'EURODATA',
+                'Nielsen',
+                'Duplicated from BSA + Nielsen - Serbia / Factor 0,67',
+                'Duplicated from BSA - Serbia / Factor -1',
+                'Duplicated from BC Data - United Kingdom / Factor -1',
+                'GfK/AGF Overnights',
+                'BARC',
+                'Duplicated from BARB - United Kingdom / Factor 0,09',
+                'Duplicated from BARB - United Kingdom / Factor 0,14',
+                'Duplicated from BARB - United Kingdom / Factor 0,07',
+                'Duplicated from BC Data - South Africa / Factor 0,25',
+                'Duplicated from BC Data - Sub-Saharan Africa (excl, South Africa & Nigeria) / Factor -1',
+                'Duplicated from BC Data - South Africa / Factor 0,1',
+                'Duplicated from BC Data - South Africa / Factor 0,51',
+                'Duplicated from BC Data - South Africa / Factor 1,4',
+                'Kantar Media',
+                'Duplicated from Nielsen - Serbia / Factor 0,75',
+                'Duplicated from BSA + Nielsen - Serbia / Factor 0,75',
+                'Duplicated from BSA + Nielsen - Serbia / Factor 0,36',
+                'Duplicated from BC Data - Pan-Balkans / Factor -1',
+                'Duplicated from BARC - India / Factor 0,16',
+                'BC Data + Eurodata',
+                'BSA + Nielsen',
+                'BC Data + Nielsen',
+                'Duplicated from BC Data - South Africa / Factor 0,37',
+                'Duplicated from BC Data - South Africa / Factor 0,46',
+                'Duplicated from BC Data - South Africa / Factor 0,3',
+                'Duplicated from BC Data - South Africa / Factor 0,45',
+                'Duplicated from BC Data - South Africa / Factor 0,67',
+                'Duplicated from BC Data - South Africa / Factor 1,12',
+                'BC Data + MMS',
+                'Duplicated from EURODATA - France / Factor 0,05',
+                'Duplicated from BC Data - France / Factor -1',
+                'BARB',
+                'Duplicated from BC Data - Germany / Factor -1',
+                'Duplicated from BC Data - Nordics, Netherlands, Poland / Factor 0,23',
+                'Duplicated from BC Data - Nordics, Netherlands, Poland / Factor 0,11',
+                'Duplicated from BC Data - Nordics, Netherlands, Poland / Factor 0,15',
+                'Duplicated from BC Data - Nordics, Netherlands, Poland / Factor 0,19',
+                'Duplicated from BC Data - Nordics, Netherlands, Poland / Factor 0,06',
+                'Duplicated from BC Data - Nordics, Netherlands, Poland / Factor 0,26',
+
+            },
+            'Source 2': {
+                'BC DATA', 
+                'BSR DATASET'
+            },
+            'Media Type': {
+                'LINEAR', 
+                'OTT'
+            }
+        }
+        
+        REQUIRED_COLS = list(ALLOWED_VALUES.keys())
+        if not all(col in self.df.columns for col in REQUIRED_COLS):
+            return {
+                "check_key": "check_source_mediatype_validity", "status": "Skipped",
+                "action": "Source/Media Validity Check", 
+                "description": f"Skipped: Missing one or more required columns {REQUIRED_COLS}.",
+                "details": {"rows_flagged": 0}
+            }
+
+        self.df[FLAG_COLUMN] = 'OK'
+        
+        rows_flagged = 0
+        
+        # Iterate through each column and check validity
+        for col, allowed_set in ALLOWED_VALUES.items():
+            
+           # 1. Normalize the BSR column data (Upper, Strip)
+            # Treat NaNs as string 'NAN' to catch missing values if they aren't allowed
+            col_series_norm = self.df[col].astype(str).str.strip().str.upper().fillna('NAN')
+            
+            # 2. Normalize the Allowed Set (CRITICAL FIX)
+            # Convert all allowed options to UPPERCASE for the comparison
+            allowed_set_norm = {x.upper().strip() for x in allowed_set}
+            
+            # 3. Find invalid rows (Values NOT in the normalized allowed set)
+            invalid_mask = ~col_series_norm.isin(allowed_set_norm)
+            
+            if invalid_mask.any():
+                current_flagged_count = invalid_mask.sum()
+                rows_flagged += current_flagged_count
+                
+                # 3. Construct Flag Message
+                # We append to the existing flag if a row has multiple errors
+                existing_flags = self.df[FLAG_COLUMN].replace('OK', '')
+                
+                # Create specific error message for this column
+                new_error_msg = f"[{col}: Out of predefined range]"
+                
+                # Apply update: If row was OK, set to Error. If row had Error, append new Error.
+                # Using a mask logic to handle the append cleanly
+                
+                # Rows currently 'OK' get just the new message
+                rows_to_set_new = invalid_mask & (self.df[FLAG_COLUMN] == 'OK')
+                self.df.loc[rows_to_set_new, FLAG_COLUMN] = new_error_msg
+                
+                # Rows already flagged get the message appended
+                rows_to_append = invalid_mask & (self.df[FLAG_COLUMN] != 'OK')
+                if rows_to_append.any():
+                    self.df.loc[rows_to_append, FLAG_COLUMN] = self.df.loc[rows_to_append, FLAG_COLUMN] + "; " + new_error_msg
+
+        # Final recount of unique rows flagged (since one row could have errors in multiple columns)
+        total_unique_flagged = (self.df[FLAG_COLUMN] != 'OK').sum()
+
+        return {
+            "check_key": "check_source_mediatype_validity",
+            "status": "Flagged" if total_unique_flagged > 0 else "Completed",
+            "action": "Source/Media Validity Check", 
+            "description": f"Audited {REQUIRED_COLS}. Flagged {total_unique_flagged} rows with values out of predefined range.",
+            "details": {
+                "rows_flagged": int(total_unique_flagged),
+                "allowed_values": {k: list(v) for k, v in ALLOWED_VALUES.items()}
             }
         }
 # ----------------------------- ⚙️ Utility Functions (kept standalone) -----------------------------

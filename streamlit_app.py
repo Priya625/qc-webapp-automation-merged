@@ -240,7 +240,7 @@ all_market_check_keys_epl = {
     "check_source_mediatype_validity": "Confirms that values in the 'Source' and 'Media Type' columns are exclusively drawn from a predefined, allowed list.",
     "check_live_broadcast_uniqueness": "Identifies and flags instances where two 'Live' programs are scheduled on the same channel with overlapping time slots.",
     "check_game_of_the_day_match": "Verifies and updates 'Game of the Day' program rows using the definitive data sourced from the Overnight report.",
-    "audit_channel_line_item_count": "Generates a report sheet detailing the total number of programs listed for each individual channel.",
+    #"audit_channel_line_item_count": "Generates a report sheet detailing the total number of programs listed for each individual channel.",
     "check_combined_archive_status": "Explicitly flags any row where the program status is marked as 'Archive' for review and subsequent removal from the active data set.",
     "suppress_duplicated_audience": "Sets the audience figure to zero for any row identified as 'Duplicated from BSA' to prevent inflated counts.",
     "check_non_metered_primary_market_audience": "Ensures the 'Audience' column is zero for specified primary market data sources that should not contain metered audience data.",
@@ -1022,7 +1022,7 @@ with epl_tab:
         "audit_multi_match_status": "Flags sessions where multiple matches appear to be airing simultaneously on one feed.",
         "check_date_time_format_integrity": "Validates that all Date and Time columns follow the strict 'YYYY-MM-DD' and 'HH:MM:SS' format.",
         "check_live_broadcast_uniqueness": "Ensures there are no duplicate Live broadcast entries for the same timeslot.",
-        "audit_channel_line_item_count": "Counts line items per channel to ensure they meet the expected volume thresholds.",
+        #"audit_channel_line_item_count": "Counts line items per channel to ensure they meet the expected volume thresholds.",
         "check_combined_archive_status": "Verifies that Archive statuses are correctly reflected in the Combined column.",
         "suppress_duplicated_audience": "Identifies and suppresses audience numbers that appear to be duplicated across regions.",
         "harmonize_uk_ire_program_descriptions_strict": "Strictly Validates program descriptions for UK/IRE markets to a standard naming convention.",
@@ -1075,9 +1075,9 @@ with epl_tab:
     "check_live_broadcast_uniqueness": (
         "Flags scheduling conflicts (time/channel) for live broadcasts."
     ),
-    "audit_channel_line_item_count": (
-        "Generates a metric for overall channel data volume (used for monitoring, not flagging an anomaly directly)."
-    ),
+    # "audit_channel_line_item_count": (
+    #     "Generates a metric for overall channel data volume (used for monitoring, not flagging an anomaly directly)."
+    # ),
     "check_combined_archive_status": (
         "Flags data rows that should be removed or moved to an archive storage."
     ),
@@ -1161,7 +1161,7 @@ with epl_tab:
         check_ui("audit_multi_match_status")
         check_ui("check_date_time_format_integrity")
         check_ui("check_live_broadcast_uniqueness")
-        check_ui("audit_channel_line_item_count")
+        #check_ui("audit_channel_line_item_count")
         check_ui("check_combined_archive_status")
         check_ui("suppress_duplicated_audience")
         check_ui("harmonize_uk_ire_program_descriptions_strict")
