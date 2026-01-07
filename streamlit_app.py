@@ -247,7 +247,7 @@ all_market_check_keys_epl = {
     "harmonize_uk_ire_program_descriptions_strict": "Copies the program description from the Ireland entry to the UK entry only if the start times are an exact match.",
     "audit_ovn_whistle_to_whistle":"Cross check for any Whistle to Whistle match from ovn sheet",
 
-    # "check_premier_league_october_obligation" : "Cross Checking of channels from CDT/OVN Sheet ",
+    "check_premier_league_october_obligation" : "Cross Checking of channels from CDT/OVN Sheet ",
     "check_star_sports_3_consolidation" : "Prioritizing Malayalam region over Start Sports 3 ",
     # "check_bsa_nielsen_audience_presence" : "Make sure Non-metered Data (Time Bands) has Audience ",    
     "filter_short_programs": "5 Minute Program Filter: Remove programs shorter than 5 minutes (except Austria/NZ)",
@@ -1030,7 +1030,7 @@ with epl_tab:
         "check_non_metered_primary_market_audience": "Audits audience numbers for non-metered markets to ensure they are not zero.",
         "check_legacy_mapping": "Cross-references channel names against the legacy mapping table.",
         "audit_ovn_whistle_to_whistle" : "Cross Check whistle to whistle in ovn sheet",
-        # "check_premier_league_october_obligation": "Cross Checking of channels from CDT/OVN Sheet",
+        "check_premier_league_october_obligation": "Cross Checking of channels from CDT/OVN Sheet",
         "check_star_sports_3_consolidation": "Prioritizing Malayalam over Star Sports 3",
         # "check_bsa_nielsen_audience_presence": "Make sure Non-metered Data (Time Bands) has Audience",
         "check_source_mediatype_validity": "Only Predefined Values in the Source,Source 2,Media Type",
@@ -1104,7 +1104,9 @@ with epl_tab:
     #     "Compares 'Live' programs against the Official F1 Schedule and flags rows where the date does not match the official calendar."
     # ),
      
-    # "check_premier_league_october_obligation": "Cross Checking of channels from CDT/OVN Sheet",
+    "check_premier_league_october_obligation": (
+        "Cross Checking of channels from CDT/OVN Sheet"),
+
      "check_star_sports_3_consolidation":(
         "Prioritizing Malayalam over Star Sports 3"
     ),
@@ -1164,7 +1166,7 @@ with epl_tab:
         check_ui("check_non_metered_primary_market_audience")
         check_ui("check_legacy_mapping")
         check_ui("audit_ovn_whistle_to_whistle")
-        # check_ui("check_premier_league_october_obligation")
+        check_ui("check_premier_league_october_obligation")
         check_ui("check_star_sports_3_consolidation")
         # check_ui("check_bsa_nielsen_audience_presence")
         check_ui("check_source_mediatype_validity")
