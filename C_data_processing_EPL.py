@@ -19,6 +19,7 @@ RED_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="soli
 HEADER_FILL = PatternFill(start_color="BDD7EE", end_color="BDD7EE", fill_type="solid")
 
 
+
 class EPLValidator:
     """
     Handles loading, validating, and processing of BSR data.
@@ -1706,10 +1707,22 @@ class EPLValidator:
 
         # --- PART 1: Data Preparation ---
         df_temp = self.df.copy()
-        
         # Normalize Market and Channel names
         df_temp['Market_Norm'] = df_temp['Market'].astype(str).str.upper().str.strip()
         df_temp['Canonical_Channel'] = self._create_canonical_channel_key(df_temp['TV-Channel'])
+
+    def _create_canonical_channel_key(self, channel_series: pd.Series) -> pd.Series:
+        """
+        Helper: Normalizes TV-Channel names to create a reliable join key.
+        Logic: Convert to Upper Case -> Remove all non-alphanumeric chars (spaces, hyphens).
+        Ex: "Sky Sports Premier League" -> "SKYSPORTSPREMIERLEAGUE"
+        """
+        return (
+            channel_series.astype(str)
+            .str.upper()
+            .str.replace(r'[^A-Z0-9]', '', regex=True) # Keep only letters/numbers
+            .str.strip()
+        )
 
         # Time parsing (assumed functional helper call)
         try:
