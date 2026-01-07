@@ -1898,7 +1898,7 @@ class EPLValidator:
             }
         }
 
-    # def _check_non_metered_primary_market_audience(self) -> Dict[str, Any]:
+    def _check_non_metered_primary_market_audience(self) -> Dict[str, Any]:
         """
         Audits the 'Source' column to identify rows that are duplicated from a 
         non-metered primary market (Source = 'BSA' only, without 'Time bans' or 'BC-LOGS').
