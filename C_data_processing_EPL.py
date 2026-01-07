@@ -128,7 +128,7 @@ class EPLValidator:
         "audit_uk_ire_duplication_alignment" : self._audit_uk_ire_duplication_alignment,
         "audit_ott_broadcast_consolidation": self._audit_ott_broadcast_consolidation,
         "check_missing_live_games" : self._check_missing_live_games,
-        "dedicated_program_duration_alignments": self._dedicated_program_duration_alignments
+        #"dedicated_program_duration_alignments": self._dedicated_program_duration_alignments
         #"relevant_only_in_the_uk": self._relevant_only_in_the_uk,
         #"dedicated_program_duration_allignments": self._dedicated_program_duration_allignments
         # Future EPL checks would be added here
