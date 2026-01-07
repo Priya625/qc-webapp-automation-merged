@@ -2476,7 +2476,16 @@ class EPLValidator:
         tolerance = 70  # 1 hour 10 mins
         flagged_rows = []
 
+        # Define the categories we want to ignore
+        excluded_categories = ["highlights", "magazine & support", "repeat"]
         for i, row in df.iterrows():
+            # Get the actual program type and normalize it for comparison
+            actual_type = str(row.get("Type of program", "")).strip().lower()
+
+            # --- NEW FILTER LOGIC ---
+            # If the row is Highlights, Magazine, or Repeat, skip it entirely
+            if actual_type in excluded_categories:
+                continue
             h, a, d, bsr_start = row["_home"], row["_away"], row["_date"], row["_bsr_start"]
 
             if pd.isna(bsr_start) or pd.isna(d):
