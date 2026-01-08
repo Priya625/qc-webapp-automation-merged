@@ -156,7 +156,7 @@ def detect_period_from_rosco(rosco_path):
     # 2. Check if Column C (index 2) even exists in the loaded dataframe
     # If the user hasn't typed anything in Column C, pandas might not even create the column.
     if df.shape[1] <= 2:
-         raise ValueError(f"missing monitoring period in cell C{row_idx + 1} of Rosco")
+         raise ValueError(f"Missing monitoring period, Please fill the monitoring period in cell C{row_idx + 1} of Rosco")
 
     # 3. Extract the text from Column C (index 2)
     user_input_text = str(df.iloc[row_idx, 2]).strip()
