@@ -255,7 +255,8 @@ EPL_CHECK_KEYS = {
     "filter_short_programs",
     "audit_ovn_whistle_to_whistle",
     "check_star_sports_3_consolidation",
-    "check_bsa_nielsen_audience_presence"
+    "check_bsa_nielsen_audience_presence",
+    "audit_uk_ire_volume_consistency"
     } 
 
 @app.post("/api/market_check_and_process", response_model=None)

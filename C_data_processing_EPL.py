@@ -143,6 +143,7 @@ class EPLValidator:
         "audit_uk_ire_duplication_alignment" : self._audit_uk_ire_duplication_alignment,
         "audit_ott_broadcast_consolidation": self._audit_ott_broadcast_consolidation,
         "check_missing_live_games" : self._check_missing_live_games,
+        "audit_uk_ire_volume_consistency" : self._audit_uk_ire_volume_consistency
         #"dedicated_program_duration_alignments": self._dedicated_program_duration_alignments
         #"relevant_only_in_the_uk": self._relevant_only_in_the_uk,
         #"dedicated_program_duration_allignments": self._dedicated_program_duration_allignments
@@ -3344,6 +3345,81 @@ class EPLValidator:
                 "rows_flagged": int(total_unique_flagged),
                 "allowed_values": {k: list(v) for k, v in ALLOWED_VALUES.items()}
             }
+        }
+    
+    def _audit_uk_ire_volume_consistency(self) -> Dict[str, Any]:
+        """
+        Audits the consistency of line item counts between UK and Ireland per Program Type.
+        Self-contained logic: flags rows if the count of 'Type of programme' differs between markets.
+        """
+        FLAG_COLUMN = 'QC_Volume_Consistency_Flag'
+        MARKET_COL = 'Market'
+        TYPE_COL = 'Type of programme' # British spelling
+        
+        # 1. Safety Check: Required Columns
+        if not all(col in self.df.columns for col in [MARKET_COL, TYPE_COL]):
+             return {
+                "check_key": "audit_uk_ire_volume", "status": "Skipped",
+                "description": f"Missing columns: {MARKET_COL} or {TYPE_COL}"
+            }
+
+        # Initialize flag column if missing
+        if FLAG_COLUMN not in self.df.columns:
+            self.df[FLAG_COLUMN] = 'OK'
+            
+        initial_rows = len(self.df)
+
+        # 2. Prepare Grouping Keys (Self-contained normalization)
+        # Identify UK vs Ireland rows
+        market_upper = self.df[MARKET_COL].astype(str).str.upper().str.strip()
+        uk_mask = market_upper.isin(['UNITED KINGDOM', 'UK', 'GREAT BRITAIN'])
+        ire_mask = market_upper == 'IRELAND'
+        
+        # Normalize Program Type to ensure 'Live' matches 'LIVE '
+        type_norm = self.df[TYPE_COL].fillna('Unknown').astype(str).str.upper().str.strip()
+        
+        # 3. Calculate Counts
+        # We build a temporary DataFrame to group by Type and sum the occurrences of UK vs IRE
+        stats_df = pd.DataFrame({
+            'Type': type_norm,
+            'Is_UK': uk_mask,
+            'Is_IRE': ire_mask
+        })
+        
+        # Group by Type and count True values (1 for True, 0 for False)
+        grouped = stats_df.groupby('Type')[['Is_UK', 'Is_IRE']].sum()
+        
+        # Filter for Types where counts do not match
+        mismatches = grouped[grouped['Is_UK'] != grouped['Is_IRE']]
+        
+        rows_flagged = 0
+        
+        # 4. Apply Flags
+        if not mismatches.empty:
+            # Iterate through the mismatched types
+            for prog_type, row in mismatches.iterrows():
+                uk_count = int(row['Is_UK'])
+                ire_count = int(row['Is_IRE'])
+                
+                # Construct message
+                msg = f"VOLUME MISMATCH: Type '{prog_type}' count differs: UK({uk_count}) vs IRELAND({ire_count})."
+                
+                # Identify rows to flag:
+                # 1. Must be the specific Program Type
+                # 2. Must be in UK or Ireland (we don't flag other markets)
+                # 3. Must be currently 'OK'
+                target_rows = (type_norm == prog_type) & (uk_mask | ire_mask) & (self.df[FLAG_COLUMN] == 'OK')
+                
+                if target_rows.any():
+                    self.df.loc[target_rows, FLAG_COLUMN] = msg
+                    rows_flagged += target_rows.sum()
+
+        return {
+            "check_key": "audit_uk_ire_volume",
+            "status": "Flagged" if rows_flagged > 0 else "Completed",
+            "action": "Volume Consistency Audit", 
+            "description": f"Flagged {rows_flagged} rows with volume mismatches between UK/IRE.",
+            "details": {"mismatched_types": mismatches.index.tolist()}
         }
 # ----------------------------- ⚙️ Utility Functions (kept standalone) -----------------------------
 

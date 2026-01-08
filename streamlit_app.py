@@ -257,6 +257,7 @@ all_market_check_keys_epl = {
     "audit_uk_ire_duplication_alignment" : "UK/Ireland Duplication Alignment",
     "audit_ott_broadcast_consolidation": "OTT Broadcast Consolidation",
     "check_missing_live_games" : "EPL Missing Live Games Check",
+    "audit_uk_ire_volume_consistency":"Compare number of line item in uk and ireland region",
     #"dedicated_program_duration_alignments": "Dedicated Program Duration Alignments",
     
     
@@ -1054,6 +1055,7 @@ with epl_tab:
         "audit_uk_ire_duplication_alignment" : "Audit UK/IRE Duplication Alignments",
         "audit_ott_broadcast_consolidation": "OTT Broadcast Consolidation",
         "check_missing_live_games": "EPL Missing Live Games Check",
+        "audit_uk_ire_volume_consistency" : "UK and Ireland line count comparision"
         #"dedicated_program_duration_alignments": "Dedicated Program Duration Alignments"
         
 
@@ -1131,7 +1133,11 @@ with epl_tab:
         "Validates that 'Source', 'Source 2', and 'Media Type' columns contain only authorized values (e.g., 'BC Data', 'Linear'), flagging deviations."
     ),
      "filter_short_programs": (
-        "Identifies and flags programs with durations under 5 minutes, except for specified markets (Austria and New Zealand).")
+        "Identifies and flags programs with durations under 5 minutes, except for specified markets (Austria and New Zealand)."
+    ),
+    "audit_uk_ire_volume_consistency": (
+        "UK and Ireland line item consisitancy" 
+    )
 }
 
     # --- Dedicated Upload for Manual Checks (MODIFIED) ---
@@ -1210,7 +1216,7 @@ with epl_tab:
         #check_ui("dedicated_program_duration_allignments")
         check_ui("audit_ott_broadcast_consolidation")
         check_ui("check_missing_live_games")
-        
+        check_ui("audit_uk_ire_volume_consistency")
 
     st.write("---")
         # --- Configuration Input Fields (NEW SECTION) ---
