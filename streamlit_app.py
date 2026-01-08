@@ -582,7 +582,7 @@ with main_qc_tab:
                     # 2. FEATURE: Export Fixtures sheet from original BSR
                         try:
                             bsr_xl = pd.ExcelFile(bsr_path)
-                            fixture_keywords = ["fixture", "fixtures", "fixture list"]
+                            fixture_keywords = ["fixture", "fixtures", "fixture list", "fixtures list"]
                             # Find a sheet matching the keywords
                             fixture_sheet = next((s for s in bsr_xl.sheet_names 
                                                 if any(k in s.lower() for k in fixture_keywords)), None)
