@@ -140,19 +140,33 @@ def combine_parse(date_val, time_val):
 
 # ----------------------------- 1️⃣ Detect Monitoring Period -----------------------------
 def detect_period_from_rosco(rosco_path):
+    # Load the Rosco file without headers to scan by index
     df = pd.read_excel(rosco_path, header=None)
-    value_col = df.iloc[:, 1].astype(str)
-    period_row = value_col[value_col.str.contains("Monitoring Periods", na=False)]
-    if period_row.empty:
-        raise ValueError("Could not find 'Monitoring Periods' in Rosco file.")
-    text = period_row.iloc[0]
-    found = re.findall(r"\d{4}-\d{2}-\d{2}", text)
+    
+    # 1. Look for the label "Monitoring Periods" in Column B (index 1)
+    label_col = df.iloc[:, 1].astype(str)
+    period_row_mask = label_col.str.contains("Monitoring Periods", na=False)
+    
+    if not period_row_mask.any():
+        raise ValueError("Could not find 'Monitoring Periods' label in Column B of the Rosco file.")
+    
+    # Get the row index where the label was found
+    row_idx = period_row_mask.idxmax()
+    
+    # 2. Extract the user-provided text from Column C (index 2) of that same row
+    # This is the "next column" as requested.
+    user_input_text = str(df.iloc[row_idx, 2]) 
+    
+    # 3. Parse dates from the text in Column C
+    found = re.findall(r"\d{4}-\d{2}-\d{2}", user_input_text)
+    
     if len(found) >= 2:
         start_date = pd.to_datetime(found[0], format=DATE_FORMAT)
         end_date = pd.to_datetime(found[1], format=DATE_FORMAT)
         return start_date, end_date
     else:
-        raise ValueError("Could not parse monitoring period dates from Rosco file.")
+        raise ValueError(f"Could not parse two dates (YYYY-MM-DD) from Column C, Row {row_idx + 1}. "
+                         f"Found text: '{user_input_text}'")
 
 
 # ----------------------------- 2️⃣ Load BSR -----------------------------
