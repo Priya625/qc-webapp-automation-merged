@@ -579,8 +579,19 @@ with main_qc_tab:
                     try:
                         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
                             df.to_excel(writer, index=False, sheet_name="QC Results")
-                    
-                    
+                    # 2. FEATURE: Export Fixtures sheet from original BSR
+                            try:
+                                bsr_xl = pd.ExcelFile(bsr_path)
+                                fixture_keywords = ["fixture", "fixtures", "fixture list", "fixtures list"]
+                                # Find a sheet matching the keywords
+                                fixture_sheet = next((s for s in bsr_xl.sheet_names 
+                                                    if any(k in s.lower() for k in fixture_keywords)), None)
+                                
+                                if fixture_sheet:
+                                    df_fixtures = bsr_xl.parse(fixture_sheet)
+                                    df_fixtures.to_excel(writer, index=False, sheet_name="Original Fixtures")
+                            except Exception as fe:
+                                st.warning(f"Could not extract Fixtures sheet: {fe}")
                     except Exception as e:
                         raise RuntimeError(f"Error saving QC Excel file: {e}")
 
@@ -595,19 +606,6 @@ with main_qc_tab:
                         qc_general.generate_summary_sheet(output_path, df)
                     except Exception as e:
                         st.warning(f"Warning: generate_summary_sheet failed: {e}")
-                    # 2. FEATURE: Export Fixtures sheet from original BSR
-                    try:
-                            bsr_xl = pd.ExcelFile(bsr_path)
-                            fixture_keywords = ["fixture", "fixtures", "fixture list", "fixtures list"]
-                            # Find a sheet matching the keywords
-                            fixture_sheet = next((s for s in bsr_xl.sheet_names 
-                                                if any(k in s.lower() for k in fixture_keywords)), None)
-                            
-                            if fixture_sheet:
-                                df_fixtures = bsr_xl.parse(fixture_sheet)
-                                df_fixtures.to_excel(writer, index=False, sheet_name="Original Fixtures")
-                    except Exception as fe:
-                            st.warning(f"Could not extract Fixtures sheet: {fe}")
 
                     # Offer the file for download
                     try:
