@@ -1390,22 +1390,29 @@ class EPLValidator:
 
     def _suppress_duplicated_audience(self) -> Dict[str, Any]:
         """
-        Audits the BSR to flag any row where the 'Source' column indicates a duplication 
-        origin, but EITHER the Modeled Audience or the Metered Audience column contains 
-        a positive, non-zero value (an anomaly).
+        Audits the BSR to flag rows where the Source indicates it should have ZERO audience.
+        
+        Targets:
+        1. Source contains 'DUPLICATED FROM BSA'
+        2. Source is EXACTLY 'BSA' (Case insensitive)
+        
+        Exclusions:
+        - Source 'BSA + Nielsen' (or similar composites) are IGNORED and allowed to have audience.
         """
         initial_rows = len(self.df)
         FLAG_COLUMN = 'QC_Audience_Suppression_Flag'
         SOURCE_COL = 'Source'
-        KEYWORD = 'DUPLICATED FROM BSA'
         
-        # Define BOTH audience columns that must be zero
+        # Define Targets
+        KEYWORD_DUPLICATED = 'DUPLICATED FROM BSA'
+        KEYWORD_EXACT_BSA = 'BSA'
+        
+        # Define BOTH audience columns that must be zero for these targets
         TARGET_AUDIENCE_COLS = [
-            'Aud. Estimates [\'000s]', 
-            'Aud Metered (000s) 3+'
+            "Aud. Estimates ['000s]", 
+            "Aud Metered (000s) 3+"
         ]
         
-        # Check for required columns
         REQUIRED_COLS = TARGET_AUDIENCE_COLS + [SOURCE_COL]
         if not all(col in self.df.columns for col in REQUIRED_COLS):
             return {
@@ -1415,45 +1422,60 @@ class EPLValidator:
                 "details": {"rows_flagged": 0}
             }
 
-        self.df[FLAG_COLUMN] = 'OK'
+        if FLAG_COLUMN not in self.df.columns:
+            self.df[FLAG_COLUMN] = 'OK'
 
-        # 1. Identify rows that are duplication sources
-        source_norm = self.df[SOURCE_COL].astype(str).str.upper()
-        suppression_mask = source_norm.str.contains(KEYWORD, na=False)
+        # 1. Normalize Source Column
+        source_norm = self.df[SOURCE_COL].astype(str).str.strip().str.upper()
         
-        # 2. Identify the anomaly: Is there ANY positive audience value?
+        # 2. Define The "Suppression Candidates" (Rows that MUST be zero)
+        
+        # Condition A: Contains 'DUPLICATED FROM BSA' (e.g., 'DUPLICATED FROM BSA - UK')
+        mask_duplicated = source_norm.str.contains(KEYWORD_DUPLICATED, regex=False, na=False)
+        
+        # Condition B: Is EXACTLY 'BSA'
+        # This prevents matching 'BSA + NIELSEN' because 'BSA + NIELSEN' != 'BSA'
+        mask_exact_bsa = source_norm == KEYWORD_EXACT_BSA
+        
+        # Combine Candidates: Either it's a Duplicate OR it's a pure BSA row
+        suppression_candidate_mask = mask_duplicated | mask_exact_bsa
+        
+        # 3. Identify the anomaly: Is there ANY positive audience value?
         
         # Check if ANY of the two target columns are greater than zero
-        # Use fillna(0) to treat NaNs as zero, ensuring a safe comparison
         audience_check_df = self.df[TARGET_AUDIENCE_COLS].fillna(0)
         
-        # Create a mask that is TRUE if AT LEAST ONE of the two columns is positive
+        # Mask is TRUE if AT LEAST ONE of the two columns is positive
         any_audience_positive_mask = (audience_check_df > 0).any(axis=1)
         
-        # Final Error Mask: Duplication Source AND Any Positive Audience
-        error_mask = suppression_mask & any_audience_positive_mask
+        # 4. Final Error Mask: Candidate AND Positive Audience
+        error_mask = suppression_candidate_mask & any_audience_positive_mask
         
         rows_flagged = error_mask.sum()
         
-        # 3. Apply Flag to Original DataFrame (No Value Update)
+        # 5. Apply Flag
         if rows_flagged > 0:
             
-            flag_message = f"SUPPRESSION ANOMALY: Source indicates duplication origin ('{KEYWORD}'), but Audience is POSITIVE in Aud. Estimates or Aud Metered."
+            flag_message = f"SUPPRESSION ANOMALY: Source is '{KEYWORD_EXACT_BSA}' or '{KEYWORD_DUPLICATED}', but Audience is POSITIVE (Should be 0)."
             
             # Apply flag only to rows currently marked OK
             rows_to_flag = error_mask & (self.df[FLAG_COLUMN] == 'OK')
             
             self.df.loc[rows_to_flag, FLAG_COLUMN] = flag_message
+            
+            # Recalculate
+            rows_flagged = rows_to_flag.sum()
 
-        # 4. Final Summary
+        # 6. Final Summary
         return {
             "check_key": "suppress_duplicated_audience",
             "status": "Flagged" if rows_flagged > 0 else "Completed",
             "action": "Audience Suppression Audit", 
-            "description": f"Flagged {rows_flagged} duplication source rows containing positive audience values (should be zero).",
+            "description": f"Flagged {rows_flagged} rows (BSA/Duplicate) containing positive audience values.",
             "details": {
                 "rows_flagged": int(rows_flagged),
-                "target_columns_checked": TARGET_AUDIENCE_COLS
+                "target_columns_checked": TARGET_AUDIENCE_COLS,
+                "targets": ["DUPLICATED FROM BSA (Contains)", "BSA (Exact)"]
             }
         }
 
