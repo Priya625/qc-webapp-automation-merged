@@ -1163,8 +1163,8 @@ with epl_tab:
         f1_obligation_file = st.file_uploader("📄 Upload Channel Names (.xlsx)", type=["xlsx"], key="epl_obligation_file")
     with col_file3:
         f1_overnight_file = st.file_uploader("📈 Upload CDT-OVN Audience File (.xlsx)", type=["xlsx"], key="epl_overnight_file")
-    with col_file4:
-        f1_macro_file = st.file_uploader("📋 4. BSA Duplicator File ", type=["xlsm", "xlsx"], key="epl_macro_file")
+    # with col_file4:
+    #     f1_macro_file = st.file_uploader("📋 4. BSA Duplicator File ", type=["xlsm", "xlsx"], key="epl_macro_file")
     
     st.write("---")
 
