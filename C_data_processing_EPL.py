@@ -2576,6 +2576,7 @@ class EPLValidator:
         Auto-detects:
         - 'Type of program' column (any casing/spacing)
         - 'Combined' column
+        - 'Home Team' and 'Away Team' columns
 
         Works even if names differ.
         """
@@ -2584,9 +2585,7 @@ class EPLValidator:
 
         # ---------- Helper to find column robustly ----------
         def find_col(df, *names):
-            # names will be a tuple of all strings passed after df
             search_names = [n.strip().lower() for n in names]
-            
             for col in df.columns:
                 if col.strip().lower() in search_names:
                     return col
@@ -2595,6 +2594,8 @@ class EPLValidator:
         # Detect required columns
         col_progtype = find_col(df, "type of program", "type of programme")
         col_combined = find_col(df, "combined")
+        col_home = find_col(df, "home team", "home")
+        col_away = find_col(df, "away team", "away")
 
         missing = []
         if col_progtype is None: missing.append("Type of program")
@@ -2617,9 +2618,24 @@ class EPLValidator:
         combined_norm = df[col_combined].astype(str).str.lower()
 
         # -----------------------------------------------------
-        # 1️⃣  MAGAZINE & SUPPORT
+        #  NEW ADDITION: Ignore when Home & Away are present
         # -----------------------------------------------------
-        mag_mask = type_norm == "magazine & support"
+        if col_home is not None and col_away is not None:
+            home_present = df[col_home].astype(str).str.strip().ne("")
+            away_present = df[col_away].astype(str).str.strip().ne("")
+
+            ignore_mask = (
+                home_present &
+                away_present &
+                type_norm.isin(["highlights", "magazine & support"])
+            )
+
+            df.loc[ignore_mask, CATEGORY_COL] = "NA"
+
+        # -----------------------------------------------------
+        # 1️⃣  MAGAZINE & SUPPORT (unchanged logic)
+        # -----------------------------------------------------
+        mag_mask = (type_norm == "magazine & support") & (df[CATEGORY_COL] == "")
 
         df.loc[mag_mask & combined_norm.str.contains("vault"), CATEGORY_COL] = "PL Magazine"
         df.loc[mag_mask & combined_norm.str.contains("stories"), CATEGORY_COL] = "PL Stories"
@@ -2629,9 +2645,9 @@ class EPLValidator:
         df.loc[mag_mask & (df[CATEGORY_COL] == ""), CATEGORY_COL] = "PL Magazine"
 
         # -----------------------------------------------------
-        # 2️⃣  HIGHLIGHTS
+        # 2️⃣  HIGHLIGHTS (unchanged logic)
         # -----------------------------------------------------
-        high_mask = type_norm == "highlights"
+        high_mask = (type_norm == "highlights") & (df[CATEGORY_COL] == "")
 
         df.loc[high_mask & combined_norm.str.contains("netbusters"), CATEGORY_COL] = "PL Netbusters"
         df.loc[high_mask & combined_norm.str.contains("reload"), CATEGORY_COL] = "PL Reload"
