@@ -865,7 +865,6 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             later_diff = (bsr_start - earliest).total_seconds() / 60
             df.at[idx, "Program_Category_Remark"] = f"Repeat (first telecast was {later_diff:.1f} min earlier)"
             continue
-
     # ---------- FINAL OK ----------
     df["Program_Category_OK"] = df["Program_Category_Actual"] == df["Program_Category_Expected"]
 
