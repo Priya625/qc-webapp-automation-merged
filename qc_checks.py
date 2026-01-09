@@ -875,7 +875,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     return df
 
 # 8️⃣ Event / Matchday / Competition Check
-def check_event_matchday_competition_exact_fixture(df_worksheet,df_fixtures, debug_rows=20):
+def check_event_matchday_competition(df_worksheet,df_fixtures, debug_rows=20):
     """
     Validate Worksheet rows against Fixture List using exact match.
 
