@@ -1245,29 +1245,58 @@ class EPLValidator:
         FLAG_COLUMN = 'QC_Live_Overlap_Flag'
         
         # --- Define the Grouping Key ---
-        # We group by Market, Channel, and the specific Fixture description.
         GROUPING_KEY_COLS = ['Market', 'TV-Channel', 'Phase / Fixture / Episode Desc.']
-        
         LIVE_PROGRAM_TYPE = 'LIVE'
         
-        # FIX: Updated column name to match your file ('Type of programme')
-        TYPE_COL = 'Type of programme' 
+        # --- 1. Robust Column Selection for 'Type of programme' ---
+        # Normalize existing columns map: {lowercase_stripped: original_name}
+        col_map = {c.lower().strip(): c for c in self.df.columns}
         
+        # List of potential variations to check
+        potential_names = [
+            'type of programme', 
+            'type of program', 
+            'type of programm',   # Specific case you encountered
+            'program type', 
+            'programme type'
+        ]
+        
+        TYPE_COL = None
+        
+        # A. Check specific variations
+        for name in potential_names:
+            if name in col_map:
+                TYPE_COL = col_map[name]
+                break
+        
+        # B. Fuzzy Fallback: Look for any column starting with "type of prog"
+        if TYPE_COL is None:
+            for c_lower, c_original in col_map.items():
+                if c_lower.startswith('type of prog'):
+                    TYPE_COL = c_original
+                    break
+        
+        # C. Ultimate Fallback
+        if TYPE_COL is None:
+            TYPE_COL = 'Type of programme' # Default
+
         REQUIRED_COLS = GROUPING_KEY_COLS + [TYPE_COL, 'Date (UTC/GMT)', 'Start (UTC)', 'End (UTC)']
         
         # DEBUG: Print missing columns if any
         missing = [c for c in REQUIRED_COLS if c not in self.df.columns]
         if missing:
+            # Debugging aid: Show first 5 columns to help user see what's actually there
+            available_cols = list(self.df.columns)[:5] 
             return {
                 "check_key": "check_live_broadcast_uniqueness", "status": "Skipped", 
                 "action": "Live Overlap Check", 
-                "description": f"Skipped: Missing columns: {missing}", 
+                "description": f"Skipped: Missing columns: {missing}. Found candidates: {available_cols}...", 
                 "details": {"rows_flagged": 0}
             }
 
         self.df[FLAG_COLUMN] = 'OK'
         
-        # --- 1. Prepare Data and Timestamps ---
+        # --- 2. Prepare Data and Timestamps ---
         try:
             date_key = self.df['Date (UTC/GMT)'].astype(str).str[:10]
             self.df['Start_DT'] = pd.to_datetime(date_key + ' ' + self.df['Start (UTC)'].astype(str), errors='coerce')
@@ -1280,21 +1309,28 @@ class EPLValidator:
             
         except Exception as e:
             self.df.drop(columns=['Start_DT', 'End_DT'], inplace=True, errors='ignore')
-            return {"check_key": "check_live_broadcast_uniqueness", "status": "Failed", "action": "Live Overlap Check", "description": f"Failed to parse Date/Time columns: {e}", "details": {"rows_flagged": 0}}
+            return {
+                "check_key": "check_live_broadcast_uniqueness", 
+                "status": "Failed", 
+                "action": "Live Overlap Check", 
+                "description": f"Failed to parse Date/Time columns: {e}", 
+                "details": {"rows_flagged": 0}
+            }
             
         # Standardize grouping columns
         for col in GROUPING_KEY_COLS:
             self.df[col] = self.df[col].astype(str).str.strip().str.upper().str.replace(r'[^A-Z0-9\s\.\-]', '', regex=True).fillna('NAN')
 
-        # Filter for LIVE programs only (Using the correct column name)
+        # Filter for LIVE programs only (Using the dynamically found column name)
         live_mask = self.df[TYPE_COL].astype(str).str.upper().str.strip() == LIVE_PROGRAM_TYPE
         
+        # Create a working copy for sorting and shifting
         df_live_candidates = self.df[live_mask].copy()
         
-        # Sort by Grouping Key + Start Time
+        # Sort by Grouping Key + Start Time to align overlapping events
         df_live_candidates = df_live_candidates.sort_values(by=GROUPING_KEY_COLS + ['Start_DT'])
         
-        # --- 2. Overlap Detection Logic ---
+        # --- 3. Overlap Detection Logic ---
         
         conflict_details = {} 
         
@@ -1303,27 +1339,39 @@ class EPLValidator:
             if len(group) < 2:
                 continue
                 
+            # Create a column for the previous row's End Time
             lagged_end_dt = group['End_DT'].shift(1)
             
-            # Overlap occurs if Start Time < Previous End Time
+            # Overlap occurs if Current Start Time < Previous End Time
             overlap_start_mask = group['Start_DT'] < lagged_end_dt
             
             if overlap_start_mask.any():
                 
+                # Get indices of current overlapping rows
                 current_overlap_indices = group[overlap_start_mask].index.tolist()
-                preceding_overlap_indices = group[overlap_start_mask].shift(1).index.dropna().astype(int)
+                
+                # Get indices of the rows they overlap WITH (the previous rows)
+                # We shift the index column itself to map current row -> previous row index
+                prev_indices_series = group.index.to_series().shift(1)
+                preceding_overlap_indices = prev_indices_series[overlap_start_mask].dropna().astype(int).tolist()
 
                 all_conflict_indices = set(current_overlap_indices).union(set(preceding_overlap_indices))
                 
                 # Format the detailed conflict message
                 conflict_log = []
+                sorted_indices = sorted(list(all_conflict_indices))
                 
-                for idx in sorted(list(all_conflict_indices)):
-                    row = self.df.loc[idx]
-                    log_entry = (f"Index {idx} | "
-                                f"Date: {row['Date (UTC/GMT)'].strftime('%Y-%m-%d')} | "
-                                f"Times: {row['Start (UTC)']} - {row['End (UTC)']}")
-                    conflict_log.append(log_entry)
+                for idx in sorted_indices:
+                    if idx in self.df.index:
+                        row = self.df.loc[idx]
+                        d_str = row['Date (UTC/GMT)']
+                        if hasattr(d_str, 'strftime'):
+                            d_str = d_str.strftime('%Y-%m-%d')
+                            
+                        log_entry = (f"Index {idx} | "
+                                     f"Date: {d_str} | "
+                                     f"Times: {row['Start (UTC)']} - {row['End (UTC)']}")
+                        conflict_log.append(log_entry)
                 
                 key_id = "|".join([str(k) for k in key_tuple]) 
                 conflict_message = f"DUPLICATION ERROR: Fixture '{key_id}' has overlapping LIVE entries. Rows: " + " || ".join(conflict_log)
@@ -1332,17 +1380,18 @@ class EPLValidator:
                     conflict_details[idx] = conflict_message
         
 
-        # --- 3. Apply Flag to Original DataFrame ---
+        # --- 4. Apply Flag to Original DataFrame ---
         rows_flagged = len(conflict_details)
         
         if rows_flagged > 0:
             flag_series = pd.Series(conflict_details)
-            self.df.loc[flag_series.index, FLAG_COLUMN] = flag_series
+            valid_indices = flag_series.index.intersection(self.df.index)
+            self.df.loc[valid_indices, FLAG_COLUMN] = flag_series.loc[valid_indices]
 
         # Final cleanup
         self.df.drop(columns=['Start_DT', 'End_DT'], inplace=True, errors='ignore')
 
-        # 4. Final Summary
+        # 5. Final Summary
         return {
             "check_key": "check_live_broadcast_uniqueness",
             "status": "Flagged" if rows_flagged > 0 else "Completed",
