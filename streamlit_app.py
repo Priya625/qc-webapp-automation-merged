@@ -489,13 +489,14 @@ with main_qc_tab:
     with col1:
         # Adding the note as a 'help' tooltip keeps the boxes perfectly aligned
         main_rosco_file = st.file_uploader(
-            "📘 Upload Rosco File (.xlsx)", 
+            "📘 Upload Rosco File (.xlsx)",
+            st.caption("⚠️ Make sure to update the monitoring period in question on ROSCO for syndicated projects."), 
             type=["xlsx"], 
             key="main_rosco",
             help="Make sure to update the monitoring period in question on ROSCO for syndicated projects"
         )
         # Visible caption: placed here, it stays inside the column width
-        st.caption("⚠️ Make sure to update the monitoring period in question on ROSCO for syndicated projects.")
+        
 
     with col2:
         main_bsr_file = st.file_uploader(
