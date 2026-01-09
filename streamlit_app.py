@@ -487,8 +487,14 @@ with main_qc_tab:
     # --- File uploaders (two columns) ---
     col1, col2 = st.columns(2)
     with col1:
-        main_rosco_file = st.file_uploader("📘 Upload Rosco File (.xlsx)", type=["xlsx"], key="main_rosco")
-        st.info("💡 **Note:** Make sure to update the monitoring period in question on ROSCO for syndicated projects")
+        st.markdown("📘 **Upload Rosco File (.xlsx)**")
+        st.caption("⚠️ *Make sure to update the monitoring period in question on ROSCO for syndicated projects*")
+        main_rosco_file = st.file_uploader(
+            "Upload Rosco File", # Keep label simple or empty if using markdown above
+            label_visibility="collapsed", # Hides the default label to avoid duplication
+            type=["xlsx"], 
+            key="main_rosco"
+        )
     with col2:
         main_bsr_file = st.file_uploader("📗 Upload BSR File (.xlsx)", type=["xlsx"], key="main_bsr")
 
