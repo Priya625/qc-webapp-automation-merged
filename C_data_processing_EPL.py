@@ -3414,75 +3414,90 @@ class EPLValidator:
         """
         Audits the consistency of line item counts between UK and Ireland per Program Type.
         Self-contained logic: flags rows if the count of 'Type of programme' differs between markets.
+        Handles both British ('programme') and US ('program') spellings.
         """
         FLAG_COLUMN = 'QC_Volume_Consistency_Flag'
         MARKET_COL = 'Market'
-        TYPE_COL = 'Type of programme' # British spelling
         
-        # 1. Safety Check: Required Columns
-        if not all(col in self.df.columns for col in [MARKET_COL, TYPE_COL]):
-             return {
+        # 1. Determine the correct Type column spelling (Dynamic Check)
+        TYPE_COL = 'Type of program' # Default fallback
+        if 'Type of programme' in self.df.columns:
+            TYPE_COL = 'Type of programme'
+        elif 'Type of program' in self.df.columns:
+             TYPE_COL = 'Type of program'
+        
+        REQUIRED_COLS = [MARKET_COL, TYPE_COL]
+        
+        # Safety Check: Use list comprehension to check existence since TYPE_COL is dynamic
+        if not all(col in self.df.columns for col in REQUIRED_COLS):
+            return {
                 "check_key": "audit_uk_ire_volume", "status": "Skipped",
-                "description": f"Missing columns: {MARKET_COL} or {TYPE_COL}"
+                "action": "Volume Consistency Audit", 
+                "description": f"Skipped: Missing required columns. Searched for Market and Type of program/programme.",
+                "details": {"rows_flagged": 0}
             }
-
-        # Initialize flag column if missing
+            
         if FLAG_COLUMN not in self.df.columns:
             self.df[FLAG_COLUMN] = 'OK'
             
         initial_rows = len(self.df)
-
-        # 2. Prepare Grouping Keys (Self-contained normalization)
-        # Identify UK vs Ireland rows
-        market_upper = self.df[MARKET_COL].astype(str).str.upper().str.strip()
-        uk_mask = market_upper.isin(['UNITED KINGDOM', 'UK', 'GREAT BRITAIN'])
-        ire_mask = market_upper == 'IRELAND'
         
-        # Normalize Program Type to ensure 'Live' matches 'LIVE '
-        type_norm = self.df[TYPE_COL].fillna('Unknown').astype(str).str.upper().str.strip()
+        # 2. Prepare Data (Locally)
+        # Normalize Market
+        market_series = self.df[MARKET_COL].astype(str).str.upper().str.strip()
+        uk_variations = ['UNITED KINGDOM', 'UK', 'GREAT BRITAIN']
+        
+        is_uk = market_series.isin(uk_variations)
+        is_ireland = market_series == 'IRELAND'
+        
+        # Normalize Type
+        type_series = self.df[TYPE_COL].fillna('Unknown').astype(str).str.strip().str.upper()
         
         # 3. Calculate Counts
-        # We build a temporary DataFrame to group by Type and sum the occurrences of UK vs IRE
-        stats_df = pd.DataFrame({
-            'Type': type_norm,
-            'Is_UK': uk_mask,
-            'Is_IRE': ire_mask
+        # Create temp DF for stats
+        audit_df = pd.DataFrame({
+            'Type': type_series,
+            'Is_UK': is_uk,
+            'Is_IRE': is_ireland
         })
         
-        # Group by Type and count True values (1 for True, 0 for False)
-        grouped = stats_df.groupby('Type')[['Is_UK', 'Is_IRE']].sum()
+        # Group by Type and sum boolean flags (True=1, False=0)
+        stats = audit_df.groupby('Type')[['Is_UK', 'Is_IRE']].sum()
         
-        # Filter for Types where counts do not match
-        mismatches = grouped[grouped['Is_UK'] != grouped['Is_IRE']]
+        # Identify mismatches
+        mismatches = stats[stats['Is_UK'] != stats['Is_IRE']].reset_index()
         
         rows_flagged = 0
         
         # 4. Apply Flags
         if not mismatches.empty:
-            # Iterate through the mismatched types
-            for prog_type, row in mismatches.iterrows():
-                uk_count = int(row['Is_UK'])
-                ire_count = int(row['Is_IRE'])
+            for _, row in mismatches.iterrows():
+                target_type = row['Type']
+                uk_c = int(row['Is_UK'])
+                ire_c = int(row['Is_IRE'])
                 
-                # Construct message
-                msg = f"VOLUME MISMATCH: Type '{prog_type}' count differs: UK({uk_count}) vs IRELAND({ire_count})."
+                msg = f"VOLUME MISMATCH: Program Type '{target_type}' has unbalanced counts: UK({uk_c}) vs IRELAND({ire_c})."
                 
-                # Identify rows to flag:
-                # 1. Must be the specific Program Type
-                # 2. Must be in UK or Ireland (we don't flag other markets)
-                # 3. Must be currently 'OK'
-                target_rows = (type_norm == prog_type) & (uk_mask | ire_mask) & (self.df[FLAG_COLUMN] == 'OK')
+                # Flag Logic: Flag rows that match the Type AND are part of UK or Ireland markets
+                # Re-create masks for the specific type to ensure correct row indexing
+                type_match = type_series == target_type
+                region_match = is_uk | is_ireland
                 
-                if target_rows.any():
-                    self.df.loc[target_rows, FLAG_COLUMN] = msg
-                    rows_flagged += target_rows.sum()
-
+                rows_to_flag = type_match & region_match & (self.df[FLAG_COLUMN] == 'OK')
+                
+                if rows_to_flag.any():
+                    self.df.loc[rows_to_flag, FLAG_COLUMN] = msg
+                    rows_flagged += rows_to_flag.sum()
+                    
         return {
             "check_key": "audit_uk_ire_volume",
             "status": "Flagged" if rows_flagged > 0 else "Completed",
             "action": "Volume Consistency Audit", 
-            "description": f"Flagged {rows_flagged} rows with volume mismatches between UK/IRE.",
-            "details": {"mismatched_types": mismatches.index.tolist()}
+            "description": f"Flagged {rows_flagged} rows where UK and Ireland volume counts do not match for their Program Type.",
+            "details": {
+                "types_mismatched": len(mismatches),
+                "mismatched_types_list": mismatches['Type'].tolist()
+            }
         }
 # ----------------------------- ⚙️ Utility Functions (kept standalone) -----------------------------
 
