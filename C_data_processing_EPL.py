@@ -1391,34 +1391,29 @@ class EPLValidator:
 
     def _suppress_duplicated_audience(self) -> Dict[str, Any]:
         """
-        Audits the BSR to flag rows where the Source indicates it should have ZERO audience.
+        Audits the BSR for Audience Consistency based on specific Source patterns.
         
-        Targets:
-        1. Source contains 'DUPLICATED FROM BSA'
-        2. Source is EXACTLY 'BSA' (Case insensitive)
-        
-        Exclusions:
-        - Source 'BSA + Nielsen' (or similar composites) are IGNORED and allowed to have audience.
+        Rules Table:
+        1. BSA + Nielsen / BSA + Euro Data 
+           -> Allowed: Metered. Forbidden: Estimation.
+        2. Duplicated from BSA + Nielsen / Duplicated from BSA + Eurodata 
+           -> Allowed: Estimation. Forbidden: Metered.
+        3. BSA (Exact) / Duplicated from BSA - [Country] 
+           -> Allowed: None. Forbidden: Metered & Estimation.
         """
         initial_rows = len(self.df)
         FLAG_COLUMN = 'QC_Audience_Suppression_Flag'
         SOURCE_COL = 'Source'
         
-        # Define Targets
-        KEYWORD_DUPLICATED = 'DUPLICATED FROM BSA'
-        KEYWORD_EXACT_BSA = 'BSA'
+        # Columns
+        METERED_COL = "Aud Metered (000s) 3+"
+        ESTIMATION_COL = "Aud. Estimates ['000s]"
         
-        # Define BOTH audience columns that must be zero for these targets
-        TARGET_AUDIENCE_COLS = [
-            "Aud. Estimates ['000s]", 
-            "Aud Metered (000s) 3+"
-        ]
-        
-        REQUIRED_COLS = TARGET_AUDIENCE_COLS + [SOURCE_COL]
+        REQUIRED_COLS = [METERED_COL, ESTIMATION_COL, SOURCE_COL]
         if not all(col in self.df.columns for col in REQUIRED_COLS):
             return {
                 "check_key": "suppress_duplicated_audience", "status": "Skipped",
-                "action": "Audience Suppression Audit", 
+                "action": "Audience Audit", 
                 "description": "Skipped: Missing required BSR columns.",
                 "details": {"rows_flagged": 0}
             }
@@ -1426,57 +1421,96 @@ class EPLValidator:
         if FLAG_COLUMN not in self.df.columns:
             self.df[FLAG_COLUMN] = 'OK'
 
-        # 1. Normalize Source Column
+        # 1. Normalize Source Column (Upper case, stripped)
         source_norm = self.df[SOURCE_COL].astype(str).str.strip().str.upper()
         
-        # 2. Define The "Suppression Candidates" (Rows that MUST be zero)
+        # 2. Prepare Audience Data (Fill NaN with 0 for checks)
+        metered_vals = self.df[METERED_COL].fillna(0)
+        est_vals = self.df[ESTIMATION_COL].fillna(0)
         
-        # Condition A: Contains 'DUPLICATED FROM BSA' (e.g., 'DUPLICATED FROM BSA - UK')
-        mask_duplicated = source_norm.str.contains(KEYWORD_DUPLICATED, regex=False, na=False)
-        
-        # Condition B: Is EXACTLY 'BSA'
-        # This prevents matching 'BSA + NIELSEN' because 'BSA + NIELSEN' != 'BSA'
-        mask_exact_bsa = source_norm == KEYWORD_EXACT_BSA
-        
-        # Combine Candidates: Either it's a Duplicate OR it's a pure BSA row
-        suppression_candidate_mask = mask_duplicated | mask_exact_bsa
-        
-        # 3. Identify the anomaly: Is there ANY positive audience value?
-        
-        # Check if ANY of the two target columns are greater than zero
-        audience_check_df = self.df[TARGET_AUDIENCE_COLS].fillna(0)
-        
-        # Mask is TRUE if AT LEAST ONE of the two columns is positive
-        any_audience_positive_mask = (audience_check_df > 0).any(axis=1)
-        
-        # 4. Final Error Mask: Candidate AND Positive Audience
-        error_mask = suppression_candidate_mask & any_audience_positive_mask
-        
-        rows_flagged = error_mask.sum()
-        
-        # 5. Apply Flag
-        if rows_flagged > 0:
-            
-            flag_message = f"SUPPRESSION ANOMALY: Source is '{KEYWORD_EXACT_BSA}' or '{KEYWORD_DUPLICATED}', but Audience is POSITIVE (Should be 0)."
-            
-            # Apply flag only to rows currently marked OK
-            rows_to_flag = error_mask & (self.df[FLAG_COLUMN] == 'OK')
-            
-            self.df.loc[rows_to_flag, FLAG_COLUMN] = flag_message
-            
-            # Recalculate
-            rows_flagged = rows_to_flag.sum()
+        # --- DEFINE MASKS FOR SOURCE GROUPS ---
 
-        # 6. Final Summary
+        # GROUP A: ESTIMATION ALLOWED (Metered MUST be 0)
+        # Patterns: "Duplicated from bsa + nielsen", "Duplicated from bsa + Eurodata"
+        # Note: Handling variations of EURODATA vs EURO DATA just in case, though user specified 'Eurodata' here
+        mask_est_allowed = (
+            source_norm.str.contains('DUPLICATED FROM BSA + NIELSEN', regex=False) | 
+            source_norm.str.contains('DUPLICATED FROM BSA + EURODATA', regex=False) |
+            source_norm.str.contains('DUPLICATED FROM BSA + EURO DATA', regex=False)
+        )
+
+        # GROUP B: METERED ALLOWED (Estimation MUST be 0)
+        # Patterns: "BSA + Nielsen", "BSA + Euro Data"
+        # CRITICAL: We must exclude rows that matched Group A, because "Duplicated from BSA + Nielsen" 
+        # contains the string "BSA + Nielsen". Group A takes precedence for those rows.
+        mask_met_allowed_raw = (
+            source_norm.str.contains('BSA + NIELSEN', regex=False) | 
+            source_norm.str.contains('BSA + EURO DATA', regex=False) |
+            source_norm.str.contains('BSA + EURODATA', regex=False)
+        )
+        mask_met_allowed = mask_met_allowed_raw & (~mask_est_allowed)
+
+        # GROUP C: ALL FORBIDDEN (Both MUST be 0)
+        # Patterns: Exact "BSA", "Duplicated from BSA - [Country]"
+        mask_bsa_exact = source_norm == 'BSA'
+        
+        # Regex for "Duplicated from BSA - " (Hyphen indicates country specific like Serbia)
+        mask_dup_country = source_norm.str.contains(r'DUPLICATED FROM BSA\s*-\s*', regex=True)
+        
+        mask_all_forbidden = mask_bsa_exact | mask_dup_country
+
+        # --- IDENTIFY ERRORS ---
+
+        # Error 1: Group A (Est Allowed) but has Metered
+        error_group_a = mask_est_allowed & (metered_vals > 0)
+        
+        # Error 2: Group B (Met Allowed) but has Estimation
+        error_group_b = mask_met_allowed & (est_vals > 0)
+        
+        # Error 3: Group C (None Allowed) but has ANY audience
+        error_group_c = mask_all_forbidden & ((metered_vals > 0) | (est_vals > 0))
+
+        # Combine Errors
+        total_error_mask = error_group_a | error_group_b | error_group_c
+        
+        rows_flagged_count = total_error_mask.sum()
+
+        # 3. Apply Flags
+        if rows_flagged_count > 0:
+            
+            # Sub-flagging for specific messages
+            
+            # Msg A
+            if error_group_a.any():
+                msg_a = "SUPPRESSION ERROR: 'Duplicated + Nielsen/Eurodata' source should have BLANK Metered audience."
+                rows = error_group_a & (self.df[FLAG_COLUMN] == 'OK')
+                self.df.loc[rows, FLAG_COLUMN] = msg_a
+            
+            # Msg B
+            if error_group_b.any():
+                msg_b = "SUPPRESSION ERROR: 'BSA + Nielsen/Euro Data' source should have BLANK Estimated audience."
+                rows = error_group_b & (self.df[FLAG_COLUMN] == 'OK')
+                self.df.loc[rows, FLAG_COLUMN] = msg_b
+                
+            # Msg C
+            if error_group_c.any():
+                msg_c = "SUPPRESSION ERROR: 'BSA' or 'Duplicated - Country' source should have BLANK audience (Both columns)."
+                rows = error_group_c & (self.df[FLAG_COLUMN] == 'OK')
+                self.df.loc[rows, FLAG_COLUMN] = msg_c
+
+            # Recalculate total flagged (in case of overlaps, though masks are exclusive)
+            rows_flagged_count = (self.df[FLAG_COLUMN].isin([msg_a, msg_b, msg_c]) | total_error_mask).sum()
+
         return {
             "check_key": "suppress_duplicated_audience",
-            "status": "Flagged" if rows_flagged > 0 else "Completed",
-            "action": "Audience Suppression Audit", 
-            "description": f"Flagged {rows_flagged} rows (BSA/Duplicate) containing positive audience values.",
+            "status": "Flagged" if rows_flagged_count > 0 else "Completed",
+            "action": "Audience Consistency Audit", 
+            "description": f"Flagged {rows_flagged_count} rows failing strict Audience/Source logic.",
             "details": {
-                "rows_flagged": int(rows_flagged),
-                "target_columns_checked": TARGET_AUDIENCE_COLS,
-                "targets": ["DUPLICATED FROM BSA (Contains)", "BSA (Exact)"]
+                "rows_flagged": int(rows_flagged_count),
+                "errors_est_allowed_grp": int(error_group_a.sum()),
+                "errors_met_allowed_grp": int(error_group_b.sum()),
+                "errors_forbidden_grp": int(error_group_c.sum())
             }
         }
 
