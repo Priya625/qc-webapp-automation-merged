@@ -59,7 +59,7 @@ st.set_page_config(page_title="NIELSEN QC Automation Portal", layout="wide")
 with st.sidebar:
     st.markdown("## 📊 Quick Links")
     st.link_button(
-        "🔍 Open Looker Dashboard",
+        "🔍 Data Comparison Dashboard",
         DASHBOARD_URL
     )
     st.caption("Click to view the QC dashboard in a new tab")
@@ -495,11 +495,10 @@ with main_qc_tab:
         )
         # Using a stylized warning or colored markdown for high visibility
         st.markdown(
-            """<p style='color: #B30000; font-size: 0.85rem; font-weight: bold; margin-top: -15px;'>
-            ⚠️ Make sure to update the monitoring period in question on ROSCO for syndicated projects.
-            </p>""", 
-            unsafe_allow_html=True
-        )
+        """<p style='color: #000000; font-size: 0.85rem; font-weight: normal; margin-top: -15px;'>
+        ⚠️ Make sure to update the monitoring period in question on ROSCO for syndicated projects.
+        </p>""", 
+        unsafe_allow_html=True)
 
     with col2:
         main_bsr_file = st.file_uploader(

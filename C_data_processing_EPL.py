@@ -1173,123 +1173,123 @@ class EPLValidator:
         }
 
     def _check_live_broadcast_uniqueness(self) -> Dict[str, Any]:
-            """
-            Ensures that a specific live broadcast slot (defined by Market, TV-Channel, 
-            and the specific Fixture Description) has no time overlap with itself 
-            (i.e., checks for duplicate Live entries for the same match).
-            """
-            initial_rows = len(self.df)
-            FLAG_COLUMN = 'QC_Live_Overlap_Flag'
-            
-            # --- Define the Grouping Key ---
-            # We group by Market, Channel, and the specific Fixture description.
-            GROUPING_KEY_COLS = ['Market', 'TV-Channel', 'Phase / Fixture / Episode Desc.']
-            
-            LIVE_PROGRAM_TYPE = 'LIVE'
-            
-            # FIX: Updated column name to match your file ('Type of programme')
-            TYPE_COL = 'Type of programme' 
-            
-            REQUIRED_COLS = GROUPING_KEY_COLS + [TYPE_COL, 'Date (UTC/GMT)', 'Start (UTC)', 'End (UTC)']
-            
-            # DEBUG: Print missing columns if any
-            missing = [c for c in REQUIRED_COLS if c not in self.df.columns]
-            if missing:
-                return {
-                    "check_key": "check_live_broadcast_uniqueness", "status": "Skipped", 
-                    "action": "Live Overlap Check", 
-                    "description": f"Skipped: Missing columns: {missing}", 
-                    "details": {"rows_flagged": 0}
-                }
-
-            self.df[FLAG_COLUMN] = 'OK'
-            
-            # --- 1. Prepare Data and Timestamps ---
-            try:
-                date_key = self.df['Date (UTC/GMT)'].astype(str).str[:10]
-                self.df['Start_DT'] = pd.to_datetime(date_key + ' ' + self.df['Start (UTC)'].astype(str), errors='coerce')
-                base_end_dt = pd.to_datetime(date_key + ' ' + self.df['End (UTC)'].astype(str), errors='coerce')
-                
-                # Handle midnight rollover
-                rollover_mask = (base_end_dt < self.df['Start_DT']) & base_end_dt.notna()
-                base_end_dt.loc[rollover_mask] += timedelta(days=1)
-                self.df['End_DT'] = base_end_dt
-                
-            except Exception as e:
-                self.df.drop(columns=['Start_DT', 'End_DT'], inplace=True, errors='ignore')
-                return {"check_key": "check_live_broadcast_uniqueness", "status": "Failed", "action": "Live Overlap Check", "description": f"Failed to parse Date/Time columns: {e}", "details": {"rows_flagged": 0}}
-                
-            # Standardize grouping columns
-            for col in GROUPING_KEY_COLS:
-                self.df[col] = self.df[col].astype(str).str.strip().str.upper().str.replace(r'[^A-Z0-9\s\.\-]', '', regex=True).fillna('NAN')
-
-            # Filter for LIVE programs only (Using the correct column name)
-            live_mask = self.df[TYPE_COL].astype(str).str.upper().str.strip() == LIVE_PROGRAM_TYPE
-            
-            df_live_candidates = self.df[live_mask].copy()
-            
-            # Sort by Grouping Key + Start Time
-            df_live_candidates = df_live_candidates.sort_values(by=GROUPING_KEY_COLS + ['Start_DT'])
-            
-            # --- 2. Overlap Detection Logic ---
-            
-            conflict_details = {} 
-            
-            # Group by the 3-part key
-            for key_tuple, group in df_live_candidates.groupby(GROUPING_KEY_COLS):
-                if len(group) < 2:
-                    continue
-                    
-                lagged_end_dt = group['End_DT'].shift(1)
-                
-                # Overlap occurs if Start Time < Previous End Time
-                overlap_start_mask = group['Start_DT'] < lagged_end_dt
-                
-                if overlap_start_mask.any():
-                    
-                    current_overlap_indices = group[overlap_start_mask].index.tolist()
-                    preceding_overlap_indices = group[overlap_start_mask].shift(1).index.dropna().astype(int)
-
-                    all_conflict_indices = set(current_overlap_indices).union(set(preceding_overlap_indices))
-                    
-                    # Format the detailed conflict message
-                    conflict_log = []
-                    
-                    for idx in sorted(list(all_conflict_indices)):
-                        row = self.df.loc[idx]
-                        log_entry = (f"Index {idx} | "
-                                    f"Date: {row['Date (UTC/GMT)'].strftime('%Y-%m-%d')} | "
-                                    f"Times: {row['Start (UTC)']} - {row['End (UTC)']}")
-                        conflict_log.append(log_entry)
-                    
-                    key_id = "|".join([str(k) for k in key_tuple]) 
-                    conflict_message = f"DUPLICATION ERROR: Fixture '{key_id}' has overlapping LIVE entries. Rows: " + " || ".join(conflict_log)
-
-                    for idx in all_conflict_indices:
-                        conflict_details[idx] = conflict_message
-            
-
-            # --- 3. Apply Flag to Original DataFrame ---
-            rows_flagged = len(conflict_details)
-            
-            if rows_flagged > 0:
-                flag_series = pd.Series(conflict_details)
-                self.df.loc[flag_series.index, FLAG_COLUMN] = flag_series
-
-            # Final cleanup
-            self.df.drop(columns=['Start_DT', 'End_DT'], inplace=True, errors='ignore')
-
-            # 4. Final Summary
+        """
+        Ensures that a specific live broadcast slot (defined by Market, TV-Channel, 
+        and the specific Fixture Description) has no time overlap with itself 
+        (i.e., checks for duplicate Live entries for the same match).
+        """
+        initial_rows = len(self.df)
+        FLAG_COLUMN = 'QC_Live_Overlap_Flag'
+        
+        # --- Define the Grouping Key ---
+        # We group by Market, Channel, and the specific Fixture description.
+        GROUPING_KEY_COLS = ['Market', 'TV-Channel', 'Phase / Fixture / Episode Desc.']
+        
+        LIVE_PROGRAM_TYPE = 'LIVE'
+        
+        # FIX: Updated column name to match your file ('Type of programme')
+        TYPE_COL = 'Type of programme' 
+        
+        REQUIRED_COLS = GROUPING_KEY_COLS + [TYPE_COL, 'Date (UTC/GMT)', 'Start (UTC)', 'End (UTC)']
+        
+        # DEBUG: Print missing columns if any
+        missing = [c for c in REQUIRED_COLS if c not in self.df.columns]
+        if missing:
             return {
-                "check_key": "check_live_broadcast_uniqueness",
-                "status": "Flagged" if rows_flagged > 0 else "Completed",
-                "action": "Live Uniqueness Check", 
-                "description": f"Flagged {rows_flagged} rows where the same fixture was listed as Live multiple times overlapping.",
-                "details": {
-                    "rows_flagged": int(rows_flagged),
-                    "grouping_keys": GROUPING_KEY_COLS
-                }
+                "check_key": "check_live_broadcast_uniqueness", "status": "Skipped", 
+                "action": "Live Overlap Check", 
+                "description": f"Skipped: Missing columns: {missing}", 
+                "details": {"rows_flagged": 0}
             }
+
+        self.df[FLAG_COLUMN] = 'OK'
+        
+        # --- 1. Prepare Data and Timestamps ---
+        try:
+            date_key = self.df['Date (UTC/GMT)'].astype(str).str[:10]
+            self.df['Start_DT'] = pd.to_datetime(date_key + ' ' + self.df['Start (UTC)'].astype(str), errors='coerce')
+            base_end_dt = pd.to_datetime(date_key + ' ' + self.df['End (UTC)'].astype(str), errors='coerce')
+            
+            # Handle midnight rollover
+            rollover_mask = (base_end_dt < self.df['Start_DT']) & base_end_dt.notna()
+            base_end_dt.loc[rollover_mask] += timedelta(days=1)
+            self.df['End_DT'] = base_end_dt
+            
+        except Exception as e:
+            self.df.drop(columns=['Start_DT', 'End_DT'], inplace=True, errors='ignore')
+            return {"check_key": "check_live_broadcast_uniqueness", "status": "Failed", "action": "Live Overlap Check", "description": f"Failed to parse Date/Time columns: {e}", "details": {"rows_flagged": 0}}
+            
+        # Standardize grouping columns
+        for col in GROUPING_KEY_COLS:
+            self.df[col] = self.df[col].astype(str).str.strip().str.upper().str.replace(r'[^A-Z0-9\s\.\-]', '', regex=True).fillna('NAN')
+
+        # Filter for LIVE programs only (Using the correct column name)
+        live_mask = self.df[TYPE_COL].astype(str).str.upper().str.strip() == LIVE_PROGRAM_TYPE
+        
+        df_live_candidates = self.df[live_mask].copy()
+        
+        # Sort by Grouping Key + Start Time
+        df_live_candidates = df_live_candidates.sort_values(by=GROUPING_KEY_COLS + ['Start_DT'])
+        
+        # --- 2. Overlap Detection Logic ---
+        
+        conflict_details = {} 
+        
+        # Group by the 3-part key
+        for key_tuple, group in df_live_candidates.groupby(GROUPING_KEY_COLS):
+            if len(group) < 2:
+                continue
+                
+            lagged_end_dt = group['End_DT'].shift(1)
+            
+            # Overlap occurs if Start Time < Previous End Time
+            overlap_start_mask = group['Start_DT'] < lagged_end_dt
+            
+            if overlap_start_mask.any():
+                
+                current_overlap_indices = group[overlap_start_mask].index.tolist()
+                preceding_overlap_indices = group[overlap_start_mask].shift(1).index.dropna().astype(int)
+
+                all_conflict_indices = set(current_overlap_indices).union(set(preceding_overlap_indices))
+                
+                # Format the detailed conflict message
+                conflict_log = []
+                
+                for idx in sorted(list(all_conflict_indices)):
+                    row = self.df.loc[idx]
+                    log_entry = (f"Index {idx} | "
+                                f"Date: {row['Date (UTC/GMT)'].strftime('%Y-%m-%d')} | "
+                                f"Times: {row['Start (UTC)']} - {row['End (UTC)']}")
+                    conflict_log.append(log_entry)
+                
+                key_id = "|".join([str(k) for k in key_tuple]) 
+                conflict_message = f"DUPLICATION ERROR: Fixture '{key_id}' has overlapping LIVE entries. Rows: " + " || ".join(conflict_log)
+
+                for idx in all_conflict_indices:
+                    conflict_details[idx] = conflict_message
+        
+
+        # --- 3. Apply Flag to Original DataFrame ---
+        rows_flagged = len(conflict_details)
+        
+        if rows_flagged > 0:
+            flag_series = pd.Series(conflict_details)
+            self.df.loc[flag_series.index, FLAG_COLUMN] = flag_series
+
+        # Final cleanup
+        self.df.drop(columns=['Start_DT', 'End_DT'], inplace=True, errors='ignore')
+
+        # 4. Final Summary
+        return {
+            "check_key": "check_live_broadcast_uniqueness",
+            "status": "Flagged" if rows_flagged > 0 else "Completed",
+            "action": "Live Uniqueness Check", 
+            "description": f"Flagged {rows_flagged} rows where the same fixture was listed as Live multiple times overlapping.",
+            "details": {
+                "rows_flagged": int(rows_flagged),
+                "grouping_keys": GROUPING_KEY_COLS
+            }
+        }
     
     # def _audit_channel_line_item_count(self) -> Dict[str, Any]:
     #     """
