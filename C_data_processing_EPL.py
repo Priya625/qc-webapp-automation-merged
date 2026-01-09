@@ -992,39 +992,102 @@ class EPLValidator:
         initial_rows = len(self.df)
         FLAG_COLUMN = 'QC_Multi_Match_Audit_Flag'
         
-        # Define keywords
-        MULTI_MATCH_KEYWORDS = ['GOAL RUSH', 'KONFERENZ', 'CONFERENCE']
-        VALID_MULTIMATCH_TYPES = ['LIVE', 'REPEAT']
+        # --- Define Standard Column Keys ---
+        # We use internal variables for the column names we find
+        COL_COMBINED = 'Combined'
+        COL_FIXTURE = 'Phase / Fixture / Episode Desc.'
+        COL_TYPE = 'Type of programme'
         
-        # Define Columns
-        COMBINED_COL = 'Combined'
-        FIXTURE_DESC_COL = 'Phase / Fixture / Episode Desc.'
-        TYPE_COL = 'Type of programme'
+        # --- 1. Robust Column Selection ---
+        # Normalize existing columns map: {lowercase_stripped: original_name}
+        col_map = {c.lower().strip(): c for c in self.df.columns}
         
-        # Regex for valid tag and suffixes
-        EXPECTED_FIXTURE_REGEX = r'MULTI[\s\-]*MATCH' 
-        # Suffix regex: matches space followed by NB or VB at the end of the string
-        SUFFIX_REGEX = r'\s(NB|VB)$'  
+        found_cols = {}
         
-        # Strict check for required columns
-        REQUIRED_COLS = [COMBINED_COL, FIXTURE_DESC_COL, TYPE_COL]
+        # A. Find 'Combined'
+        if 'combined' in col_map:
+            found_cols['Combined'] = col_map['combined']
+        else:
+            # Fallback checks
+            for c_lower, c_orig in col_map.items():
+                if 'combined' in c_lower:
+                    found_cols['Combined'] = c_orig
+                    break
         
-        if not all(col in self.df.columns for col in REQUIRED_COLS):
+        # B. Find 'Phase / Fixture / Episode Desc.'
+        # This is a complex name, we look for distinct parts
+        if 'phase / fixture / episode desc.' in col_map:
+            found_cols['Fixture'] = col_map['phase / fixture / episode desc.']
+        else:
+            # Look for columns containing "fixture" and "desc" or just "phase" and "fixture"
+            for c_lower, c_orig in col_map.items():
+                if 'fixture' in c_lower and 'desc' in c_lower:
+                    found_cols['Fixture'] = c_orig
+                    break
+                elif 'phase' in c_lower and 'fixture' in c_lower:
+                    found_cols['Fixture'] = c_orig
+                    break
+
+        # C. Find 'Type of programme' (Using the logic from the previous fix)
+        potential_type_names = [
+            'type of programme', 
+            'type of program', 
+            'type of programm',
+            'program type', 
+            'programme type'
+        ]
+        
+        found_type = None
+        for name in potential_type_names:
+            if name in col_map:
+                found_type = col_map[name]
+                break
+        
+        if found_type is None:
+            for c_lower, c_original in col_map.items():
+                if c_lower.startswith('type of prog'):
+                    found_type = c_original
+                    break
+        
+        if found_type:
+            found_cols['Type'] = found_type
+
+        # --- Check Required Columns ---
+        # We need all three found to proceed
+        missing_logical = []
+        if 'Combined' not in found_cols: missing_logical.append("Combined")
+        if 'Fixture' not in found_cols: missing_logical.append("Phase/Fixture/Episode")
+        if 'Type' not in found_cols: missing_logical.append("Type of programme")
+        
+        if missing_logical:
+             available_cols = list(self.df.columns)[:5]
              return {
                 "check_key": "audit_multi_match", "status": "Skipped",
                 "action": "Multi-Match & Code Audit", 
-                "description": f"Skipped: Missing required columns (Need '{COMBINED_COL}', '{FIXTURE_DESC_COL}', '{TYPE_COL}').",
+                "description": f"Skipped: Missing columns: {missing_logical}. Found candidates: {available_cols}...",
                 "details": {"rows_flagged": 0}
             }
 
-        self.df[FLAG_COLUMN] = 'OK'
+        # Assign resolved names to variables
+        COMBINED_COL = found_cols['Combined']
+        FIXTURE_DESC_COL = found_cols['Fixture']
+        TYPE_COL = found_cols['Type']
 
-        # 1. Prepare normalized columns
+        self.df[FLAG_COLUMN] = 'OK'
+        
+        # Define keywords & Regex
+        MULTI_MATCH_KEYWORDS = ['GOAL RUSH', 'KONFERENZ', 'CONFERENCE']
+        VALID_MULTIMATCH_TYPES = ['LIVE', 'REPEAT']
+        EXPECTED_FIXTURE_REGEX = r'MULTI[\s\-]*MATCH' 
+        SUFFIX_REGEX = r'\s(NB|VB)$'  
+
+        # --- 2. Prepare Data ---
+        # Normalize data for comparison
         combined_norm = self.df[COMBINED_COL].astype(str).str.upper().fillna('')
         fixture_desc_norm = self.df[FIXTURE_DESC_COL].astype(str).str.upper().fillna('')
         type_norm = self.df[TYPE_COL].astype(str).str.strip().str.upper()
         
-        # 2. Define Condition Masks
+        # --- 3. Define Condition Masks ---
         
         # A: Combined contains Multi-Match Keyword (e.g., "Goal Rush")
         match_keyword_pattern = '|'.join([re.escape(k) for k in MULTI_MATCH_KEYWORDS])
@@ -1041,7 +1104,7 @@ class EPLValidator:
         type_is_live_repeat = type_norm.isin(VALID_MULTIMATCH_TYPES)
         type_is_magazine = type_norm == 'MAGAZINE & SUPPORT'
 
-        # 3. Identify Errors
+        # --- 4. Identify Errors ---
         
         # Error 1: MISSING MULTI-MATCH TAG
         # Logic: If Combined has Keyword (Goal Rush) -> Must have MULTIMATCH tag.
@@ -1056,7 +1119,7 @@ class EPLValidator:
         # Logic: If explicitly tagged MULTIMATCH -> Type MUST be Live or Repeat
         invalid_multimatch_type_mask = tag_is_present & (~type_is_live_repeat)
 
-        # 4. Apply Flags (Priority Order)
+        # --- 5. Apply Flags (Priority Order) ---
         
         # Apply Error 2 (NB/VB Type Mismatch) - High Priority
         if invalid_magazine_mask.any():
@@ -1079,12 +1142,12 @@ class EPLValidator:
         # Recalculate total flagged
         total_flagged = (self.df[FLAG_COLUMN] != 'OK').sum()
 
-        # 5. Final Summary
+        # 6. Final Summary
         return {
             "check_key": "audit_multi_match",
             "status": "Flagged" if total_flagged > 0 else "Completed",
             "action": "Multi-Match & Code Audit", 
-            "description": f"Audited Multi-Match tags and NB/VB codes using 'Combined' column. Flagged {total_flagged} rows.",
+            "description": f"Audited Multi-Match tags and NB/VB codes using '{COMBINED_COL}'. Flagged {total_flagged} rows.",
             "details": {
                 "rows_processed": int(initial_rows),
                 "nb_vb_errors": int(invalid_magazine_mask.sum()),
