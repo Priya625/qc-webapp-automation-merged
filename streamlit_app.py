@@ -488,6 +488,7 @@ with main_qc_tab:
     col1, col2 = st.columns(2)
     with col1:
         main_rosco_file = st.file_uploader("📘 Upload Rosco File (.xlsx)", type=["xlsx"], key="main_rosco")
+        st.info("💡 **Note:** Make sure to update the monitoring period in question on ROSCO for syndicated projects")
     with col2:
         main_bsr_file = st.file_uploader("📗 Upload BSR File (.xlsx)", type=["xlsx"], key="main_bsr")
 
