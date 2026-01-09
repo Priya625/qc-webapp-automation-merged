@@ -2618,11 +2618,18 @@ class EPLValidator:
         combined_norm = df[col_combined].astype(str).str.lower()
 
         # -----------------------------------------------------
-        # ✅ NEW LOGIC: Row-level NA when teams are present
+        #  FIXED LOGIC: NA only when Home & Away truly present
         # -----------------------------------------------------
         if col_home is not None and col_away is not None:
-            home_present = df[col_home].astype(str).str.strip().ne("")
-            away_present = df[col_away].astype(str).str.strip().ne("")
+            home_present = (
+                df[col_home].notna() &
+                df[col_home].astype(str).str.strip().ne("")
+            )
+
+            away_present = (
+                df[col_away].notna() &
+                df[col_away].astype(str).str.strip().ne("")
+            )
 
             na_mask = (
                 home_present &
@@ -2633,8 +2640,7 @@ class EPLValidator:
             df.loc[na_mask, CATEGORY_COL] = "NA"
 
         # -----------------------------------------------------
-        # 1️⃣  MAGAZINE & SUPPORT (existing logic)
-        # Only rows NOT already marked NA
+        # 1️⃣  MAGAZINE & SUPPORT (unchanged logic)
         # -----------------------------------------------------
         mag_mask = (
             (type_norm == "magazine & support") &
@@ -2649,8 +2655,7 @@ class EPLValidator:
         df.loc[mag_mask & (df[CATEGORY_COL] == ""), CATEGORY_COL] = "PL Magazine"
 
         # -----------------------------------------------------
-        # 2️⃣  HIGHLIGHTS (existing logic)
-        # Only rows NOT already marked NA
+        # 2️⃣  HIGHLIGHTS (unchanged logic)
         # -----------------------------------------------------
         high_mask = (
             (type_norm == "highlights") &
