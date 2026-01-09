@@ -552,7 +552,22 @@ with main_qc_tab:
 
                     # 6. Event / Matchday / Competition check
                     try:
-                        df = qc_general.check_event_matchday_competition(df, rosco_path=rosco_path)
+                        # 1. Attempt to load the Fixtures sheet from the BSR file
+                        bsr_xl = pd.ExcelFile(bsr_path)
+                        fixture_keywords = ["fixture", "fixtures", "fixture list", "fixtures list"]
+                        fixture_sheet_name = next((s for s in bsr_xl.sheet_names 
+                                                if any(k in s.lower() for k in fixture_keywords)), None)
+                        
+                        if fixture_sheet_name:
+                            df_fixtures = bsr_xl.parse(fixture_sheet_name)
+                            # 2. Pass BOTH the main df and the fixtures df
+                            df = qc_general.check_event_matchday_competition(df, df_fixtures)
+                        else:
+                            st.warning("⚠️ No 'Fixtures' sheet found in BSR. Skipping Event/Matchday validation.")
+                            # Optional: Initialize columns as False/Skipped so the rest of the code doesn't break
+                            df["Event_Matchday_Competition_OK"] = False
+                            df["Event_Matchday_Competition_Remark"] = "Fixtures sheet missing from BSR"
+
                     except Exception as e:
                         raise RuntimeError(f"Error during check_event_matchday_competition: {e}")
 
