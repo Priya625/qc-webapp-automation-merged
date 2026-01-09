@@ -487,24 +487,29 @@ with main_qc_tab:
     # --- File uploaders (two columns) ---
     col1, col2 = st.columns(2)
     with col1:
-        # Adding the note as a 'help' tooltip keeps the boxes perfectly aligned
         main_rosco_file = st.file_uploader(
             "📘 Upload Rosco File (.xlsx)", 
             type=["xlsx"], 
             key="main_rosco",
-            help="Make sure to update the monitoring period in question on ROSCO for syndicated projects"
+            help="Required for period detection and market-channel consistency."
         )
-        # Visible caption: placed here, it stays inside the column width
-        st.caption("⚠️ Make sure to update the monitoring period in question on ROSCO for syndicated projects.")
+        # Using a stylized warning or colored markdown for high visibility
+        st.markdown(
+            """<p style='color: #B30000; font-size: 0.85rem; font-weight: bold; margin-top: -15px;'>
+            ⚠️ Make sure to update the monitoring period in question on ROSCO for syndicated projects.
+            </p>""", 
+            unsafe_allow_html=True
+        )
 
     with col2:
         main_bsr_file = st.file_uploader(
             "📗 Upload BSR File (.xlsx)", 
             type=["xlsx"], 
-            key="main_bsr"
+            key="main_bsr",
+            help="Main data file containing the broadcast logs."
         )
-        # Empty caption to maintain vertical alignment with the left column
-        st.caption("&nbsp;")
+        # Empty space to maintain vertical alignment with the note in col1
+        st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
 
     st.write("---")
     # -------------------- RUN BUTTON (SAFE PROCESS) --------------------
