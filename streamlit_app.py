@@ -495,7 +495,7 @@ with main_qc_tab:
             help="Make sure to update the monitoring period in question on ROSCO for syndicated projects"
         )
         # Visible caption: placed here, it stays inside the column width
-        st.caption("⚠️ Update monitoring period for syndicated projects.")
+        st.caption("⚠️ Make sure to update the monitoring period in question on ROSCO for syndicated projects.")
 
     with col2:
         main_bsr_file = st.file_uploader(
