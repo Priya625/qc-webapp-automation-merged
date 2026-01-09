@@ -423,53 +423,53 @@ with home_page_tab:
     # --- Row 1 ---
     cap_row1_col1, cap_row1_col2 = st.columns(2) 
     
-    # Card 1: Traceability & Auditing
-    with cap_row1_col1:
-        st.markdown(
-            """
-            <div class='metric-card' style='--accent-color:  #FF5AB4;'>
-                <h3>Full Data Traceability</h3>
-                <p>Ensures 100% auditability for every change—from initial loading to final weighted output—confirming pipeline integrity at every step.</p>
-            </div>
-            """, unsafe_allow_html=True
-        )
+    # # Card 1: Traceability & Auditing
+    # with cap_row1_col1:
+    #     st.markdown(
+    #         """
+    #         <div class='metric-card' style='--accent-color:  #FF5AB4;'>
+    #             <h3>Full Data Traceability</h3>
+    #             <p>Ensures 100% auditability for every change—from initial loading to final weighted output—confirming pipeline integrity at every step.</p>
+    #         </div>
+    #         """, unsafe_allow_html=True
+    #     )
 
-    # Card 2: Upscaling & Reconciliation
-    with cap_row1_col2:
-        st.markdown(
-            """
-            <div class='metric-card' style='--accent-color: #D13CBD;'>
-                <h3>Audience Upscale & Reconciliation</h3>
-                <p>Automatically reconciles BSR audience estimates by overriding estimates with higher, verified maximum figures from Overnight Quick Reports.</p>
-            </div>
-            """, unsafe_allow_html=True
-        )
+    # # Card 2: Upscaling & Reconciliation
+    # with cap_row1_col2:
+    #     st.markdown(
+    #         """
+    #         <div class='metric-card' style='--accent-color: #D13CBD;'>
+    #             <h3>Audience Upscale & Reconciliation</h3>
+    #             <p>Automatically reconciles BSR audience estimates by overriding estimates with higher, verified maximum figures from Overnight Quick Reports.</p>
+    #         </div>
+    #         """, unsafe_allow_html=True
+    #     )
             
-    # --- Row 2 ---
-    st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
-    cap_row2_col1, cap_row2_col2 = st.columns(2) 
+    # # --- Row 2 ---
+    # st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
+    # cap_row2_col1, cap_row2_col2 = st.columns(2) 
 
-    # Card 3: Complex Market Modeling
-    with cap_row2_col1:
-        st.markdown(
-            """
-            <div class='metric-card' style='--accent-color: #FFC800;'>
-                <h3>Complex Market Modeling</h3>
-                <p>Applies conditional weighted duplication rules and validates channel existence essential for comprehensive pan-regional data models.</p>
-            </div>
-            """, unsafe_allow_html=True
-        )
+    # # Card 3: Complex Market Modeling
+    # with cap_row2_col1:
+    #     st.markdown(
+    #         """
+    #         <div class='metric-card' style='--accent-color: #FFC800;'>
+    #             <h3>Complex Market Modeling</h3>
+    #             <p>Applies conditional weighted duplication rules and validates channel existence essential for comprehensive pan-regional data models.</p>
+    #         </div>
+    #         """, unsafe_allow_html=True
+    #     )
     
-    # Card 4: F1 Duplication Audit
-    with cap_row2_col2:
-        st.markdown(
-            """
-            <div class='metric-card' style='--accent-color: #8CE650;'>
-                <h3>F1 Duplication Audit</h3>
-                <p>Validates the completeness of all duplication rules by checking if required target channels exist in the destination market's current inventory.</p>
-            </div>
-            """, unsafe_allow_html=True
-        )
+    # # Card 4: F1 Duplication Audit
+    # with cap_row2_col2:
+    #     st.markdown(
+    #         """
+    #         <div class='metric-card' style='--accent-color: #8CE650;'>
+    #             <h3>F1 Duplication Audit</h3>
+    #             <p>Validates the completeness of all duplication rules by checking if required target channels exist in the destination market's current inventory.</p>
+    #         </div>
+    #         """, unsafe_allow_html=True
+    #     )
 
 
     st.markdown("<div style='margin-bottom: 50px;'></div>", unsafe_allow_html=True)
@@ -1179,7 +1179,7 @@ with epl_tab:
         st.session_state.epl_all_state = False
 
     # Create the master checkbox
-    st.checkbox("Select All EPL Checks", 
+    st.checkbox("Select All Checks", 
                 value=st.session_state.epl_all_state, 
                 key="select_all_epl", 
                 on_change=toggle_all_epl)
@@ -1252,7 +1252,7 @@ with epl_tab:
 
 
     # --- Run Processing Button (UNTOUCHED) ---
-    if st.button(" EPL Apply Selected Checks"):
+    if st.button("Apply Selected Checks"):
         
         active_checks = [key for key in all_market_check_keys_epl.keys() if st.session_state[key]]
 
