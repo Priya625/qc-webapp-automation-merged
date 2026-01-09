@@ -12,7 +12,7 @@ BACKEND_BASE_URL = os.environ.get("STREAMLIT_BACKEND_URL", "http://localhost:800
 BACKEND_URL = BACKEND_BASE_URL + "/api"
 # --------------------------------
 # 🔗 LOOKER STUDIO DASHBOARD LINK
-DASHBOARD_URL = "https://lookerstudio.google.com/reporting/ac1aa82a-0c82-4a7a-af7a-2ccc7b0e1b22"
+DASHBOARD_URL = "https://lookerstudio.google.com/reporting/f4dd42e6-dc43-4e3a-87c7-b81aca3a8c68"
 # --------------------------------
 
 
