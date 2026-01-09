@@ -876,224 +876,89 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     return df
 
 # 8️⃣ Event / Matchday / Competition Check
-def check_event_matchday_competition(df_worksheet, df_data=None, rosco_path=None, debug_rows=20):
+def check_event_matchday_competition_exact_fixture(df_worksheet,df_fixtures, debug_rows=20):
     """
-    Validate Event / Competition / Matchday / Match combinations.
+    Validate Worksheet rows against Fixture List using exact match.
 
-    Inputs:
-      - df_worksheet : DataFrame of the main worksheet (the BSR "Worksheet")
-          expected columns: "Competition", "Event", "Matchday", "Home Team", "Away Team", maybe "Match"
-      - df_data : optional DataFrame extracted from the 'Data' sheet (the reference/master lists).
-      - rosco_path : optional path to Excel; used if df_data is None to try to extract reference values from that file.
-      - debug_rows: how many rows to print for debug output
-
-    Output:
-      - same df_worksheet with two new columns:
-          Event_Matchday_Competition_OK (bool)
-          Event_Matchday_Competition_Remark (string)
+    Logic:
+    - Use Event column if present, else fallback to Competition
+    - Match on:
+        Event/Competition + Matchday + Home Team + Away Team
+    - If exact match exists in Fixture List → OK
+    - Else → fail with remark
     """
 
-    # --- Helper: normalize text ---
+    # ---------- helpers ----------
     def norm(x):
         if pd.isna(x):
             return ""
-        return str(x).strip()
+        return str(x).strip().lower()
 
-    def norm_lower(x):
-        return norm(x).lower()
+    def get_col(df, possible_names):
+        for c in df.columns:
+            if c.strip().lower() in possible_names:
+                return c
+        return None
 
-    # --- Get reference competitions / allowed values ---
-    reference_comps = set()
-    reference_matches = set()  # optional: canonical "home vs away" pairs if available
-    reference_matchday_counts = {}  # optional expected counts per (competition, matchday)
+    # ---------- resolve column names ----------
+    ws_event_col = get_col(df_worksheet, {"event"})
+    ws_comp_col = get_col(df_worksheet, {"competition"})
+    ws_matchday_col = get_col(df_worksheet, {"matchday", "match day"})
+    ws_home_col = get_col(df_worksheet, {"home team", "hometeam", "home"})
+    ws_away_col = get_col(df_worksheet, {"away team", "awayteam", "away"})
 
-    if df_data is None and rosco_path is not None:
-        # attempt to load a 'Data' sheet or the first sheet that looks like the data table
-        try:
-            xls = pd.read_excel(rosco_path, sheet_name=None)
-            # try common names
-            priority = ["Data", "data", "Monitoring list", "monitoring list", "Monitoring List"]
-            found_df = None
-            for p in priority:
-                if p in xls:
-                    found_df = xls[p]
-                    break
-            if found_df is None:
-                # fallback: pick sheet that has words like 'Type of programme' or 'Competition' in header rows
-                for name, sheet in xls.items():
-                    header_text = " ".join(sheet.columns.astype(str).tolist()).lower()
-                    if "competition" in header_text or "type of programme" in header_text or "type of program" in header_text:
-                        found_df = sheet
-                        break
-            if found_df is not None:
-                df_data = found_df
-        except Exception:
-            df_data = None
+    fx_event_col = get_col(df_fixtures, {"event"})
+    fx_comp_col = get_col(df_fixtures, {"competition"})
+    fx_matchday_col = get_col(df_fixtures, {"matchday", "match day"})
+    fx_home_col = get_col(df_fixtures, {"home team", "hometeam", "home"})
+    fx_away_col = get_col(df_fixtures, {"away team", "awayteam", "away"})
 
-    # If df_data is available, extract competition names and optional counts
-    if isinstance(df_data, pd.DataFrame):
-        # strategy: scan df_data content for competition-like strings
-        df_tmp = df_data.astype(str).applymap(lambda v: v.strip() if pd.notna(v) else "")
-        # collect distinct non-empty strings that look like competition names
-        for col in df_tmp.columns:
-            for val in df_tmp[col].unique():
-                v = str(val).strip()
-                if v and v not in ["0", "nan", "-", "None"]:
-                    # filter out lines that look numeric counts (only digits)
-                    if not re.fullmatch(r"^\d+$", v):
-                        reference_comps.add(v.lower())
+    # ---------- build fixture lookup set ----------
+    fixture_keys = set()
 
-        # attempt to read counts if present: some Data sheets have count rows above/below the headers
-        # Look for numeric entries adjacent to competition names in columns
-        # Heuristic: if the first few rows contain digits under the same columns as competition names, store count.
-        try:
-            # look at the first ~10 rows for numeric counts under columns that are competition names
-            for col in df_data.columns:
-                numeric_counts = []
-                for r in range(min(10, len(df_data))):
-                    try:
-                        v = df_data.iloc[r][col]
-                        if pd.notna(v) and str(v).strip().isdigit():
-                            numeric_counts.append(int(str(v).strip()))
-                    except Exception:
-                        continue
-                if numeric_counts:
-                    # pick a representative (first) numeric if consistent
-                    reference_matchday_counts[col.strip().lower()] = numeric_counts[0]
-        except Exception:
-            pass
+    for _, r in df_fixtures.iterrows():
+        event_val = norm(r.get(fx_event_col)) or norm(r.get(fx_comp_col))
+        key = (
+            event_val,
+            norm(r.get(fx_matchday_col)),
+            norm(r.get(fx_home_col)),
+            norm(r.get(fx_away_col))
+        )
+        fixture_keys.add(key)
 
-    # fallback: if still empty, use some likely defaults
-    if not reference_comps:
-        reference_comps = set([
-            "bundesliga", "2. bundesliga", "dfb-pokal", "dfl supercup",
-            "premier league", "epl", "la liga", "serie a", "champions league"
-        ])
-
-    # Precompute a lowercase set for quick lookup
-    reference_comps_lower = set(x.lower() for x in reference_comps)
-
-    # --- Prepare output columns ---
+    # ---------- prepare output ----------
     df = df_worksheet.copy()
     df["Event_Matchday_Competition_OK"] = False
     df["Event_Matchday_Competition_Remark"] = ""
 
-    # We'll build grouping counts to verify number of matches per (Competition, Matchday)
-    grouped_counts = {}
+    # ---------- row-wise validation ----------
+    for idx, r in df.iterrows():
+        event_val = norm(r.get(ws_event_col)) or norm(r.get(ws_comp_col))
+        matchday = norm(r.get(ws_matchday_col))
+        home = norm(r.get(ws_home_col))
+        away = norm(r.get(ws_away_col))
 
-    # iterate rows
-    for idx, row in df.iterrows():
-        competition = norm(row.get("Competition", ""))
-        event = norm(row.get("Event", ""))
-        matchday = norm(row.get("Matchday", ""))
+        key = (event_val, matchday, home, away)
 
-        # some BSRs have 'Matchday' in other column names like 'Matchday ' or 'Match Day' - check alternatives
-        if not matchday:
-            # try columns similar to matchday
-            for c in df.columns:
-                if "matchday" in c.lower() or "match day" in c.lower() or c.lower().strip() == "match":
-                    matchday = norm(row.get(c, ""))
-                    if matchday:
-                        break
+        if key in fixture_keys and all(key):
+            df.at[idx, "Event_Matchday_Competition_OK"] = True
+            df.at[idx, "Event_Matchday_Competition_Remark"] = "OK"
+        else:
+            df.at[idx, "Event_Matchday_Competition_OK"] = False
+            df.at[idx, "Event_Matchday_Competition_Remark"] = "Exact match not found in fixture"
 
-        # find home/away or match field
-        home = norm(row.get("Home Team", "")) or norm(row.get("HomeTeam", "")) or norm(row.get("Home", ""))
-        away = norm(row.get("Away Team", "")) or norm(row.get("AwayTeam", "")) or norm(row.get("Away", ""))
-
-        remarks = []
-        ok = True
-
-        # 1) Missing fields
-        if not competition or competition.strip() in ["-", "nan", "none"]:
-            ok = False
-            remarks.append("Missing Competition")
-        if not event or event.strip() in ["-", "nan", "none"]:
-            ok = False
-            remarks.append("Missing Event")
-        if not matchday or matchday.strip() in ["-", "nan", "none"]:
-            ok = False
-            remarks.append("Missing Matchday")
-        if not (home and away):
-            # sometimes matches are in 'Match' or 'Program Title', try match detection
-            match_text = norm(row.get("Match", "")) or norm(row.get("Program Title", "")) or norm(row.get("Combined", ""))
-            # a simple heuristic: look for ' vs ' or ' v ' separators
-            if " vs " in match_text.lower() or " v " in match_text.lower():
-                # we accept this as a match, but still prefer to split
-                try:
-                    parts = re.split(r"\s+v(?:s|)\.?\s+|\s+vs\.?\s+|\s+v\s+", match_text, flags=re.IGNORECASE)
-                    if len(parts) >= 2:
-                        home = parts[0].strip()
-                        away = parts[1].strip()
-                except Exception:
-                    pass
-            else:
-                ok = False
-                remarks.append("Missing Home/Away or Match field")
-
-        # 2) Validate competition against reference list
-        comp_l = competition.lower()
-        # some competitions appear with extra words, do a contains check
-        comp_matches_reference = False
-        for rc in reference_comps_lower:
-            if rc and (rc in comp_l or comp_l in rc):
-                comp_matches_reference = True
-                break
-        if not comp_matches_reference:
-            ok = False
-            remarks.append("Competition not in reference list")
-
-        # 3) Simple event-matchday-match consistency: check if 'matchday' value format looks valid (MD, Round, etc.)
-        # Accept common formats: 'Matchday 01', 'MD01', 'Round 01', 'Round 1', 'Matchday 1'
-        if matchday:
-            if not re.search(r"(matchday|md|round|rd|r|matchday)\s*\d+", matchday.lower()):
-                # allow some textual forms like 'Finals', 'Semi', 'Quarter'
-                if matchday.lower() not in ["final", "finals", "semi", "semifinal", "quarterfinal", "playoffs", "-"]:
-                    # it's not necessarily an error; just add a warning
-                    remarks.append("Unusual matchday format")
-
-        # 4) If we have a reference expected counts mapping (from df_data), count per (competition, matchday)
-        comp_key = (competition.strip().lower(), matchday.strip().lower())
-        grouped_counts.setdefault(comp_key, 0)
-        grouped_counts[comp_key] += 1
-
-        # Compose final remark and set OK
-        df.at[idx, "Event_Matchday_Competition_OK"] = ok
-        df.at[idx, "Event_Matchday_Competition_Remark"] = "; ".join(remarks) if remarks else "OK"
-
-    # 5) If reference_matchday_counts available, compare counts and append remarks for rows belonging to mismatch groups
-    # reference_matchday_counts keys may be competition names -> expected counts per matchday (heuristic)
-    if reference_matchday_counts:
-        # For each group in grouped_counts, compare to reference (best-effort)
-        for (comp, mday), observed in grouped_counts.items():
-            expected = None
-            # try to find matching competition in reference counts map
-            for ref_comp_name, cnt in reference_matchday_counts.items():
-                if ref_comp_name and (ref_comp_name in comp or comp in ref_comp_name):
-                    expected = cnt
-                    break
-            if expected is not None and observed != expected:
-                # flag all rows in df with this (comp, mday)
-                mask = df[
-                    df.get("Competition", "").astype(str).str.strip().str.lower() == comp
-                ]["Competition"].notna()
-                # append a remark for each row in this group
-                for idx in df[
-                    (df.get("Competition", "").astype(str).str.strip().str.lower() == comp) &
-                    (df.get("Matchday", "").astype(str).str.strip().str.lower() == mday)
-                ].index:
-                    prev = df.at[idx, "Event_Matchday_Competition_Remark"]
-                    extra = f"Mismatch matches per matchday: expected {expected}, found {observed}"
-                    df.at[idx, "Event_Matchday_Competition_Remark"] = (prev + "; " + extra) if prev else extra
-                    df.at[idx, "Event_Matchday_Competition_OK"] = False
-
-    # --- Debug prints (first few rows) ---
-    print("=== Event/Matchday/Competition QC summary (first rows) ===")
-    for idx in range(min(debug_rows, len(df))):
-        r = df.iloc[idx]
-        print(f"[Row {idx}] Competition='{r.get('Competition','')}' | Event='{r.get('Event','')}' | Matchday='{r.get('Matchday','')}' | "
-              f"Home='{r.get('Home Team', r.get('Home', ''))}' Away='{r.get('Away Team', r.get('Away', ''))}' | "
-              f"OK={r['Event_Matchday_Competition_OK']} | Remark={r['Event_Matchday_Competition_Remark']}")
-    print("=== End summary ===\n")
+    # ---------- debug ----------
+    print("=== Exact Fixture Match QC (sample rows) ===")
+    for i in range(min(debug_rows, len(df))):
+        r = df.iloc[i]
+        print(
+            f"[Row {i}] Event/Comp='{norm(r.get(ws_event_col)) or norm(r.get(ws_comp_col))}' | "
+            f"MD='{r.get(ws_matchday_col)}' | "
+            f"Home='{r.get(ws_home_col)}' | Away='{r.get(ws_away_col)}' | "
+            f"OK={r['Event_Matchday_Competition_OK']} | "
+            f"Remark={r['Event_Matchday_Competition_Remark']}"
+        )
+    print("=== End QC ===\n")
 
     return df
 
