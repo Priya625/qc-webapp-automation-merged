@@ -247,50 +247,32 @@ def load_bsr(bsr_path):
 def period_check(bsr_df, start_date, end_date):
     """
     Period Check:
-    - Monitoring period comes from ROSCO
+    - Monitoring period comes from ROSCO (already parsed)
     - BSR is validated against that period
-    - If either UTC date OR local date falls within the period → PASS
+    - If either Date (UTC/GMT) OR Date falls within the period → PASS
     """
 
-    bsr_df = bsr_df.copy()
-
+    # Explicit BSR column names
     utc_col = "Date (UTC/GMT)"
     date_col = "Date"
 
-    #  Normalize monitoring period to pandas Timestamp
-    start_ts = pd.to_datetime(start_date)
-    end_ts   = pd.to_datetime(end_date)
+    # Convert BSR dates safely
+    bsr_df["BSR_UTC_Date"] = pd.to_datetime(
+        bsr_df[utc_col], errors="coerce"
+    ).dt.date if utc_col in bsr_df.columns else pd.NaT
 
-    # Convert BSR columns safely to datetime
-    if utc_col in bsr_df.columns:
-        bsr_df["BSR_UTC_Date"] = pd.to_datetime(
-            bsr_df[utc_col], errors="coerce"
-        )
-    else:
-        bsr_df["BSR_UTC_Date"] = pd.NaT
+    bsr_df["BSR_Local_Date"] = pd.to_datetime(
+        bsr_df[date_col], errors="coerce"
+    ).dt.date if date_col in bsr_df.columns else pd.NaT
 
-    if date_col in bsr_df.columns:
-        bsr_df["BSR_Local_Date"] = pd.to_datetime(
-            bsr_df[date_col], errors="coerce"
-        )
-    else:
-        bsr_df["BSR_Local_Date"] = pd.NaT
-
-    #  Compare datetime ↔ datetime (safe)
-    start_d = pd.to_datetime(start_date).date()
-    end_d   = pd.to_datetime(end_date).date()
-
-    utc_in_range = (
-        bsr_df["BSR_UTC_Date"].dt.date.between(start_d, end_d)
-    )
-
-    local_in_range = (
-        bsr_df["BSR_Local_Date"].dt.date.between(start_d, end_d)
-    )
+    # Check against monitoring period
+    utc_in_range = bsr_df["BSR_UTC_Date"].between(start_date, end_date)
+    local_in_range = bsr_df["BSR_Local_Date"].between(start_date, end_date)
 
     # OR logic (business rule)
     bsr_df["Within_Period_OK"] = utc_in_range | local_in_range
 
+    # Remarks
     bsr_df["Within_Period_Remark"] = bsr_df["Within_Period_OK"].apply(
         lambda x: "" if x else "Date outside monitoring period"
     )
