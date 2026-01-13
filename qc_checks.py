@@ -245,38 +245,36 @@ def load_bsr(bsr_path):
 
 # ----------------------------- 3️⃣ Period Check -----------------------------
 def period_check(bsr_df, start_date, end_date):
-    """
-    Period Check:
-    - Monitoring period comes from ROSCO
-    - BSR is validated against that period
-    - Pass if either UTC date OR local date falls within the period
-    """
 
     bsr_df = bsr_df.copy()
 
-    utc_col = "Date (UTC/GMT)"
-    date_col = "Date"
-
-    # Normalize monitoring period to pandas Timestamp (midnight)
+    # Normalize monitoring period
     start_ts = pd.to_datetime(start_date).normalize()
     end_ts   = pd.to_datetime(end_date).normalize()
 
-    # Convert BSR columns to datetime64[ns]
-    if utc_col in bsr_df.columns:
-        bsr_df["BSR_UTC_Date"] = pd.to_datetime(
-            bsr_df[utc_col], errors="coerce"
-        ).dt.normalize()
-    else:
-        bsr_df["BSR_UTC_Date"] = pd.NaT
+    # --- Robust column detection ---
+    def find_col(keywords):
+        for c in bsr_df.columns:
+            name = c.lower().replace(" ", "")
+            if all(k in name for k in keywords):
+                return c
+        return None
 
-    if date_col in bsr_df.columns:
-        bsr_df["BSR_Local_Date"] = pd.to_datetime(
-            bsr_df[date_col], errors="coerce"
-        ).dt.normalize()
-    else:
-        bsr_df["BSR_Local_Date"] = pd.NaT
+    utc_col   = find_col(["date", "utc"])
+    local_col = find_col(["date"])
 
-    # Safe datetime ↔ datetime comparison
+    # Convert dates
+    bsr_df["BSR_UTC_Date"] = (
+        pd.to_datetime(bsr_df[utc_col], errors="coerce").dt.normalize()
+        if utc_col else pd.NaT
+    )
+
+    bsr_df["BSR_Local_Date"] = (
+        pd.to_datetime(bsr_df[local_col], errors="coerce").dt.normalize()
+        if local_col else pd.NaT
+    )
+
+    # Range checks
     utc_in_range = bsr_df["BSR_UTC_Date"].between(start_ts, end_ts)
     local_in_range = bsr_df["BSR_Local_Date"].between(start_ts, end_ts)
 
