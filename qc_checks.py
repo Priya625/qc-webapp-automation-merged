@@ -140,40 +140,48 @@ def combine_parse(date_val, time_val):
 
 # ----------------------------- 1️⃣ Detect Monitoring Period -----------------------------
 def detect_period_from_rosco(rosco_path):
-    # Load the Rosco file
     df = pd.read_excel(rosco_path, header=None)
-    
-    # 1. Look for the label "Monitoring Periods" in Column B (index 1)
-    label_col = df.iloc[:, 1].astype(str)
-    period_row_mask = label_col.str.contains("Monitoring Periods", na=False)
-    
-    if not period_row_mask.any():
-        raise ValueError("missing monitoring period label in Column B of Rosco")
-    
-    # Get the row index (e.g., if found on row 3, index is 2)
-    row_idx = period_row_mask.idxmax()
-    
-    # 2. Check if Column C (index 2) even exists in the loaded dataframe
-    # If the user hasn't typed anything in Column C, pandas might not even create the column.
-    if df.shape[1] <= 2:
-         raise ValueError(f"Missing monitoring period, Please fill the monitoring period in cell C{row_idx + 1} of Rosco")
 
-    # 3. Extract the text from Column C (index 2)
+    label_col = df.iloc[:, 1].astype(str)
+    period_row_mask = label_col.str.contains(
+        "monitoring period", case=False, na=False
+    )
+
+    if not period_row_mask.any():
+        raise ValueError("Missing monitoring period label in Column B of Rosco")
+
+    row_idx = period_row_mask.idxmax()
+
+    if df.shape[1] <= 2:
+        raise ValueError(
+            f"Missing monitoring period, please fill cell C{row_idx + 1} of Rosco"
+        )
+
     user_input_text = str(df.iloc[row_idx, 2]).strip()
-    
-    # Check if the cell is empty or 'nan'
-    if not user_input_text or user_input_text.lower() == 'nan':
-        raise ValueError(f"missing monitoring period in cell C{row_idx + 1} of Rosco")
-    
-    # 4. Parse dates from the text (looking for YYYY-MM-DD)
+
+    if not user_input_text or user_input_text.lower() == "nan":
+        raise ValueError(
+            f"Missing monitoring period in cell C{row_idx + 1} of Rosco"
+        )
+
     found = re.findall(r"\d{4}-\d{2}-\d{2}", user_input_text)
-    
-    if len(found) >= 2:
-        start_date = pd.to_datetime(found[0], format=DATE_FORMAT)
-        end_date = pd.to_datetime(found[1], format=DATE_FORMAT)
-        return start_date, end_date
-    else:
-        raise ValueError(f"Invalid date format in cell C{row_idx + 1}. Expected two dates (YYYY-MM-DD).")
+
+    if len(found) < 2:
+        raise ValueError(
+            f"Invalid date format in cell C{row_idx + 1}. "
+            "Expected two dates (YYYY-MM-DD)."
+        )
+
+    start_date = pd.to_datetime(found[0], format=DATE_FORMAT).date()
+    end_date   = pd.to_datetime(found[1], format=DATE_FORMAT).date()
+
+    if start_date > end_date:
+        raise ValueError(
+            f"Invalid monitoring period in cell C{row_idx + 1}: "
+            "start date is after end date"
+        )
+
+    return start_date, end_date
 
 
 # ----------------------------- 2️⃣ Load BSR -----------------------------
@@ -236,44 +244,40 @@ def load_bsr(bsr_path):
     return df
 
 # ----------------------------- 3️⃣ Period Check -----------------------------
-def period_check(df, start_date, end_date):
+def period_check(bsr_df, start_date, end_date):
     """
-    BSR Period Check:
-    - ROSCO provides monitoring period (start_date, end_date)
-    - BSR provides Date (UTC/GMT) and Date
-    - If either date falls within monitoring period -> PASS
+    Period Check:
+    - Monitoring period comes from ROSCO (already parsed)
+    - BSR is validated against that period
+    - If either Date (UTC/GMT) OR Date falls within the period → PASS
     """
 
-    # Identify BSR date columns
-    utc_col = next(
-        (c for c in df.columns if "date" in c.lower() and "utc" in c.lower()), None
-    )
-    local_col = next(
-        (c for c in df.columns if c.strip().lower() == "date"), None
-    )
-    # Convert dates
-    df["BSR_UTC_Date_checked"] = (
-        pd.to_datetime(df[utc_col], errors="coerce").dt.date
-        if utc_col else pd.NaT
-    )
-    df["BSR_Date_checked"] = (
-        pd.to_datetime(df[local_col], errors="coerce").dt.date
-        if local_col else pd.NaT
-    )
-    # Check monitoring window
-    utc_in_range = df["BSR_UTC_Date_checked"].between(
-        start_date.date(), end_date.date()
-    )
-    date_in_range = df["BSR_Date_checked"].between(
-        start_date.date(), end_date.date()
-    )
-    # OR condition (key requirement)
-    df["Within_Period_OK"] = utc_in_range | date_in_range
+    # Explicit BSR column names
+    utc_col = "Date (UTC/GMT)"
+    date_col = "Date"
 
-    df["Within_Period_Remark"] = df["Within_Period_OK"].apply(
+    # Convert BSR dates safely
+    bsr_df["BSR_UTC_Date"] = pd.to_datetime(
+        bsr_df[utc_col], errors="coerce"
+    ).dt.date if utc_col in bsr_df.columns else pd.NaT
+
+    bsr_df["BSR_Local_Date"] = pd.to_datetime(
+        bsr_df[date_col], errors="coerce"
+    ).dt.date if date_col in bsr_df.columns else pd.NaT
+
+    # Check against monitoring period
+    utc_in_range = bsr_df["BSR_UTC_Date"].between(start_date, end_date)
+    local_in_range = bsr_df["BSR_Local_Date"].between(start_date, end_date)
+
+    # OR logic (business rule)
+    bsr_df["Within_Period_OK"] = utc_in_range | local_in_range
+
+    # Remarks
+    bsr_df["Within_Period_Remark"] = bsr_df["Within_Period_OK"].apply(
         lambda x: "" if x else "Date outside monitoring period"
     )
-    return df
+
+    return bsr_df
 
 
 # ----------------------------- 4️⃣ Completeness Check -----------------------------
