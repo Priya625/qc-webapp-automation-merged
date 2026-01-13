@@ -252,45 +252,36 @@ def period_check(bsr_df, start_date, end_date):
     start_ts = pd.to_datetime(start_date).normalize()
     end_ts   = pd.to_datetime(end_date).normalize()
 
-    # --- Robust column finder ---
-    def find_col(keywords):
-        for c in bsr_df.columns:
-            name = str(c).lower().replace(" ", "").replace("_", "")
-            if all(k in name for k in keywords):
-                return c
-        return None
+    # --- Explicit, SAFE column detection ---
+    utc_col = None
+    local_col = None
 
-    utc_col = find_col(["date", "utc"])
-    local_col = find_col(["date"])
+    for c in bsr_df.columns:
+        cname = str(c).lower().replace(" ", "").replace("_", "")
+        if "date" in cname and "utc" in cname:
+            utc_col = c
+        elif cname == "date":
+            local_col = c
 
-    # --- SAFE date conversion ---
-    def safe_to_datetime(series):
+    # Safety check (optional but recommended)
+    if utc_col is None and local_col is None:
+        raise ValueError("No valid date columns found in BSR")
+
+    # --- Safe datetime normalization ---
+    def normalize_dt(series):
         if pd.api.types.is_datetime64_any_dtype(series):
             return series.dt.normalize()
-
-        if pd.api.types.is_numeric_dtype(series):
-            # Excel serial dates
-            return pd.to_datetime(
-                series,
-                errors="coerce",
-                origin="1899-12-30",
-                unit="D"
-            ).dt.normalize()
-
-        # Strings / mixed
         return pd.to_datetime(series, errors="coerce").dt.normalize()
 
     bsr_df["BSR_UTC_Date"] = (
-        safe_to_datetime(bsr_df[utc_col])
-        if utc_col else pd.NaT
+        normalize_dt(bsr_df[utc_col]) if utc_col else pd.NaT
     )
 
     bsr_df["BSR_Local_Date"] = (
-        safe_to_datetime(bsr_df[local_col])
-        if local_col else pd.NaT
+        normalize_dt(bsr_df[local_col]) if local_col else pd.NaT
     )
 
-    # --- OR logic (business rule) ---
+    # --- OR logic (FINAL business rule) ---
     utc_in_range = bsr_df["BSR_UTC_Date"].between(start_ts, end_ts)
     local_in_range = bsr_df["BSR_Local_Date"].between(start_ts, end_ts)
 
