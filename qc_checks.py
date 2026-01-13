@@ -249,7 +249,7 @@ def period_check(bsr_df, start_date, end_date):
     Period Check:
     - Monitoring period comes from ROSCO
     - BSR is validated against that period
-    - If either UTC date OR local date falls within the period → PASS
+    - Pass if either UTC date OR local date falls within the period
     """
 
     bsr_df = bsr_df.copy()
@@ -257,36 +257,28 @@ def period_check(bsr_df, start_date, end_date):
     utc_col = "Date (UTC/GMT)"
     date_col = "Date"
 
-    #  Normalize monitoring period to pandas Timestamp
-    start_ts = pd.to_datetime(start_date)
-    end_ts   = pd.to_datetime(end_date)
+    # Normalize monitoring period to pandas Timestamp (midnight)
+    start_ts = pd.to_datetime(start_date).normalize()
+    end_ts   = pd.to_datetime(end_date).normalize()
 
-    # Convert BSR columns safely to datetime
+    # Convert BSR columns to datetime64[ns]
     if utc_col in bsr_df.columns:
         bsr_df["BSR_UTC_Date"] = pd.to_datetime(
             bsr_df[utc_col], errors="coerce"
-        )
+        ).dt.normalize()
     else:
         bsr_df["BSR_UTC_Date"] = pd.NaT
 
     if date_col in bsr_df.columns:
         bsr_df["BSR_Local_Date"] = pd.to_datetime(
             bsr_df[date_col], errors="coerce"
-        )
+        ).dt.normalize()
     else:
         bsr_df["BSR_Local_Date"] = pd.NaT
 
-    #  Compare datetime ↔ datetime (safe)
-    start_d = pd.to_datetime(start_date).date()
-    end_d   = pd.to_datetime(end_date).date()
-
-    utc_in_range = (
-        bsr_df["BSR_UTC_Date"].dt.date.between(start_d, end_d)
-    )
-
-    local_in_range = (
-        bsr_df["BSR_Local_Date"].dt.date.between(start_d, end_d)
-    )
+    # Safe datetime ↔ datetime comparison
+    utc_in_range = bsr_df["BSR_UTC_Date"].between(start_ts, end_ts)
+    local_in_range = bsr_df["BSR_Local_Date"].between(start_ts, end_ts)
 
     # OR logic (business rule)
     bsr_df["Within_Period_OK"] = utc_in_range | local_in_range
