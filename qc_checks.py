@@ -247,32 +247,41 @@ def load_bsr(bsr_path):
 def period_check(bsr_df, start_date, end_date):
     """
     Period Check:
-    - Monitoring period comes from ROSCO (already parsed)
-    - BSR is validated against that period
-    - If either Date (UTC/GMT) OR Date falls within the period → PASS
+    - Monitoring period comes from ROSCO (start_date, end_date)
+    - BSR has 'Date (UTC/GMT)' and 'Date'
+    - Pass if either date falls within monitoring period
     """
 
-    # Explicit BSR column names
+    # Ensure ROSCO dates are pure date objects
+    start_date = pd.to_datetime(start_date).date()
+    end_date   = pd.to_datetime(end_date).date()
+
+    # BSR column names
     utc_col = "Date (UTC/GMT)"
     date_col = "Date"
 
-    # Convert BSR dates safely
-    bsr_df["BSR_UTC_Date"] = pd.to_datetime(
-        bsr_df[utc_col], errors="coerce"
-    ).dt.date if utc_col in bsr_df.columns else pd.NaT
+    # Convert BSR dates to date (NOT datetime)
+    if utc_col in bsr_df.columns:
+        bsr_df["BSR_UTC_Date"] = pd.to_datetime(
+            bsr_df[utc_col], errors="coerce"
+        ).dt.date
+    else:
+        bsr_df["BSR_UTC_Date"] = pd.NaT
 
-    bsr_df["BSR_Local_Date"] = pd.to_datetime(
-        bsr_df[date_col], errors="coerce"
-    ).dt.date if date_col in bsr_df.columns else pd.NaT
+    if date_col in bsr_df.columns:
+        bsr_df["BSR_Local_Date"] = pd.to_datetime(
+            bsr_df[date_col], errors="coerce"
+        ).dt.date
+    else:
+        bsr_df["BSR_Local_Date"] = pd.NaT
 
-    # Check against monitoring period
+    # Safe comparisons (date vs date)
     utc_in_range = bsr_df["BSR_UTC_Date"].between(start_date, end_date)
     local_in_range = bsr_df["BSR_Local_Date"].between(start_date, end_date)
 
-    # OR logic (business rule)
+    # OR logic
     bsr_df["Within_Period_OK"] = utc_in_range | local_in_range
 
-    # Remarks
     bsr_df["Within_Period_Remark"] = bsr_df["Within_Period_OK"].apply(
         lambda x: "" if x else "Date outside monitoring period"
     )
