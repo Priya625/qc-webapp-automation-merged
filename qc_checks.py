@@ -277,8 +277,16 @@ def period_check(bsr_df, start_date, end_date):
         bsr_df["BSR_Local_Date"] = pd.NaT
 
     #  Compare datetime ↔ datetime (safe)
-    utc_in_range = bsr_df["BSR_UTC_Date"].between(start_ts, end_ts)
-    local_in_range = bsr_df["BSR_Local_Date"].between(start_ts, end_ts)
+    start_d = pd.to_datetime(start_date).date()
+    end_d   = pd.to_datetime(end_date).date()
+
+    utc_in_range = (
+        bsr_df["BSR_UTC_Date"].dt.date.between(start_d, end_d)
+    )
+
+    local_in_range = (
+        bsr_df["BSR_Local_Date"].dt.date.between(start_d, end_d)
+    )
 
     # OR logic (business rule)
     bsr_df["Within_Period_OK"] = utc_in_range | local_in_range
