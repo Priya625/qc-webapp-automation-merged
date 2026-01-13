@@ -252,7 +252,7 @@ def period_check(bsr_df, start_date, end_date):
     start_ts = pd.to_datetime(start_date).normalize()
     end_ts   = pd.to_datetime(end_date).normalize()
 
-    # Robust column finder
+    # --- Robust column finder ---
     def find_col(keywords):
         for c in bsr_df.columns:
             name = str(c).lower().replace(" ", "").replace("_", "")
@@ -263,14 +263,22 @@ def period_check(bsr_df, start_date, end_date):
     utc_col = find_col(["date", "utc"])
     local_col = find_col(["date"])
 
-    # Robust date conversion (handles Excel serials)
+    # --- SAFE date conversion ---
     def safe_to_datetime(series):
-        return pd.to_datetime(
-            series,
-            errors="coerce",
-            origin="1899-12-30",  # Excel date origin
-            unit="D"
-        ).dt.normalize()
+        if pd.api.types.is_datetime64_any_dtype(series):
+            return series.dt.normalize()
+
+        if pd.api.types.is_numeric_dtype(series):
+            # Excel serial dates
+            return pd.to_datetime(
+                series,
+                errors="coerce",
+                origin="1899-12-30",
+                unit="D"
+            ).dt.normalize()
+
+        # Strings / mixed
+        return pd.to_datetime(series, errors="coerce").dt.normalize()
 
     bsr_df["BSR_UTC_Date"] = (
         safe_to_datetime(bsr_df[utc_col])
@@ -282,7 +290,7 @@ def period_check(bsr_df, start_date, end_date):
         if local_col else pd.NaT
     )
 
-    # OR logic (FINAL rule)
+    # --- OR logic (business rule) ---
     utc_in_range = bsr_df["BSR_UTC_Date"].between(start_ts, end_ts)
     local_in_range = bsr_df["BSR_Local_Date"].between(start_ts, end_ts)
 
