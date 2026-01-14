@@ -2719,7 +2719,7 @@ class EPLValidator:
         """
         EPL: PL Magazine / Highlights Classification
 
-        Business Rules Implemented:
+        Business Rules:
         - If Home & Away teams are present → category = NA
         - Otherwise classify using keywords from Combined column
         - Priority-based keyword matching
@@ -2729,25 +2729,31 @@ class EPLValidator:
         df = self.df.copy()
 
         # --------------------------------------------------
-        # Helper: find column robustly
+        # Helper: find column robustly (supports partial match)
         # --------------------------------------------------
-        def find_col(df, *names):
-            search_names = [n.strip().lower() for n in names]
+        def find_col_contains(df, *keywords):
+            keywords = [k.lower() for k in keywords]
             for col in df.columns:
-                if col.strip().lower() in search_names:
+                col_l = col.lower()
+                if all(k in col_l for k in keywords):
                     return col
             return None
 
         # --------------------------------------------------
         # Detect required columns
         # --------------------------------------------------
-        col_progtype = find_col(df, "type of program", "type of programme")
-        col_combined = find_col(df, "combined")
-        col_home = find_col(df, "home team", "home")
-        col_away = find_col(df, "away team", "away")
+        col_progtype = (
+            find_col_contains(df, "type", "program") or
+            find_col_contains(df, "program", "type")
+        )
+
+        col_combined = find_col_contains(df, "combined")
+
+        col_home = find_col_contains(df, "home")
+        col_away = find_col_contains(df, "away")
 
         missing = []
-        if col_progtype is None: missing.append("Type of program")
+        if col_progtype is None: missing.append("Type of program / Program type")
         if col_combined is None: missing.append("Combined")
 
         if missing:
@@ -2764,7 +2770,7 @@ class EPLValidator:
         CATEGORY_COL = "PL_Magazine_Highlights_Category"
         df[CATEGORY_COL] = ""
 
-        # Normalize key columns
+        # Normalize
         type_norm = df[col_progtype].astype(str).str.lower().str.strip()
         combined_norm = df[col_combined].astype(str).str.lower().fillna("")
 
