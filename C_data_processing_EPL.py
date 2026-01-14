@@ -2719,17 +2719,18 @@ class EPLValidator:
         """
         EPL: PL Magazine / Highlights Classification
 
-        Auto-detects:
-        - 'Type of program' column
-        - 'Combined' column
-        - 'Home Team' and 'Away Team' columns
-
-        Existing functionality preserved.
+        Business Rules Implemented:
+        - If Home & Away teams are present → category = NA
+        - Otherwise classify using keywords from Combined column
+        - Priority-based keyword matching
+        - Default fallback = PL Magazine
         """
 
         df = self.df.copy()
 
-        # ---------- Helper to find column robustly ----------
+        # --------------------------------------------------
+        # Helper: find column robustly
+        # --------------------------------------------------
         def find_col(df, *names):
             search_names = [n.strip().lower() for n in names]
             for col in df.columns:
@@ -2737,7 +2738,9 @@ class EPLValidator:
                     return col
             return None
 
-        # Detect columns
+        # --------------------------------------------------
+        # Detect required columns
+        # --------------------------------------------------
         col_progtype = find_col(df, "type of program", "type of programme")
         col_combined = find_col(df, "combined")
         col_home = find_col(df, "home team", "home")
@@ -2755,27 +2758,22 @@ class EPLValidator:
                 "details": {}
             }
 
+        # --------------------------------------------------
         # Output column
+        # --------------------------------------------------
         CATEGORY_COL = "PL_Magazine_Highlights_Category"
         df[CATEGORY_COL] = ""
 
-        # Normalize
+        # Normalize key columns
         type_norm = df[col_progtype].astype(str).str.lower().str.strip()
-        combined_norm = df[col_combined].astype(str).str.lower()
+        combined_norm = df[col_combined].astype(str).str.lower().fillna("")
 
-        # -----------------------------------------------------
-        #  FIXED LOGIC: NA only when Home & Away truly present
-        # -----------------------------------------------------
-        if col_home is not None and col_away is not None:
-            home_present = (
-                df[col_home].notna() &
-                df[col_home].astype(str).str.strip().ne("")
-            )
-
-            away_present = (
-                df[col_away].notna() &
-                df[col_away].astype(str).str.strip().ne("")
-            )
+        # --------------------------------------------------
+        # Step 1️⃣ NA when BOTH Home & Away present
+        # --------------------------------------------------
+        if col_home and col_away:
+            home_present = df[col_home].notna() & df[col_home].astype(str).str.strip().ne("")
+            away_present = df[col_away].notna() & df[col_away].astype(str).str.strip().ne("")
 
             na_mask = (
                 home_present &
@@ -2785,43 +2783,68 @@ class EPLValidator:
 
             df.loc[na_mask, CATEGORY_COL] = "NA"
 
-        # -----------------------------------------------------
-        # 1️⃣  MAGAZINE & SUPPORT (unchanged logic)
-        # -----------------------------------------------------
-        mag_mask = (
-            (type_norm == "magazine & support") &
-            (df[CATEGORY_COL] == "")
+        # --------------------------------------------------
+        # Step 2️⃣ Keyword → Category Mapping (PRIORITY ORDER)
+        # --------------------------------------------------
+        KEYWORD_MAP = [
+            ("PL The Big Interview", [
+                "the big interview", "interview", "intervju", "veliki intervju",
+                "one on one", "mic'd up"
+            ]),
+            ("PL Match Of The Day", [
+                "match of the day", "motd", "m o t d", "motd2",
+                "match of the day 2"
+            ]),
+            ("PL Netbusters", [
+                "netbusters", "buster"
+            ]),
+            ("PL Reload", [
+                "reload", "rewind"
+            ]),
+            ("PL Review", [
+                "review", "overview", "pregled", "icmalı", "final word",
+                "goal zone"
+            ]),
+            ("PL Preview", [
+                "preview", "pre", "build-up", "build up", "napoved",
+                "before the round", "predictions", "najava"
+            ]),
+            ("PL Stories", [
+                "stories", "story", "zgodbe", "heroes", "moments",
+                "under the skin"
+            ]),
+            ("PL Highlights", [
+                "highlight", "highlights", "h/l", "h-light", "hlts"
+            ]),
+        ]
+
+        # --------------------------------------------------
+        # Step 3️⃣ Classification function
+        # --------------------------------------------------
+        def classify_text(text):
+            for category, keywords in KEYWORD_MAP:
+                for kw in keywords:
+                    if kw in text:
+                        return category
+            return "PL Magazine"
+
+        # --------------------------------------------------
+        # Step 4️⃣ Apply classification (only if not NA)
+        # --------------------------------------------------
+        valid_mask = (
+            (df[CATEGORY_COL] == "") &
+            type_norm.isin(["magazine & support", "highlights"])
         )
 
-        df.loc[mag_mask & combined_norm.str.contains("vault"), CATEGORY_COL] = "PL Magazine"
-        df.loc[mag_mask & combined_norm.str.contains("stories"), CATEGORY_COL] = "PL Stories"
-        df.loc[mag_mask & combined_norm.str.contains("preview"), CATEGORY_COL] = "PL Preview"
-        df.loc[mag_mask & combined_norm.str.contains("the big interview"), CATEGORY_COL] = "PL The Big Interview"
+        df.loc[valid_mask, CATEGORY_COL] = combined_norm[valid_mask].apply(classify_text)
 
-        df.loc[mag_mask & (df[CATEGORY_COL] == ""), CATEGORY_COL] = "PL Magazine"
-
-        # -----------------------------------------------------
-        # 2️⃣  HIGHLIGHTS (unchanged logic)
-        # -----------------------------------------------------
-        high_mask = (
-            (type_norm == "highlights") &
-            (df[CATEGORY_COL] == "")
-        )
-
-        df.loc[high_mask & combined_norm.str.contains("netbusters"), CATEGORY_COL] = "PL Netbusters"
-        df.loc[high_mask & combined_norm.str.contains("reload"), CATEGORY_COL] = "PL Reload"
-        df.loc[high_mask & combined_norm.str.contains("review"), CATEGORY_COL] = "PL Review"
-        df.loc[high_mask & combined_norm.str.contains("match of the day"), CATEGORY_COL] = "PL Match Of The Day"
-
-        df.loc[high_mask & (df[CATEGORY_COL] == ""), CATEGORY_COL] = "PL Highlights"
-
-        # -----------------------------------------------------
+        # --------------------------------------------------
         # Report tab
-        # -----------------------------------------------------
+        # --------------------------------------------------
         report_df = df[df[CATEGORY_COL] != ""].copy()
         self.pl_mag_highlights_df = report_df
 
-        # Save back to main DF
+        # Save back to main dataframe
         self.df = df
 
         return {
