@@ -361,7 +361,12 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
     col_broadcaster   = _find_column(df, bsr_cols.get('broadcaster'))
     col_start         = _find_column(df, bsr_cols.get('start_time'))
     col_end           = _find_column(df, bsr_cols.get('end_time'))
-    col_prog_type     = _find_column(df, bsr_cols.get('type_of_program'))
+
+    # 🔧 FIX: Robust Program Type detection
+    col_prog_type = (
+        _find_column(df, bsr_cols.get('type_of_program'))
+        or _find_column(df, ["Program Type", "ProgramType", "Type of Program"])
+    )
 
     col_date = _find_column(df, ["Date (UTC/GMT)"])
     if col_date is None:
@@ -415,11 +420,11 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 
     # ------------------ Normalize program type ------------------
     df["_prog_type_norm"] = (
-        df[col_prog_type].astype(str).str.lower().str.strip()
+        df[col_prog_type].fillna("").astype(str).str.lower().str.strip()
         if col_prog_type else ""
     )
 
-    # ------------------ Internal sorting (CRITICAL FIX) ------------------
+    # ------------------ Internal sorting (REQUIRED) ------------------
     sort_by = [
         compare_channel,
         col_market,
@@ -471,7 +476,6 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
             curr_end   = df.at[i, "_end_dt_fixed"]
             prog_type  = df.at[i, "_prog_type_norm"]
 
-            # Ignore non-applicable program types
             if prog_type not in VALID_OVERLAP_TYPES:
                 overlap_ok[i] = pd.NA
                 overlap_r[i] = f"Ignored program type '{prog_type}' for overlap"
