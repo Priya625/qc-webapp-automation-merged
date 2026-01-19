@@ -464,9 +464,11 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 
     df["_grp_channel"] = df[compare_channel].astype(str).str.lower().str.strip()
     df["_grp_market"]  = df[col_market].astype(str).str.lower().str.strip()
-    df["_grp_date"]    = df[col_date].astype(str).str.strip()
+    df["_grp_broadcast_date"] = df["_start_dt"].dt.date
 
-    grouped = df.groupby(["_grp_channel", "_grp_market", "_grp_date"])
+    grouped = df.groupby(
+        ["_grp_channel", "_grp_market", "_grp_broadcast_date"]
+    )
 
     for _, grp_idx in grouped.groups.items():
         prev_end = None
