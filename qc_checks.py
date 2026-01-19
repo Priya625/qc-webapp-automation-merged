@@ -1238,7 +1238,7 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
 
 
     # -------------------------------------------------------
-    # 🔥 STEP 1 — Load Excel WITHOUT trusting header_row
+    #  STEP 1 — Load Excel WITHOUT trusting header_row
     # -------------------------------------------------------
     try:
         xl = pd.ExcelFile(macro_path, engine="openpyxl")
@@ -1254,7 +1254,7 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
 
         header_row_index = None
 
-        # 🔍 Find the row where all required column names appear
+        #  Find the row where all required column names appear
         for i in range(len(tmp)):
             row_vals = [str(x).strip().lower() for x in list(tmp.iloc[i].values)]
             if all(any(req.lower() == val for val in row_vals) for req in required_cols):
@@ -1284,7 +1284,7 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
 
 
     # -------------------------------------------------------
-    # 🔥 STEP 2 — Find required columns reliably
+    #  STEP 2 — Find required columns reliably
     # -------------------------------------------------------
     def find_col(df, key):
         if isinstance(key, list):
@@ -1313,7 +1313,7 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
 
 
     # -------------------------------------------------------
-    # 🔥 STEP 3 — Filter by project keyword
+    #  STEP 3 — Filter by project keyword
     # -------------------------------------------------------
     macro_df = macro_df[
         macro_df[proj_col].astype(str).str.lower().str.contains(league_keyword, na=False)
@@ -1326,7 +1326,7 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
 
 
     # -------------------------------------------------------
-    # 🔥 STEP 4 — Run duplication checks (unchanged logic)
+    #  STEP 4 — Run duplication checks (unchanged logic)
     # -------------------------------------------------------
     mkt_col = find_col(df_bsr, bsr_cols["market"])
     ch_col = find_col(df_bsr, bsr_cols["tv_channel"])
@@ -1499,17 +1499,36 @@ def color_excel(output_path, df):
 # Summary Sheet
 def generate_summary_sheet(output_path, df):
     wb = load_workbook(output_path)
-    if "Summary" in wb.sheetnames: del wb["Summary"]
+
+    if "Summary" in wb.sheetnames:
+        del wb["Summary"]
+
     ws = wb.create_sheet("Summary")
 
-    qc_columns = [col for col in df.columns if "_OK" in col]
-    summary_data = []
-    for col in qc_columns:
-        total = len(df)
-        passed = df[col].sum() if df[col].dtype==bool else sum(df[col]=="True")
-        summary_data.append([col, total, passed, total - passed])
+    qc_columns = [col for col in df.columns if col.endswith("_OK")]
 
-    summary_df = pd.DataFrame(summary_data, columns=["Check", "Total", "Passed", "Failed"])
+    summary_rows = []
+
+    for col in qc_columns:
+        series = df[col]
+
+        passed = series.eq(True).sum()
+        failed = series.eq(False).sum()
+        total = passed + failed
+
+        summary_rows.append([
+            col,
+            int(total),
+            int(passed),
+            int(failed)
+        ])
+
+    summary_df = pd.DataFrame(
+        summary_rows,
+        columns=["Check", "Total Evaluated", "Passed", "Failed"]
+    )
+
     for r in dataframe_to_rows(summary_df, index=False, header=True):
         ws.append(r)
+
     wb.save(output_path)
