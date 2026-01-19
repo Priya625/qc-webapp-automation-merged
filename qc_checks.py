@@ -413,18 +413,31 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 
     df["_orig_idx"] = df.index
 
-    # ------------------ Sorting (UNCHANGED) ------------------
-    sort_by = [compare_channel, col_market, col_date, "_start_dt"]
+    # ------------------ Normalize program type ------------------
+    df["_prog_type_norm"] = (
+        df[col_prog_type].astype(str).str.lower().str.strip()
+        if col_prog_type else ""
+    )
+
+    # ------------------ Internal sorting (CRITICAL FIX) ------------------
+    sort_by = [
+        compare_channel,
+        col_market,
+        col_date,
+        "_prog_type_norm",
+        "_start_dt"
+    ]
+
     df = df.sort_values(by=sort_by, na_position="last").reset_index(drop=True)
     n = len(df)
 
     # ------------------ Output containers ------------------
-    overlap_ok = [pd.NA] * n
-    overlap_r  = [""] * n
+    overlap_ok   = [pd.NA] * n
+    overlap_r    = [""] * n
     duplicate_ok = [True] * n
     duplicate_r  = [""] * n
-    daybreak_ok = [pd.NA] * n
-    daybreak_r  = [""] * n
+    daybreak_ok  = [pd.NA] * n
+    daybreak_r   = [""] * n
 
     # ------------------ Duplicate check (UNCHANGED) ------------------
     dup_columns = [compare_channel, col_market, col_date, col_start, col_end]
@@ -444,11 +457,6 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
     # ------------------ Overlap logic (FIXED) ------------------
     VALID_OVERLAP_TYPES = {"live", "repeat", "delayed"}
 
-    df["_prog_type_norm"] = (
-        df[col_prog_type].astype(str).str.lower().str.strip()
-        if col_prog_type else ""
-    )
-
     df["_grp_channel"] = df[compare_channel].astype(str).str.lower().str.strip()
     df["_grp_market"]  = df[col_market].astype(str).str.lower().str.strip()
     df["_grp_date"]    = df[col_date].astype(str).str.strip()
@@ -463,7 +471,7 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
             curr_end   = df.at[i, "_end_dt_fixed"]
             prog_type  = df.at[i, "_prog_type_norm"]
 
-            # Ignore highlights / magazine / support etc.
+            # Ignore non-applicable program types
             if prog_type not in VALID_OVERLAP_TYPES:
                 overlap_ok[i] = pd.NA
                 overlap_r[i] = f"Ignored program type '{prog_type}' for overlap"
