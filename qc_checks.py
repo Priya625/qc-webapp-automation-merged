@@ -476,7 +476,7 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
             curr_end   = df.at[i, "_end_dt_fixed"]
             prog_type  = df.at[i, "_prog_type_norm"]
 
-            if prog_type not in VALID_OVERLAP_TYPES:
+            if prog_type and prog_type not in VALID_OVERLAP_TYPES:
                 overlap_ok[i] = pd.NA
                 overlap_r[i] = f"Ignored program type '{prog_type}' for overlap"
                 continue
