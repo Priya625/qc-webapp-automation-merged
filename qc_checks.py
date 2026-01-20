@@ -598,8 +598,7 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 
 # ----------------------------- 6️⃣ Program Category Check -----------------------------
 def program_category_check(bsr_path, df, col_map, rules, file_rules):
-    import pandas as pd
-    import re
+    
 
     # =========================================================
     # 0. SAFE INITIALIZATION (never crash General QC)
@@ -618,12 +617,32 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     def find_col(dfx, names):
         if not names:
             return None
+
         if isinstance(names, str):
             names = [names]
-        for c in dfx.columns:
-            for n in names:
-                if str(c).strip().lower() == str(n).strip().lower():
-                    return c
+
+        def normalize(s):
+            s = str(s).lower()
+            s = s.replace("programme", "program")
+            s = re.sub(r"[^a-z0-9]", "", s)  # remove spaces, hyphens, symbols
+            return s
+
+        normalized_columns = {
+            normalize(c): c for c in dfx.columns
+        }
+
+        for name in names:
+            n = normalize(name)
+
+            # exact normalized match
+            if n in normalized_columns:
+                return normalized_columns[n]
+
+            # loose contains match (for "typeofprogram" vs "programtype")
+            for nc, original in normalized_columns.items():
+                if n in nc or nc in n:
+                    return original
+
         return None
 
     def clean(x):
