@@ -138,49 +138,50 @@ def combine_parse(date_val, time_val):
 
 # ----------------------------- AUTO SORT BSR -----------------------------
 def auto_sort_bsr(df, bsr_cols):
-    """
-    Auto-sort BSR data by:
-    Market (A-Z) →
-    Channel (A-Z) →
-    Date (oldest-newest) →
-    Start time (earliest-latest)
-    """
-
     df = df.copy()
 
+    # 1. Identify Columns
     col_market = _find_column(df, bsr_cols.get("market"))
     col_channel = (
-        _find_column(df, bsr_cols.get("tv_channel")) or
-        _find_column(df, bsr_cols.get("channel_id"))
+        _find_column(df, bsr_cols.get("tv_channel")) or 
+        _find_column(df, ["Channel", "Channel Name", "TV Channel"])
     )
     col_date = (
-        _find_column(df, ["Date (UTC)", "Date (UTC/GMT)"]) or
-        _find_column(df, ["Date"])
+        _find_column(df, ["Date", "Date (UTC)", "Date (UTC/GMT)", "BSR_Local_Date"])
     )
     col_start = (
-        _find_column(df, ["Start (UTC)", "Start UTC"]) or
-        _find_column(df, ["Start"])
+        _find_column(df, ["Start", "Start (UTC)", "Start UTC", "Program Start"])
     )
 
-    if not all([col_market, col_channel, col_date, col_start]):
-        logging.warning("Auto-sort skipped: required BSR columns missing")
+    # 2. Debug Logging (Check your terminal/logs to see this)
+    missing = []
+    if not col_market: missing.append("Market")
+    if not col_channel: missing.append("Channel")
+    if not col_date: missing.append("Date")
+    if not col_start: missing.append("Start")
+
+    if missing:
+        print(f"⚠️ Auto-sort skipped! Missing columns in BSR: {', '.join(missing)}")
         return df
 
+    # 3. Create a helper for sorting
+    # We use 'errors=coerce' to handle rows with invalid dates/times safely
     df["_sort_dt"] = df.apply(
         lambda r: combine_parse(r[col_date], r[col_start]),
         axis=1
     )
 
+    # 4. Perform Sort
     df = df.sort_values(
         by=[col_market, col_channel, "_sort_dt"],
         ascending=[True, True, True],
         na_position="last"
     ).reset_index(drop=True)
 
+    # 5. Clean up
     df.drop(columns=["_sort_dt"], inplace=True, errors="ignore")
-
-    logging.info("✅ BSR auto-sorted by Market → Channel → Date → Start Time")
-
+    print(f"✅ BSR successfully sorted by {col_market} -> {col_channel} -> Time")
+    
     return df
 
 
