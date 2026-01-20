@@ -390,20 +390,35 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
         return df
 
     # --------------------------------------------------
-    # Build timezone-naive datetimes
+    # Build timezone-naive datetimes ONLY
     # --------------------------------------------------
     def build_dt(d, t):
         if pd.isna(d) or pd.isna(t):
             return pd.NaT
         try:
-            date_part = pd.to_datetime(d).date()
-            ts = pd.to_datetime(f"{date_part} {t}", errors="coerce")
+            date_part = pd.to_datetime(d, errors="coerce")
+            if pd.isna(date_part):
+                return pd.NaT
+
+            ts = pd.to_datetime(
+                f"{date_part.date()} {t}",
+                errors="coerce"
+            )
+
+            # FORCE tz-naive
+            if isinstance(ts, pd.Timestamp) and ts.tzinfo is not None:
+                ts = ts.tz_localize(None)
+
             return ts
         except Exception:
             return pd.NaT
 
     df["_start_dt"] = df.apply(lambda r: build_dt(r[col_date], r[col_start]), axis=1)
-    df["_end_dt"] = df.apply(lambda r: build_dt(r[col_date], r[col_end]), axis=1)
+    df["_end_dt"]   = df.apply(lambda r: build_dt(r[col_date], r[col_end]), axis=1)
+
+    # HARD safety: ensure tz-naive
+    df["_start_dt"] = pd.to_datetime(df["_start_dt"], errors="coerce").dt.tz_localize(None)
+    df["_end_dt"]   = pd.to_datetime(df["_end_dt"], errors="coerce").dt.tz_localize(None)
 
     # --------------------------------------------------
     # Fix cross-midnight programs
@@ -429,7 +444,7 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
     df["_orig_idx"] = df.index
 
     # --------------------------------------------------
-    # 🚨 CRITICAL FIX — FULL CHRONOLOGICAL SORT
+    # ✅ CRITICAL: FULL CHRONOLOGICAL SORT
     # Channel → Market → Date → Start time
     # --------------------------------------------------
     df["_sort_date"] = df["_start_dt"].dt.date
@@ -469,9 +484,10 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
             duplicate_r[i] = "In-market duplicate (same channel/market/date/start/end)"
 
     # --------------------------------------------------
-    # ✅ OVERLAP CHECK (NO GROUPBY — SAFE & CORRECT)
+    # ✅ OVERLAP CHECK (NO GROUPBY — ORDER SAFE)
     # --------------------------------------------------
     VALID_TYPES = {"live", "repeat", "delayed"}
+
     prev_key = None
     prev_end = None
 
