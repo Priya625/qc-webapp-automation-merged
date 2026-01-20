@@ -138,50 +138,51 @@ def combine_parse(date_val, time_val):
 
 # ----------------------------- AUTO SORT BSR -----------------------------
 def auto_sort_bsr(df, bsr_cols):
+    """
+    Correct business-level BSR sorting:
+    Region → Country → Channel ID → UTC datetime
+    """
+
     df = df.copy()
 
-    # 1. Identify Columns
-    col_market = _find_column(df, bsr_cols.get("market"))
-    col_channel = (
-        _find_column(df, bsr_cols.get("tv_channel")) or 
-        _find_column(df, ["Channel", "Channel Name", "TV Channel"])
-    )
-    col_date = (
-        _find_column(df, ["Date", "Date (UTC)", "Date (UTC/GMT)", "BSR_Local_Date"])
-    )
-    col_start = (
-        _find_column(df, ["Start", "Start (UTC)", "Start UTC", "Program Start"])
-    )
+    col_region = _find_column(df, ["Region", "Wider Region"])
+    col_country = _find_column(df, ["Country", "Market"])
+    col_channel_id = _find_column(df, ["Channel ID"])
+    col_date_utc = _find_column(df, ["BSR_UTC_Date", "Date (UTC)", "Date"])
+    col_start_utc = _find_column(df, ["Start (UTC)", "Start UTC"])
 
-    # 2. Debug Logging (Check your terminal/logs to see this)
-    missing = []
-    if not col_market: missing.append("Market")
-    if not col_channel: missing.append("Channel")
-    if not col_date: missing.append("Date")
-    if not col_start: missing.append("Start")
-
-    if missing:
-        print(f"⚠️ Auto-sort skipped! Missing columns in BSR: {', '.join(missing)}")
+    if not all([col_country, col_channel_id, col_date_utc, col_start_utc]):
+        logging.warning("Auto-sort skipped: required BSR columns missing")
         return df
 
-    # 3. Create a helper for sorting
-    # We use 'errors=coerce' to handle rows with invalid dates/times safely
-    df["_sort_dt"] = df.apply(
-        lambda r: combine_parse(r[col_date], r[col_start]),
+    # Build true UTC datetime
+    df["_utc_dt"] = df.apply(
+        lambda r: combine_parse(r[col_date_utc], r[col_start_utc]),
         axis=1
     )
 
-    # 4. Perform Sort
+    sort_cols = []
+    if col_region:
+        sort_cols.append(col_region)
+
+    sort_cols.extend([
+        col_country,
+        col_channel_id,
+        "_utc_dt"
+    ])
+
     df = df.sort_values(
-        by=[col_market, col_channel, "_sort_dt"],
-        ascending=[True, True, True],
+        by=sort_cols,
+        ascending=True,
         na_position="last"
     ).reset_index(drop=True)
 
-    # 5. Clean up
-    df.drop(columns=["_sort_dt"], inplace=True, errors="ignore")
-    print(f"✅ BSR successfully sorted by {col_market} -> {col_channel} -> Time")
-    
+    df.drop(columns=["_utc_dt"], inplace=True, errors="ignore")
+
+    logging.info(
+        "✅ BSR auto-sorted by Region → Country → Channel ID → UTC datetime"
+    )
+
     return df
 
 
