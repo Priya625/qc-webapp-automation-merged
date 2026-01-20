@@ -1434,15 +1434,18 @@ with serie_a_tab:
     st.markdown("Upload the required files here to perform and log manual checks.")
 
 
-    # --- Dedicated Upload for Manual Checks (MODIFIED) ---
-    col_file1, col_file2, col_file3,col_file4 = st.columns(4)
-    with col_file1:
-        epl_bsr_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="epl_market_check_file")
-    with col_file2:
-        f1_obligation_file = st.file_uploader("📄 Upload Channel Names (.xlsx)", type=["xlsx"], key="epl_obligation_file")
-    with col_file3:
-        f1_overnight_file = st.file_uploader("📈 Upload CDT-OVN Audience File (.xlsx)", type=["xlsx"], key="epl_overnight_file")
-    # with col_file4:
-    #     f1_macro_file = st.file_uploader("📋 4. BSA Duplicator File ", type=["xlsm", "xlsx"], key="epl_macro_file")
+    col_file1, col_file2, col_file3, col_file4 = st.columns(4)
     
+    with col_file1:
+        # Changed key from "epl_market_check_file" to "serie_a_market_check_file"
+        epl_bsr_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="serie_a_market_check_file")
+    
+    with col_file2:
+        # Changed key from "epl_obligation_file" to "serie_a_obligation_file"
+        f1_obligation_file = st.file_uploader("📄 Upload Channel Names (.xlsx)", type=["xlsx"], key="serie_a_obligation_file")
+    
+    with col_file3:
+        # Changed key from "epl_overnight_file" to "serie_a_overnight_file"
+        f1_overnight_file = st.file_uploader("📈 Upload CDT-OVN Audience File (.xlsx)", type=["xlsx"], key="serie_a_overnight_file")
+
     st.write("---")
