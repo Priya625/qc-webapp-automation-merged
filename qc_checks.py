@@ -601,109 +601,166 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     import pandas as pd
     import re
 
-    # ---------------- Fixture sheet ----------------
-    xl = pd.ExcelFile(bsr_path)
-    fixture_kw = file_rules.get("fixture_sheet_keyword", "fixture")
-    fixture_kw = fixture_kw if isinstance(fixture_kw, list) else [fixture_kw]
-
-    fixture_sheet = next(
-        (s for s in xl.sheet_names if any(k.lower() in s.lower() for k in fixture_kw)),
-        None
-    )
-
-    if not fixture_sheet:
+    # =========================================================
+    # 0. SAFE INITIALIZATION (never crash General QC)
+    # =========================================================
+    try:
+        df = df.copy()
         df["Program_Category_Expected"] = pd.NA
-        df["Program_Category_Remark"] = "Fixture sheet missing"
+        df["Program_Category_Remark"] = ""
         df["Program_Category_OK"] = False
+    except Exception:
         return df
 
-    df_fix = xl.parse(fixture_sheet)
-
-    # ---------------- Column helpers ----------------
+    # =========================================================
+    # 1. HELPER FUNCTIONS
+    # =========================================================
     def find_col(dfx, names):
         if not names:
             return None
         if isinstance(names, str):
             names = [names]
         for c in dfx.columns:
-            if any(c.lower() == n.lower() for n in names):
-                return c
+            for n in names:
+                if str(c).strip().lower() == str(n).strip().lower():
+                    return c
         return None
 
-    b = col_map["bsr"]
-    f = col_map["fixture"]
-
-    col_home = find_col(df, b["home_team"])
-    col_away = find_col(df, b["away_team"])
-    col_date = find_col(df, ["Date", "Date (UTC/GMT)"])
-    col_start = find_col(df, ["Start", "Start (UTC)"])
-    col_type = find_col(df, b["type_of_program"])
-
-    col_home_f = find_col(df_fix, f["home_team"])
-    col_away_f = find_col(df_fix, f["away_team"])
-    col_date_f = find_col(df_fix, f["date"])
-    col_start_f = find_col(df_fix, f["start_time"])
-
-    # ---------------- Normalization ----------------
     def clean(x):
         return re.sub(r"\s+", " ", str(x).lower()).strip()
 
+    def safe_datetime(date_col, time_col):
+        return pd.to_datetime(
+            date_col.astype(str) + " " + time_col.astype(str),
+            errors="coerce"
+        )
+
+    # =========================================================
+    # 2. FIXTURE SHEET DETECTION (SAFE)
+    # =========================================================
+    try:
+        xl = pd.ExcelFile(bsr_path)
+    except Exception:
+        df["Program_Category_Remark"] = "Unable to read BSR file"
+        return df
+
+    fixture_kw = file_rules.get("fixture_sheet_keyword", "fixture")
+    fixture_kw = fixture_kw if isinstance(fixture_kw, list) else [fixture_kw]
+
+    fixture_sheet = None
+    for s in xl.sheet_names:
+        if any(k.lower() in s.lower() for k in fixture_kw if k):
+            fixture_sheet = s
+            break
+
+    if not fixture_sheet:
+        df["Program_Category_Remark"] = "Fixture sheet missing"
+        return df
+
+    try:
+        df_fix = xl.parse(fixture_sheet)
+    except Exception:
+        df["Program_Category_Remark"] = "Unable to read Fixture sheet"
+        return df
+
+    # =========================================================
+    # 3. COLUMN MAPPING (BSR)
+    # =========================================================
+    b = col_map.get("bsr", {})
+    f = col_map.get("fixture", {})
+
+    col_home = find_col(df, b.get("home_team"))
+    col_away = find_col(df, b.get("away_team"))
+    col_date = find_col(df, ["Date", "Date (UTC)", "Date (UTC/GMT)"])
+    col_start = find_col(df, ["Start", "Start (UTC)"])
+    col_type = find_col(df, b.get("type_of_program"))
+
+    missing_bsr = [k for k, v in {
+        "Home Team": col_home,
+        "Away Team": col_away,
+        "Date": col_date,
+        "Start": col_start,
+        "Program Type": col_type
+    }.items() if v is None]
+
+    if missing_bsr:
+        df["Program_Category_Remark"] = f"Missing BSR columns: {', '.join(missing_bsr)}"
+        return df
+
+    # =========================================================
+    # 4. COLUMN MAPPING (FIXTURE)
+    # =========================================================
+    col_home_f = find_col(df_fix, f.get("home_team"))
+    col_away_f = find_col(df_fix, f.get("away_team"))
+    col_date_f = find_col(df_fix, f.get("date"))
+    col_start_f = find_col(df_fix, f.get("start_time"))
+
+    missing_fix = [k for k, v in {
+        "Fixture Home Team": col_home_f,
+        "Fixture Away Team": col_away_f,
+        "Fixture Date": col_date_f,
+        "Fixture Start Time": col_start_f
+    }.items() if v is None]
+
+    if missing_fix:
+        df["Program_Category_Remark"] = f"Missing Fixture columns: {', '.join(missing_fix)}"
+        return df
+
+    # =========================================================
+    # 5. NORMALIZATION
+    # =========================================================
     df["_home"] = df[col_home].map(clean)
     df["_away"] = df[col_away].map(clean)
     df["_event"] = df["_home"] + "||" + df["_away"]
-    df["_start"] = pd.to_datetime(df[col_date].astype(str) + " " + df[col_start].astype(str), errors="coerce")
-
-    df["Program_Category_Actual"] = df[col_type].str.lower().str.strip()
+    df["_start"] = safe_datetime(df[col_date], df[col_start])
+    df["Program_Category_Actual"] = df[col_type].astype(str).str.lower().str.strip()
 
     df_fix["_home"] = df_fix[col_home_f].map(clean)
     df_fix["_away"] = df_fix[col_away_f].map(clean)
     df_fix["_date"] = pd.to_datetime(df_fix[col_date_f], errors="coerce").dt.date
-    df_fix["_start"] = pd.to_datetime(
-        df_fix[col_date_f].astype(str) + " " + df_fix[col_start_f].astype(str),
-        errors="coerce"
-    )
+    df_fix["_start"] = safe_datetime(df_fix[col_date_f], df_fix[col_start_f])
 
     df = df.sort_values(["_event", "_start"])
 
     LIVE_TOL = rules.get("live_tolerance_min", 35)
 
-    df["Program_Category_Expected"] = pd.NA
-    df["Program_Category_Remark"] = ""
-
-    # ---------------- MAIN LOOP ----------------
+    # =========================================================
+    # 6. MAIN LOGIC (FAIL-SAFE)
+    # =========================================================
     for idx, row in df.iterrows():
         actual = row["Program_Category_Actual"]
         start = row["_start"]
         event = row["_event"]
 
-        # 1️⃣ Respect non-live types completely
+        # Respect non-live types
         if actual in ("highlights", "magazine", "magazine & support"):
             df.at[idx, "Program_Category_Expected"] = actual
             df.at[idx, "Program_Category_Remark"] = "Non-live program type respected"
             continue
 
-        # 2️⃣ Find fixture
+        # Fixture lookup
         fx = df_fix[
             (df_fix["_home"] == row["_home"]) &
             (df_fix["_away"] == row["_away"])
         ]
 
         if fx.empty or pd.isna(start):
+            df.at[idx, "Program_Category_Remark"] = "No matching fixture"
             continue
 
         fix_start = fx["_start"].iloc[0]
 
-        # 3️⃣ First telecast check
+        # First telecast detection
         first_start = df.loc[df["_event"] == event, "_start"].min()
         is_first = start == first_start
 
-        # 4️⃣ Repeat logic
+        # Repeat
         if not is_first:
             df.at[idx, "Program_Category_Expected"] = "repeat"
             df.at[idx, "Program_Category_Remark"] = "Repeat (subsequent telecast)"
             continue
 
-        # 5️⃣ Live / Delayed
+        # Live / Delayed
         diff = (start - fix_start).total_seconds() / 60
 
         if abs(diff) <= LIVE_TOL:
@@ -713,14 +770,18 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             df.at[idx, "Program_Category_Expected"] = "delayed"
             df.at[idx, "Program_Category_Remark"] = "Delayed (first telecast)"
         else:
-            df.at[idx, "Program_Category_Remark"] = "Before fixture start"
+            df.at[idx, "Program_Category_Remark"] = "Broadcast before fixture start"
 
-    # ---------------- QC Flag ----------------
+    # =========================================================
+    # 7. FINAL QC FLAG
+    # =========================================================
     df["Program_Category_OK"] = (
         df["Program_Category_Actual"] == df["Program_Category_Expected"]
     )
 
-    df.drop(columns=["_home", "_away", "_event", "_start"], inplace=True, errors="ignore")
+    # Cleanup
+    df.drop(columns=["_home", "_away", "_event", "_start"], errors="ignore", inplace=True)
+
     return df
 
 # 8️⃣ Event / Matchday / Competition Check
