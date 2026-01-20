@@ -19,6 +19,8 @@ DASHBOARD_URL = "https://lookerstudio.google.com/reporting/f4dd42e6-dc43-4e3a-87
 # --- Import ALL QC functions from ALL your files ---
 try:
     import qc_checks as qc_general
+    from importlib import reload
+    reload(qc_general)
 
     from C_data_processing_f1 import BSRValidator
     from C_data_processing_EPL import EPLValidator
@@ -548,7 +550,7 @@ with main_qc_tab:
 
                     # ✅ AUTO SORT BSR DATA (CRITICAL)
                     df = qc_general.auto_sort_bsr(df, col_map.get("bsr", {}))
-                    
+
                     # 2. Period check
                     try:
                         df = qc_general.period_check(df, start_date, end_date)
