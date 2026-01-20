@@ -546,6 +546,9 @@ with main_qc_tab:
                     except Exception as e:
                         raise RuntimeError(f"Error loading BSR file: {e}")
 
+                    # ✅ AUTO SORT BSR DATA (CRITICAL)
+                    df = qc_general.auto_sort_bsr(df, col_map.get("bsr", {}))
+                    
                     # 2. Period check
                     try:
                         df = qc_general.period_check(df, start_date, end_date)

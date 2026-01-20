@@ -136,6 +136,53 @@ def combine_parse(date_val, time_val):
         return pd.NaT
     return pd.to_datetime(f"{d} {t}", errors="coerce")
 
+# ----------------------------- AUTO SORT BSR -----------------------------
+def auto_sort_bsr(df, bsr_cols):
+    """
+    Auto-sort BSR data by:
+    Market (A-Z) →
+    Channel (A-Z) →
+    Date (oldest-newest) →
+    Start time (earliest-latest)
+    """
+
+    df = df.copy()
+
+    col_market = _find_column(df, bsr_cols.get("market"))
+    col_channel = (
+        _find_column(df, bsr_cols.get("tv_channel")) or
+        _find_column(df, bsr_cols.get("channel_id"))
+    )
+    col_date = (
+        _find_column(df, ["Date (UTC)", "Date (UTC/GMT)"]) or
+        _find_column(df, ["Date"])
+    )
+    col_start = (
+        _find_column(df, ["Start (UTC)", "Start UTC"]) or
+        _find_column(df, ["Start"])
+    )
+
+    if not all([col_market, col_channel, col_date, col_start]):
+        logging.warning("Auto-sort skipped: required BSR columns missing")
+        return df
+
+    df["_sort_dt"] = df.apply(
+        lambda r: combine_parse(r[col_date], r[col_start]),
+        axis=1
+    )
+
+    df = df.sort_values(
+        by=[col_market, col_channel, "_sort_dt"],
+        ascending=[True, True, True],
+        na_position="last"
+    ).reset_index(drop=True)
+
+    df.drop(columns=["_sort_dt"], inplace=True, errors="ignore")
+
+    logging.info("✅ BSR auto-sorted by Market → Channel → Date → Start Time")
+
+    return df
+
 
 
 # ----------------------------- 1️⃣ Detect Monitoring Period -----------------------------
@@ -207,7 +254,7 @@ def detect_header_row_in_sheet(bsr_path, sheet_name):
     )
 
 
-# def load_bsr(bsr_path):
+# def df(bsr_path):
 #     header_row = detect_header_row(bsr_path)
 #     df = pd.read_excel(bsr_path, header=header_row)
 #     df.columns = [str(c).strip() for c in df.columns]
