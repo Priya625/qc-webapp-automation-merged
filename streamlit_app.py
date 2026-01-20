@@ -177,12 +177,13 @@ except Exception:
 
 # --- Use Tabs for Clear Separation (MODIFIED) ---
 LOGO_PATH_4 = "images/Nielsen_Sports_logo.svg"
-home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab , epl_tab= st.tabs([
+home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab , epl_tab, serie_a_tab= st.tabs([
     " Home Page", 
     " Main QC Automation", 
     " Laliga Specific QC", 
     " F1 Market Specific Checks",
-    " EPL Specific Checks"
+    " EPL Specific Checks",
+    " Serie A Specific Checks"
 ])
 
 # --- Define all market check keys globally for management ---
@@ -1405,11 +1406,269 @@ with epl_tab:
                     st.markdown("---")
                     with open(output_path, "rb") as f:
                         st.download_button(
-                            label="📥 Download Processed F1 File",
+                            label="📥 Download Processed EPL File",
                             data=f,
                             file_name=output_filename,
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
                 
                 except Exception as e:
-                    st.error(f"❌ An error occurred during F1 checks: {e}")
+                    st.error(f"❌ An error occurred during EPL checks: {e}")
+
+with serie_a_tab:
+    Serie_A_LOGO_PATH = "images/epl_logo.png"
+
+    logo_col, title_col = st.columns([1, 8])
+
+    with logo_col:
+        if os.path.exists(Serie_A_LOGO_PATH):
+            st.image(Serie_A_LOGO_PATH, width=80)
+        else:
+            st.empty()
+
+    with title_col:
+        st.markdown(
+            "<h2 style='margin-top:14px;'>Serie A Specific QC Checks</h2>",
+            unsafe_allow_html=True
+        )
+    st.markdown("Upload the required files here to perform and log manual checks.")
+
+    # --- 0. Define Tooltips for Checks ---
+    # Add your detailed descriptions here
+    epl_tooltips = {
+        "impute_lt_live_status": "Scans the 'Combined' column for 'L/T'. If found, suggests changing status to 'Live'.",
+        "consolidate_gillete_soccer": "Merges consecutive 'Gillete Soccer' entries if they occur within the specified time gap.",
+        "check_sky_showcase_live": "Verifies if Sky Showcase broadcasts are correctly tagged as Live based on reference data.",
+        "standardize_uk_ire_region": "Ensures Region is set to 'UK/IRE' for specific channels to maintain consistency.",
+        "check_fixture_vs_case": "Compares the match fixture in the description against the case file to ensure accuracy.",
+        "check_pan_balkans_serbia_parity": "Checks that Pan-Balkans and Serbia feeds have matching data where expected.",
+        "audit_multi_match_status": "Flags sessions where multiple matches appear to be airing simultaneously on one feed.",
+        "check_date_time_format_integrity": "Validates that all Date and Time columns follow the strict 'YYYY-MM-DD' and 'HH:MM:SS' format.",
+        
+        
+
+        
+    }
+    serie_a_tooltips = {
+    # --- Content & Classification ---
+    "impute_lt_live_status": (
+        "Flags missing 'Live' status despite the presence of the 'L/T' tag."
+    ),
+    "consolidate_gillete_soccer": (
+        "Flags short, sequential 'Gillete Soccer' entries that should be combined."
+    ),
+    "check_sky_showcase_live": (
+        "Flags any program incorrectly marked as 'Live' on Sky Showcase (UK)."
+    ),
+    "standardize_uk_ire_region": (
+        "Flags any non-'Europe' region name for UK/Ireland data."
+    ),
+    "check_fixture_vs_case": (
+        "Flags fixture names using uppercase/mixed-case separators."
+    ),
+     "check_pan_balkans_serbia_parity": (
+        "Flags a discrepancy in the row count between Pan-Balkans and Serbia data."
+    ),
+    "audit_multi_match_status": (
+        "Flags programs missing the 'MultiMatch' fixture tag despite having a multi-match keyword in the description."
+    ),
+     "check_date_time_format_integrity": (
+        "Flags malformed or non-standard date and time strings."
+    )
+}
+
+    # --- Dedicated Upload for Manual Checks (MODIFIED) ---
+    col_file1, col_file2, col_file3,col_file4 = st.columns(4)
+    with col_file1:
+        epl_bsr_file = st.file_uploader("📥 Upload BSR File for Checks (.xlsx)", type=["xlsx"], key="epl_market_check_file")
+    with col_file2:
+        f1_obligation_file = st.file_uploader("📄 Upload Channel Names (.xlsx)", type=["xlsx"], key="epl_obligation_file")
+    with col_file3:
+        f1_overnight_file = st.file_uploader("📈 Upload CDT-OVN Audience File (.xlsx)", type=["xlsx"], key="epl_overnight_file")
+    # with col_file4:
+    #     f1_macro_file = st.file_uploader("📋 4. BSA Duplicator File ", type=["xlsm", "xlsx"], key="epl_macro_file")
+    
+    st.write("---")
+
+    # --- SELECT ALL LOGIC ---
+    def toggle_all_epl():
+        st.session_state.epl_all_state = st.session_state.select_all_serie_a
+        for key in all_market_check_keys_epl.keys():
+            st.session_state[key] = st.session_state.select_all_serie_a
+
+    # Initialize select all state if not exists
+    if 'epl_all_state' not in st.session_state:
+        st.session_state.epl_all_state = False
+
+    # Create the master checkbox
+    st.checkbox("Select All Checks", 
+                value=st.session_state.epl_all_state, 
+                key="select_all_serie_a", 
+                on_change=toggle_all_epl)
+
+    # Initialize check states in session_state if not present
+    for key in all_market_check_keys_epl.keys():
+        if key not in st.session_state:
+            st.session_state[key] = False
+
+
+    # --- Checkbox UI generation with Tooltips ---
+    with st.expander("1. Channel and Territory Review", expanded=True):
+        st.subheader("General Market Checks")
+        
+        # Helper function to render checkbox with tooltip
+        def check_ui(key_name):
+            label = all_market_check_keys_epl[key_name]
+            # Use .get() to avoid errors if a tooltip is missing
+            tooltip = epl_tooltips.get(key_name, "No description available.")
+            return st.checkbox(label, key=key_name, help=tooltip)
+
+        # Apply to all your checkboxes
+        check_ui("impute_lt_live_status")
+        check_ui("consolidate_gillete_soccer")
+        check_ui("check_sky_showcase_live")
+        check_ui("standardize_uk_ire_region")
+        check_ui("check_fixture_vs_case")
+        check_ui("check_pan_balkans_serbia_parity")
+        check_ui("audit_multi_match_status")
+        check_ui("check_date_time_format_integrity")
+        
+
+    st.write("---")
+        # --- Configuration Input Fields (NEW SECTION) ---
+    
+    config_col1, config_col2 = st.columns(2)
+
+    with config_col1:
+        st.caption("L/T Live Imputation Settings (Recommended: Live)")
+        lt_market_input = st.text_input("Target Market (e.g., INDIA):", value="INDIA", key="lt_market_input")
+        lt_keyword_input = st.text_input("Keyword to Search ('L/T'):", value="L/T", key="lt_keyword_input")
+
+    with config_col2:
+        st.caption("Sequential Consolidation Settings (Gillete Soccer)")
+        consolidate_keyword_input = st.text_input("Consolidation Keyword:", value="GILLETE SOCCER", key="consolidate_keyword_input")
+        consolidate_gap_input = st.number_input("Max Time Gap (Minutes):", value=30, min_value=0, max_value=120, key="consolidate_gap_input")
+
+    st.write("---")
+
+
+    # --- Run Processing Button (UNTOUCHED) ---
+    if st.button("Apply Selected Checks"):
+        
+        active_checks = [key for key in all_market_check_keys_epl.keys() if st.session_state[key]]
+
+        # 1. Compile Configuration Dictionary from User Inputs
+        check_configs = {}
+        
+        if "impute_lt_live_status" in active_checks:
+            check_configs["impute_lt_live_status"] = {
+                "market": lt_market_input,
+                "keyword": lt_keyword_input
+            }
+            
+        if "consolidate_gillete_soccer" in active_checks:
+            check_configs["consolidate_gillete_soccer"] = {
+                "keyword": consolidate_keyword_input,
+                "max_gap_minutes": int(consolidate_gap_input)
+            }
+        
+        # Check mandatory files
+        if epl_bsr_file is None:
+            st.error("⚠️ Please upload a BSR file before applying checks.")
+        elif "check_f1_obligations" in active_checks and f1_obligation_file is None:
+            st.error("⚠️ **F1 Obligation Check Selected:** Please upload the F1 Obligation File.")
+        elif "update_audience_from_overnight" in active_checks and f1_overnight_file is None:
+            st.error("⚠️ Audience Upscale Check Selected: Please upload the Overnight Audience File.")
+        elif "dup_channel_existence" in active_checks and f1_macro_file is None:
+            st.error("⚠️ Duplication Channel Existence Check Selected: Please upload the BSA Macro Duplicator File.")
+        else:
+            with st.spinner(f"Applying {len(active_checks)} checks..."):
+                try:
+                    # --- Save files temporarily ---
+                    bsr_file_path = os.path.join(UPLOAD_FOLDER, epl_bsr_file.name)
+                    with open(bsr_file_path, "wb") as f: f.write(epl_bsr_file.getbuffer())
+                    
+                    obligation_path = None
+                    if f1_obligation_file:
+                        obligation_path = os.path.join(UPLOAD_FOLDER, f1_obligation_file.name)
+                        with open(obligation_path, "wb") as f: f.write(f1_obligation_file.getbuffer())
+                    
+                    overnight_path = None
+                    if f1_overnight_file:
+                        overnight_path = os.path.join(UPLOAD_FOLDER, f1_overnight_file.name)
+                        with open(overnight_path, "wb") as f: f.write(f1_overnight_file.getbuffer())
+                    
+                    macro_path = None
+                    if f1_macro_file:
+                        macro_path = os.path.join(UPLOAD_FOLDER, f1_macro_file.name)
+                        with open(macro_path, "wb") as f: f.write(f1_macro_file.getbuffer())
+                    
+                    try:
+                        # Use the path to load the BSR file
+                        bsr_df = pd.read_excel(bsr_file_path) 
+                    except Exception as e:
+                        st.error(f"❌ Error loading BSR file from path {bsr_file_path}: {e}")
+                        # Stop execution if the main file can't be loaded
+                    
+
+                    # --- Run F1 Logic Directly ---
+                    validator = EPLValidator(
+                        df=bsr_df,
+                        bsr_path=bsr_file_path, 
+                        obligation_path=obligation_path, 
+                        overnight_path=overnight_path, 
+                        macro_path=macro_path,
+                        check_configs=check_configs 
+                    ) 
+                    
+                    status_summaries = validator.market_check_processor(active_checks)
+                    
+                    df_processed = validator.df
+                    
+                    # --- Generate Output File ---
+                    output_filename = f"Processed_BSR_{os.path.splitext(epl_bsr_file.name)[0]}_{int(time.time())}.xlsx"
+                    output_path = os.path.join(OUTPUT_FOLDER, output_filename)
+                    
+                    # Ensure columns are normalized for saving
+                    # NOTE: This function is not defined in your provided simplified qc_checks.py, but assumed to exist
+                    # df_processed = qc_general.normalize_ok_columns(df_processed)
+
+                    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+
+    
+                        df_processed.to_excel(writer, index=False, sheet_name="Serie_A_Processed")
+
+                    
+                    st.success(f"✅ EPL checks completed successfully!")
+                    
+                    # --- Display Summaries ---
+                    st.subheader("Processing Summary")
+                    if status_summaries:
+                        # Re-format summaries for display
+                        display_summaries = []
+                        for s in status_summaries:
+                            if isinstance(s, dict):
+                                display_summaries.append({
+                                    "Check": s.get('check_key', 'N/A'),
+                                    "Status": s.get('status', 'N/A'),
+                                    "Description": s.get('description', 'N/A'),
+                                    "Details": str(s.get('details', 'No details'))
+                                })
+                        
+                        df_summary = pd.DataFrame(display_summaries)
+                        st.dataframe(df_summary, use_container_width=True)
+                    else:
+                        st.info("No specific operational summaries were returned.")
+
+                    # --- Provide Download Button ---
+                    st.markdown("---")
+                    with open(output_path, "rb") as f:
+                        st.download_button(
+                            label="📥 Download Processed Serie_A File",
+                            data=f,
+                            file_name=output_filename,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                
+                except Exception as e:
+                    st.error(f"❌ An error occurred during Serie_A checks: {e}")
