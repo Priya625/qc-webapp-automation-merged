@@ -808,7 +808,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     return df
 
 # 8️⃣ Event / Matchday / Competition Check
-def check_event_matchday_competition(df_worksheet,df_fixtures, rosco_path=None, debug_rows=20):
+def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None, debug_rows=20):
     """
     Validate Worksheet rows against Fixture List using exact match.
 
@@ -828,7 +828,8 @@ def check_event_matchday_competition(df_worksheet,df_fixtures, rosco_path=None, 
 
     def get_col(df, possible_names):
         for c in df.columns:
-            if c.strip().lower() in possible_names:
+            c_norm = str(c).strip().lower()   # FIX: cast to string
+            if c_norm in possible_names:
                 return c
         return None
 
