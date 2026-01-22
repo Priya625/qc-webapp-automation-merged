@@ -185,8 +185,6 @@ def auto_sort_bsr(df, bsr_cols):
 
     return df
 
-
-
 # ----------------------------- 1️⃣ Detect Monitoring Period -----------------------------
 def detect_period_from_rosco(rosco_path):
     df = pd.read_excel(rosco_path, header=None)
@@ -745,7 +743,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         df[col_date].astype(str) + " " + df[col_start].astype(str),
         errors="coerce"
     )
-    df["Program_Category_Actual"] = df[col_type].str.lower().str.strip()
+    df["Program_Category_Actual"] = (df[col_type].astype(str).str.lower().str.strip())
 
     df_fix["_home"] = df_fix[col_home_f].map(clean)
     df_fix["_away"] = df_fix[col_away_f].map(clean)
