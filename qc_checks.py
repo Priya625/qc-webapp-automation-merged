@@ -1003,14 +1003,14 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                 df.at[idx, "Program_Category_Remark"] = "Repeat flagged but no earlier broadcast"
             continue
 
-        # ---------- FINAL OK ----------
-        df["Program_Category_OK"] = df["Program_Category_Actual"] == df["Program_Category_Expected"]
+    # ---------- FINAL OK ----------
+    df["Program_Category_OK"] = df["Program_Category_Actual"] == df["Program_Category_Expected"]
 
-        # cleanup internal cols
-        df.drop(columns=["_home", "_away", "_event_key", "_date", "_start", "_broad", "_combined_text", "_duration_min"],
-                errors="ignore", inplace=True)
+    # cleanup internal cols
+    df.drop(columns=["_home", "_away", "_event_key", "_date", "_start", "_broad", "_combined_text", "_duration_min"],
+            errors="ignore", inplace=True)
 
-        return df    
+    return df    
         
 
 # 8️⃣ Event / Matchday / Competition Check
