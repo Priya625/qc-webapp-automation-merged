@@ -24,6 +24,7 @@ try:
 
     from C_data_processing_f1 import BSRValidator
     from C_data_processing_EPL import EPLValidator
+    from C_data_processing_SerieA import SerieAValidator
 
 except ImportError as e:
     st.error(f"Failed to import your QC file (qc_checks.py) or validators: {e}")
@@ -1480,6 +1481,7 @@ with serie_a_tab:
 
     # --- 4. Run Processing Button ---
     if st.button("🚀 Run Selected Serie A Checks"):
+        # We strip "sa_" from the keys to match the function names in your new Validator class
         active_sa_checks = [key for key in all_market_check_keys_serie_a.keys() if st.session_state[f"sa_{key}"]]
         
         if not sa_bsr_file:
@@ -1489,42 +1491,59 @@ with serie_a_tab:
         else:
             with st.spinner(f"Running {len(active_sa_checks)} Serie A checks..."):
                 try:
-                    # Save files temporarily
+                    # 1. Save files temporarily to disk
                     bsr_path = os.path.join(UPLOAD_FOLDER, sa_bsr_file.name)
-                    with open(bsr_path, "wb") as f: f.write(sa_bsr_file.getbuffer())
+                    with open(bsr_path, "wb") as f: 
+                        f.write(sa_bsr_file.getbuffer())
                     
-                    # Add logic for other files if uploaded
                     dupe_path = None
                     if sa_duplicator_file:
                         dupe_path = os.path.join(UPLOAD_FOLDER, sa_duplicator_file.name)
                         with open(dupe_path, "wb") as f: f.write(sa_duplicator_file.getbuffer())
 
-                    # --- TRIGGER BACKEND PROCESSING ---
-                    # Assuming you have a SerieAValidator similar to EPL/F1
-                    # from C_data_processing_SerieA import SerieAValidator
+                    infront_path = None
+                    if sa_infront_file:
+                        infront_path = os.path.join(UPLOAD_FOLDER, sa_infront_file.name)
+                        with open(infront_path, "wb") as f: f.write(sa_infront_file.getbuffer())
+
+                    # 2. Load the main dataframe
+                    df_to_process = pd.read_excel(bsr_path)
+
+                    # 3. Initialize your NEW Serie A Validator
+                    from C_data_processing_SerieA import SerieAValidator
+                    validator = SerieAValidator(
+                        df=df_to_process, 
+                        duplicator_path=dupe_path, 
+                        infront_path=infront_path
+                    )
                     
-                    # For now, let's simulate the success response
-                    time.sleep(1.5) 
+                    # 4. Run the checks and get results
+                    status_summaries = validator.market_check_processor(active_sa_checks)
+                    df_processed = validator.df
                     
                     st.success("✅ Serie A Checks completed!")
                     
-                    # Display a placeholder summary
-                    summary_data = []
-                    for check in active_sa_checks:
-                        summary_data.append({
-                            "Check Name": all_market_check_keys_serie_a[check],
-                            "Status": "Completed",
-                            "Flagged Rows": "0 (Clean)"
-                        })
-                    st.table(summary_data)
+                    # 5. Display the Summary Table
+                    if status_summaries:
+                        st.subheader("Processing Summary")
+                        st.dataframe(pd.DataFrame(status_summaries), use_container_width=True)
                     
-                    # Provide Download Button (Placeholder)
-                    st.download_button(
-                        label="📥 Download Serie A Result",
-                        data=b"Placeholder content",
-                        file_name=f"Serie_A_QC_{int(time.time())}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
+                    # 6. Save the processed data to a real Excel file for download
+                    output_filename = f"Serie_A_QC_Result_{int(time.time())}.xlsx"
+                    output_path = os.path.join(OUTPUT_FOLDER, output_filename)
+                    
+                    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+                        df_processed.to_excel(writer, index=False, sheet_name="Serie A Processed")
+                    
+                    # 7. Provide the REAL Download Button
+                    with open(output_path, "rb") as f:
+                        st.download_button(
+                            label="📥 Download Serie A QC Result",
+                            data=f,
+                            file_name=output_filename,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
 
                 except Exception as e:
                     st.error(f"❌ Error during Serie A processing: {e}")
+                    st.exception(e) # This will show the full error trace for debugging
