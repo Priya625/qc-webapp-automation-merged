@@ -844,37 +844,34 @@ with laliga_qc_tab:
                     with open(bsr_path, "wb") as f: f.write(laliga_bsr_file.getbuffer())
                     with open(macro_path, "wb") as f: f.write(laliga_macro_file.getbuffer())
                     
-                    # --- Run YOUR 11 QC Checks Directly ---
-                    start_date, end_date = qc_general.detect_period_from_rosco(rosco_path)
+                    # --- FIX: Load Fixtures Dataframe for LaLiga ---
+                    bsr_xl = pd.ExcelFile(bsr_path)
+                    fixture_keywords = ["fixture", "fixtures", "fixture list", "fixtures list"]
+                    fixture_sheet_name = next((s for s in bsr_xl.sheet_names 
+                                               if any(k in s.lower() for k in fixture_keywords)), None)
                     
-                    # 1. FIX: Removed col_map["bsr"]
-                    df = qc_general.load_bsr(bsr_path)
+                    df_fixtures = None
+                    if fixture_sheet_name:
+                        df_fixtures = bsr_xl.parse(fixture_sheet_name)
+                    else:
+                        st.warning("⚠️ No 'Fixtures' sheet found in BSR. Event validation may be skipped.")
 
-                    # Run the 9 General Checks
-                    # 2. FIX: Removed col_map["bsr"]
+                    # --- Run General QC Steps ---
+                    start_date, end_date = qc_general.detect_period_from_rosco(rosco_path)
+                    df = qc_general.load_bsr(bsr_path)
                     df = qc_general.period_check(df, start_date, end_date)
-                    
-                    # 3. FIX: Removed col_map["bsr"] and rules[...]
                     df = qc_general.completeness_check(df, col_map["bsr"], rules["program_category"]) 
-                    
-                    # 4. FIX: Removed col_map["bsr"] and rules[...]
                     df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules["overlap_check"]) 
-                    
-                    # 5. FIX: Simplified to match new signature
                     df = qc_general.program_category_check(bsr_path, df, col_map, rules["program_category"], file_rules)
                     
-                    # 6. FIX: Simplified signature - assuming helper functions inside qc_checks.py now handle the file loading based on paths
+                    # Pass the newly loaded df_fixtures here
                     df = qc_general.check_event_matchday_competition(df, df_fixtures)
                     
                     df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
-
-                    # 7. FIX: Changed to a similar available function
                     df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
+                    df = qc_general.country_channel_id_check(df, col_map["bsr"])
                     
-                    # 8. FIX: Changed to a similar available function
-                    df = qc_general.country_channel_id_check(df,col_map["bsr"])
-                    
-                    # Run the 2 Laliga-Specific Checks (NOTE: These functions are not in the provided minimal qc_checks.py, so they are commented out or will fail)
+                    # Run LaLiga Specifics
                     df = qc_general.domestic_market_check(df, col_map["bsr"], project.get("monitoring_start_date"), debug=True)
                     df = qc_general.duplicated_market_check(df, macro_path, project, col_map, file_rules, debug=True)
 
@@ -882,15 +879,10 @@ with laliga_qc_tab:
                     output_file = f"Laliga_QC_Result_{os.path.splitext(laliga_bsr_file.name)[0]}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_file)
                     
-                    # 🎯 FIX: Call normalize_ok_columns to ensure boolean status for coloring and summary
-                    # NOTE: This function is not defined in your provided simplified qc_checks.py, but assumed to exist
-                    # df = qc_general.normalize_ok_columns(df) 
-                    
                     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
                         df.to_excel(writer, index=False, sheet_name="Laliga QC Results")
 
                     qc_general.color_excel(output_path, df)
-                    # 🎯 FIX: Corrected the argument list to match qc_checks.py signature
                     qc_general.generate_summary_sheet(output_path, df) 
                     
                     st.success("✅ Laliga QC completed successfully!")
