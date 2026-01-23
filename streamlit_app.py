@@ -897,7 +897,7 @@ with laliga_qc_tab:
                     st.error(f"❌ An error occurred during Laliga QC: {e}")
 
 # -----------------------------------------------------------
-#         🏎️ F1 MARKET SPECIFIC CHECKS TAB (COLLEAGUE'S LOGIC)
+#         🏎️ F1 MARKET SPECIFIC CHECKS TAB 
 # -----------------------------------------------------------
 with f1_tab:
     F1_LOGO_PATH = "images/f1_logo.png"
@@ -1045,6 +1045,10 @@ with f1_tab:
                 
                 except Exception as e:
                     st.error(f"❌ An error occurred during F1 checks: {e}")
+
+# -----------------------------------------------------------
+#         EPL MARKET SPECIFIC CHECKS TAB 
+# -----------------------------------------------------------
 
 with epl_tab:
     EPL_LOGO_PATH = "images/epl_logo.png"
@@ -1420,6 +1424,9 @@ with epl_tab:
                 except Exception as e:
                     st.error(f"❌ An error occurred during EPL checks: {e}")
 
+# -----------------------------------------------------------
+#         SERIE A SPECIFIC CHECKS TAB 
+# -----------------------------------------------------------
 with serie_a_tab:
     Serie_A_LOGO_PATH = "images/serie_a_logo.png"
     logo_col, title_col = st.columns([1, 5])

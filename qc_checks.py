@@ -645,6 +645,9 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 
 # ----------------------------- 6️⃣ Program Category Check -----------------------------
 def program_category_check(bsr_path, df, col_map, rules, file_rules):
+    import pandas as pd
+    import re
+
     # ======================================================
     # 0. SAFE INIT
     # ======================================================
@@ -654,7 +657,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     df["Program_Category_OK"] = False
 
     # ======================================================
-    # 1. NORMALIZED COLUMN FINDER (AUTONOMOUS)
+    # 1. NORMALIZED COLUMN FINDER
     # ======================================================
     def normalize(s):
         s = str(s).lower()
@@ -672,16 +675,13 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         return None
 
     # ======================================================
-    # 2. AUTODETECT BSR COLUMNS (NO col_map DEPENDENCY)
+    # 2. AUTODETECT BSR COLUMNS
     # ======================================================
-    col_home = find_any(df, ["home team", "team home", "home"])
-    col_away = find_any(df, ["away team", "team away", "away"])
-    col_date = find_any(df, ["date", "utc date", "date utc", "date(utc)"])
+    col_home = find_any(df, ["home team", "home"])
+    col_away = find_any(df, ["away team", "away"])
+    col_date = find_any(df, ["date", "date(utc)", "utc date"])
     col_start = find_any(df, ["start", "start utc", "program start"])
-    col_type = find_any(df, [
-        "program type", "programme type",
-        "type of program", "type of programme"
-    ])
+    col_type = find_any(df, ["program type", "programme type"])
 
     missing = [k for k, v in {
         "Home Team": col_home,
@@ -696,7 +696,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         return df
 
     # ======================================================
-    # 3. FIXTURE SHEET SAFE LOAD
+    # 3. LOAD FIXTURE SHEET
     # ======================================================
     try:
         xl = pd.ExcelFile(bsr_path)
@@ -739,14 +739,19 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     df["_home"] = df[col_home].map(clean)
     df["_away"] = df[col_away].map(clean)
     df["_event"] = df["_home"] + "||" + df["_away"]
+
     df["_start"] = pd.to_datetime(
         df[col_date].astype(str) + " " + df[col_start].astype(str),
         errors="coerce"
     )
-    df["Program_Category_Actual"] = (df[col_type].astype(str).str.lower().str.strip())
+
+    df["Program_Category_Actual"] = (
+        df[col_type].astype(str).str.lower().str.strip()
+    )
 
     df_fix["_home"] = df_fix[col_home_f].map(clean)
     df_fix["_away"] = df_fix[col_away_f].map(clean)
+
     df_fix["_start"] = pd.to_datetime(
         df_fix[col_date_f].astype(str) + " " + df_fix[col_start_f].astype(str),
         errors="coerce"
@@ -757,13 +762,16 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     LIVE_TOL = rules.get("live_tolerance_min", 35)
 
     # ======================================================
-    # 6. MAIN LOGIC
+    # 6. MAIN BUSINESS LOGIC (CORRECT)
     # ======================================================
+    seen = {}  # event -> live/delayed seen
+
     for idx, row in df.iterrows():
         actual = row["Program_Category_Actual"]
         start = row["_start"]
         event = row["_event"]
 
+        # Respect non-live programs
         if actual in ("highlights", "magazine", "magazine & support"):
             df.at[idx, "Program_Category_Expected"] = actual
             df.at[idx, "Program_Category_Remark"] = "Non-live respected"
@@ -779,23 +787,27 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             continue
 
         fix_start = fx["_start"].iloc[0]
-        first_start = df.loc[df["_event"] == event, "_start"].min()
-
-        if start != first_start:
-            df.at[idx, "Program_Category_Expected"] = "repeat"
-            df.at[idx, "Program_Category_Remark"] = "Repeat"
-            continue
-
         diff = (start - fix_start).total_seconds() / 60
 
+        # -------- LIVE --------
         if abs(diff) <= LIVE_TOL:
-            df.at[idx, "Program_Category_Expected"] = "live"
-            df.at[idx, "Program_Category_Remark"] = "Live"
-        elif diff > LIVE_TOL:
-            df.at[idx, "Program_Category_Expected"] = "delayed"
-            df.at[idx, "Program_Category_Remark"] = "Delayed"
+            expected = "live"
+            remark = "Live"
+
+        # -------- NOT LIVE --------
         else:
-            df.at[idx, "Program_Category_Remark"] = "Before fixture"
+            if event not in seen:
+                expected = "delayed"
+                remark = "First broadcast delayed"
+            else:
+                expected = "repeat"
+                remark = "Repeat"
+
+        if expected in ("live", "delayed"):
+            seen[event] = expected
+
+        df.at[idx, "Program_Category_Expected"] = expected
+        df.at[idx, "Program_Category_Remark"] = remark
 
     # ======================================================
     # 7. QC FLAG
@@ -805,6 +817,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     )
 
     df.drop(columns=["_home", "_away", "_event", "_start"], inplace=True, errors="ignore")
+
     return df
 
 # 8️⃣ Event / Matchday / Competition Check
