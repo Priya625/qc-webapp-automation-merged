@@ -1427,6 +1427,53 @@ with epl_tab:
 # -----------------------------------------------------------
 #         SERIE A SPECIFIC CHECKS TAB 
 # -----------------------------------------------------------
+
+def read_excel_with_dynamic_header(
+    file_path,
+    required_columns=("market", "channel"),
+    max_rows_to_scan=20,
+    sheet_name=0
+):
+    """
+    Reads an Excel file and dynamically detects the header row
+    based on required column names.
+
+    Returns:
+        pd.DataFrame
+    Raises:
+        ValueError if header row not found
+    """
+
+    # Read raw data (no header)
+    raw_df = pd.read_excel(
+        file_path,
+        header=None,
+        sheet_name=sheet_name
+    )
+
+    required_columns = {c.lower() for c in required_columns}
+
+    for i in range(min(max_rows_to_scan, len(raw_df))):
+        row_values = (
+            raw_df.iloc[i]
+            .astype(str)
+            .str.strip()
+            .str.lower()
+            .tolist()
+        )
+
+        if required_columns.issubset(set(row_values)):
+            # Found header row
+            return pd.read_excel(
+                file_path,
+                header=i,
+                sheet_name=sheet_name
+            )
+
+    raise ValueError(
+        f"Header row not found. Required columns: {required_columns}"
+    )
+
 with serie_a_tab:
     Serie_A_LOGO_PATH = "images/serie_a_logo.png"
     logo_col, title_col = st.columns([1, 5])
@@ -1506,7 +1553,9 @@ with serie_a_tab:
                         with open(infront_path, "wb") as f: f.write(sa_infront_file.getbuffer())
 
                     # 2. Load the main dataframe
-                    df_to_process = pd.read_excel(bsr_path)
+                    df_to_process = read_excel_with_dynamic_header(bsr_path,
+                                                                   required_columns=("Market", "Channel")
+                        )
 
                     # 3. Initialize your NEW Serie A Validator
                     from C_data_processing_SerieA import SerieAValidator
