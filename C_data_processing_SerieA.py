@@ -39,8 +39,110 @@ class SerieAValidator:
 
     # --- S.NO 1: Market Duplicator Check ---
     def check_missing_duplicator_data(self):
-        # Implementation logic will go here
-        self.results_log.append({"check_key": "check_missing_duplicator_data", "status": "Initialized", "description": "Waiting for logic implementation"})
+        """
+        Ensures that markets defined as 'Duplicated Markets'
+        have at least one broadcast line in final output.
+        """
+
+        check_key = "check_missing_duplicator_data"
+
+        # -----------------------------
+        # 1. Validate reference file
+        # -----------------------------
+        if not self.duplicator_path or not os.path.exists(self.duplicator_path):
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Error",
+                "description": "Duplicated markets reference file not found."
+            })
+            return
+
+        # -----------------------------
+        # 2. Read duplicated markets sheet
+        # -----------------------------
+        try:
+            dup_df = pd.read_excel(self.duplicator_path, sheet_name=0)
+        except Exception as e:
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Error",
+                "description": f"Failed to read duplicated markets sheet: {str(e)}"
+            })
+            return
+
+        # Normalize column names
+        dup_df.columns = dup_df.columns.str.strip().str.lower()
+        self.df.columns = self.df.columns.str.strip().str.lower()
+
+        required_dup_cols = {"market", "channel"}
+        required_main_cols = {"market", "channel"}
+
+        if not required_dup_cols.issubset(dup_df.columns):
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Error",
+                "description": "Duplicated markets sheet missing Market / Channel columns."
+            })
+            return
+
+        if not required_main_cols.issubset(self.df.columns):
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Error",
+                "description": "Main dataset missing Market / Channel columns."
+            })
+            return
+
+        # -----------------------------
+        # 3. Expected duplicated outputs
+        # -----------------------------
+        expected_pairs = (
+            dup_df[["market", "channel"]]
+            .dropna()
+            .drop_duplicates()
+        )
+
+        # -----------------------------
+        # 4. Actual output presence
+        # -----------------------------
+        actual_pairs = (
+            self.df[["market", "channel"]]
+            .dropna()
+            .drop_duplicates()
+        )
+
+        # -----------------------------
+        # 5. Identify missing duplicated markets
+        # -----------------------------
+        merged = expected_pairs.merge(
+            actual_pairs,
+            on=["market", "channel"],
+            how="left",
+            indicator=True
+        )
+
+        missing_df = merged[merged["_merge"] == "left_only"]
+
+        # -----------------------------
+        # 6. Log results
+        # -----------------------------
+        if missing_df.empty:
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Success",
+                "description": "All duplicated markets have broadcast output."
+            })
+        else:
+            examples = missing_df.head(5).to_dict(orient="records")
+
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Warning",
+                "description": (
+                    f"{len(missing_df)} duplicated market/channel combinations "
+                    f"have no broadcast output. Examples: {examples}"
+                )
+            })
 
     # --- S.NO 2: Audience Trend Analysis ---
     def compare_audience_trends(self):
