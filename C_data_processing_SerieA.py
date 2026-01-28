@@ -146,15 +146,185 @@ class SerieAValidator:
 
     # --- S.NO 2: Audience Trend Analysis ---
     def compare_audience_trends(self):
-        self.results_log.append({"check_key": "compare_audience_trends", "status": "Initialized", "description": "Waiting for logic implementation"})
+        check_key = "compare_audience_trends"
+
+        required_cols = {
+            "season",
+            "market",
+            "channel",
+            "mat_country_id",
+            "channel_id",
+            "start_time",
+            "audience"
+        }
+
+        if not required_cols.issubset(self.df.columns):
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Error",
+                "description": (
+                    "Required columns missing for season-level audience trend check. "
+                    "Expected MAT Country ID, Channel ID, Start Time, Audience."
+                )
+            })
+            return
+
+        # Ensure datetime
+        self.df["start_time"] = pd.to_datetime(self.df["start_time"], errors="coerce")
+
+        # -------------------------------------------------
+        # 1. Define BC line using MAT Country + Channel + Time
+        # -------------------------------------------------
+        self.df["bc_line_key"] = (
+            self.df["mat_country_id"].astype(str) + "_" +
+            self.df["channel_id"].astype(str) + "_" +
+            self.df["start_time"].astype(str)
+        )
+
+        # -------------------------------------------------
+        # 2. Aggregate at Season level
+        # -------------------------------------------------
+        season_summary = (
+            self.df
+            .groupby(["season", "market", "channel"])
+            .agg(
+                total_audience=("audience", "sum"),
+                bc_lines=("bc_line_key", "nunique")
+            )
+            .reset_index()
+        )
+
+        # -------------------------------------------------
+        # 3. Pivot Last vs Current Season
+        # -------------------------------------------------
+        pivot = season_summary.pivot_table(
+            index=["market", "channel"],
+            columns="season",
+            values=["total_audience", "bc_lines"]
+        )
+
+        if pivot.shape[1] < 4:
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Warning",
+                "description": "Insufficient season data to compare audience trends."
+            })
+            return
+
+        pivot.columns = ["_".join(map(str, col)) for col in pivot.columns]
+        pivot = pivot.dropna()
+
+        # -------------------------------------------------
+        # 4. Compute percentage changes
+        # -------------------------------------------------
+        pivot["audience_change_pct"] = (
+            (pivot.iloc[:, 0] - pivot.iloc[:, 2]) /
+            pivot.iloc[:, 2].replace(0, np.nan)
+        ).abs() * 100
+
+        pivot["bc_line_change_pct"] = (
+            (pivot.iloc[:, 1] - pivot.iloc[:, 3]) /
+            pivot.iloc[:, 3].replace(0, np.nan)
+        ).abs() * 100
+
+        # -------------------------------------------------
+        # 5. Flag illogical movements
+        # -------------------------------------------------
+        flagged = pivot[
+            (pivot["audience_change_pct"] >= 30) &
+            (pivot["bc_line_change_pct"] <= 10)
+        ]
+
+        if flagged.empty:
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Success",
+                "description": "Season-level audience trends align with BC line movement."
+            })
+        else:
+            examples = flagged.reset_index().head(5).to_dict(orient="records")
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Warning",
+                "description": (
+                    f"{len(flagged)} market/channel combinations show "
+                    f"audience variance not supported by BC line change. "
+                    f"Examples: {examples}"
+                )
+            })
 
     # --- S.NO 3: Consolidation Check ---
     def consolidation_check(self):
-        self.results_log.append({"check_key": "consolidation_check", "status": "Initialized", "description": "Waiting for logic implementation"})
+        check_key = "consolidation_check"
+
+        required_cols = {"market", "channel", "program_title", "start_time", "end_time"}
+        if not required_cols.issubset(self.df.columns):
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Error",
+                "description": "Required columns missing for consolidation check."
+            })
+            return
+
+        grouped = (
+            self.df
+            .groupby(["market", "channel", "program_title"])
+            .agg(line_count=("start_time", "count"))
+            .reset_index()
+        )
+
+        split_programs = grouped[grouped["line_count"] > 1]
+
+        if split_programs.empty:
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Success",
+                "description": "No split programs detected."
+            })
+        else:
+            examples = split_programs.head(5).to_dict(orient="records")
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Warning",
+                "description": f"{len(split_programs)} programs appear split. Examples: {examples}"
+            })
 
     # --- S.NO 4: Irrelevant Data Filter ---
     def filter_irrelevant_data(self):
-        self.results_log.append({"check_key": "filter_irrelevant_data", "status": "Initialized", "description": "Waiting for logic implementation"})
+        check_key = "filter_irrelevant_data"
+
+        if not self.infront_path:
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Warning",
+                "description": "Infront reference not provided."
+            })
+            return
+
+        ref = pd.read_excel(self.infront_path)
+        ref.columns = ref.columns.str.lower()
+
+        if "start_date" not in ref.columns or "end_date" not in ref.columns:
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Error",
+                "description": "Monitoring range missing in Infront reference."
+            })
+            return
+
+        start, end = ref["start_date"].min(), ref["end_date"].max()
+
+        self.df["start_time"] = pd.to_datetime(self.df["start_time"], errors="coerce")
+        mask = (self.df["start_time"] < start) | (self.df["start_time"] > end)
+
+        removed = mask.sum()
+        self.df = self.df[~mask]
+
+        self.results_log.append({
+            "check_key": check_key,
+            "status": "Success",
+            "description": f"Removed {removed} lines outside monitoring range."
+        })
 
     # --- S.NO 5: Pre & Post Programs Exclusion ---
     def exclude_pre_post_programs(self):
@@ -169,7 +339,40 @@ class SerieAValidator:
 
     # --- S.NO 6: Duplication Check (Identical Lines) ---
     def remove_identical_broadcasts(self):
-        self.results_log.append({"check_key": "remove_identical_broadcasts", "status": "Initialized", "description": "Waiting for logic implementation"})
+        check_key = "remove_identical_broadcasts"
+
+        required_cols = {
+            "market", "channel", "program_title",
+            "start_time", "duration", "source"
+        }
+        if not required_cols.issubset(self.df.columns):
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Error",
+                "description": "Required columns missing for duplication check."
+            })
+            return
+
+        before = len(self.df)
+
+        self.df["norm_channel"] = self.df["channel"].str.lower().str.strip()
+        self.df["norm_title"] = self.df["program_title"].str.lower().str.strip()
+        self.df["start_time"] = pd.to_datetime(self.df["start_time"], errors="coerce")
+
+        self.df = self.df.sort_values(by=["source"])
+
+        self.df = self.df.drop_duplicates(
+            subset=["market", "norm_channel", "norm_title", "start_time", "duration"],
+            keep="first"
+        )
+
+        removed = before - len(self.df)
+
+        self.results_log.append({
+            "check_key": check_key,
+            "status": "Success",
+            "description": f"Removed {removed} duplicate broadcast lines."
+        })
 
     # --- S.NO 7: Upload Issues Audit ---
     def upload_issue_audit(self):
