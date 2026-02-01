@@ -351,10 +351,7 @@ def completeness_check(df, bsr_cols, rules):
         "away_team": _find_column(df, bsr_cols.get('away_team')),
         "aud_estimates": _find_column(df, bsr_cols.get('aud_estimates')),
         "aud_metered": _find_column(df, bsr_cols.get('aud_metered')),
-        "source": _find_column(df, bsr_cols.get('source')),
-        "program_description": _find_column(df, bsr_cols.get('program_description')),
-        "phase_fixture_episode": _find_column(df, bsr_cols.get('phase_fixture_episode')),
-        "combined": _find_column(df, bsr_cols.get('combined'))
+        "source": _find_column(df, bsr_cols.get('source'))
     }
 
     df["Completeness_OK"] = True
@@ -398,15 +395,15 @@ def completeness_check(df, bsr_cols, rules):
         type_col = colmap.get("type_of_program")
         prog_type = str(row.get(type_col) or "").strip().lower() if type_col else ""
 
-        # ---------------- Simulcast detection (NEW) ----------------
+        # ---------------- Simulcast detection (ROBUST FIX) ----------------
         is_simulcast = False
-        for sim_col_key in ["program_description", "phase_fixture_episode", "combined"]:
-            sim_col = colmap.get(sim_col_key)
-            if sim_col:
-                value = str(row.get(sim_col) or "").lower()
-                if "simulcast" in value:
+        for value in row.values:
+            try:
+                if "simulcast" in str(value).lower():
                     is_simulcast = True
                     break
+            except Exception:
+                continue
 
         # ---------------- Home / Away logic ----------------
         home_col = colmap.get("home_team")
@@ -426,7 +423,6 @@ def completeness_check(df, bsr_cols, rules):
                     missing.append("Away Team")
 
         elif prog_type not in relaxed_types:
-            # Soft enforcement (unchanged)
             if home_col and not _is_present(row.get(home_col)):
                 missing.append("Home Team")
             if away_col and not _is_present(row.get(away_col)):
