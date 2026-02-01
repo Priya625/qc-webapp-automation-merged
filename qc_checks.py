@@ -559,17 +559,42 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
     daybreak_r   = [""] * n
 
     # --------------------------------------------------
-    # Duplicate check (unchanged)
+    # Duplicate check (IGNORE INTERNET / WWW)
     # --------------------------------------------------
+    col_pay_free = _find_column(df, ["Pay/Free TV", "Pay Free TV", "Platform", "Distribution"])
+
     dup_cols = [compare_channel, col_market, col_date, col_start, col_end]
     if col_broadcaster:
         dup_cols.insert(2, col_broadcaster)
 
+    # Default: no duplicates
+    dup_mask = pd.Series([False] * n)
+
     try:
-        dup_mask = df.duplicated(subset=dup_cols, keep=False)
+        if col_pay_free:
+            # Identify internet / www rows (case-insensitive, partial match)
+            internet_mask = (
+                df[col_pay_free]
+                .fillna("")
+                .astype(str)
+                .str.lower()
+                .str.contains(r"internet|internet stream|www", regex=True)
+            )
+
+            # Run duplicate check ONLY on non-internet rows
+            non_internet_df = df.loc[~internet_mask, dup_cols]
+            dup_non_internet = non_internet_df.duplicated(keep=False)
+
+            # Map results back to full DataFrame
+            dup_mask.loc[~internet_mask] = dup_non_internet.values
+        else:
+            # No Pay/Free TV column → original behavior
+            dup_mask = df.duplicated(subset=dup_cols, keep=False)
+
     except Exception:
         dup_mask = pd.Series([False] * n)
 
+    # Assign results
     for i in range(n):
         if dup_mask.iloc[i]:
             duplicate_ok[i] = False
