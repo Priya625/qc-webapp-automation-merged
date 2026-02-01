@@ -340,7 +340,6 @@ def period_check(bsr_df, start_date, end_date):
 
     return bsr_df
 
-
 # ----------------------------- 4️⃣ Completeness Check -----------------------------
 def completeness_check(df, bsr_cols, rules):
     colmap = {
@@ -352,48 +351,94 @@ def completeness_check(df, bsr_cols, rules):
         "away_team": _find_column(df, bsr_cols.get('away_team')),
         "aud_estimates": _find_column(df, bsr_cols.get('aud_estimates')),
         "aud_metered": _find_column(df, bsr_cols.get('aud_metered')),
-        "source": _find_column(df, bsr_cols.get('source'))
+        "source": _find_column(df, bsr_cols.get('source')),
+        "program_description": _find_column(df, bsr_cols.get('program_description')),
+        "phase_fixture_episode": _find_column(df, bsr_cols.get('phase_fixture_episode')),
+        "combined": _find_column(df, bsr_cols.get('combined'))
     }
+
     df["Completeness_OK"] = True
     df["Completeness_Remark"] = ""
+
     live_types = set(rules.get('live_types', ['live', 'repeat', 'delayed']))
     relaxed_types = set(rules.get('relaxed_types', ['highlights']))
+
     for idx, row in df.iterrows():
         missing = []
-        for logical, display in [("tv_channel", "TV Channel"), ("channel_id", "Channel ID"),
-                                 ("match_day", "Match Day"), ("source", "Source")]:
+
+        # ---------------- Base mandatory fields ----------------
+        for logical, display in [
+            ("tv_channel", "TV Channel"),
+            ("channel_id", "Channel ID"),
+            ("match_day", "Match Day"),
+            ("source", "Source")
+        ]:
             colname = colmap.get(logical)
             if colname is None:
                 missing.append(f"{display} (column not found)")
             elif not _is_present(row.get(colname)):
                 missing.append(display)
+
+        # ---------------- Audience logic ----------------
         aud_est_col = colmap.get("aud_estimates")
         aud_met_col = colmap.get("aud_metered")
+
         if not aud_est_col and not aud_met_col:
             missing.append("Audience (Estimates/Metered) (columns not found)")
         else:
             est_present = _is_present(row.get(aud_est_col)) if aud_est_col else False
             met_present = _is_present(row.get(aud_met_col)) if aud_met_col else False
+
             if not est_present and not met_present:
                 missing.append("Both Audience fields are empty")
             elif est_present and met_present:
                 missing.append("Both Audience fields are filled")
+
+        # ---------------- Program type ----------------
         type_col = colmap.get("type_of_program")
         prog_type = str(row.get(type_col) or "").strip().lower() if type_col else ""
-        home_col, away_col = colmap.get("home_team"), colmap.get("away_team")
+
+        # ---------------- Simulcast detection (NEW) ----------------
+        is_simulcast = False
+        for sim_col_key in ["program_description", "phase_fixture_episode", "combined"]:
+            sim_col = colmap.get(sim_col_key)
+            if sim_col:
+                value = str(row.get(sim_col) or "").lower()
+                if "simulcast" in value:
+                    is_simulcast = True
+                    break
+
+        # ---------------- Home / Away logic ----------------
+        home_col = colmap.get("home_team")
+        away_col = colmap.get("away_team")
+
         if prog_type in live_types:
-            if not home_col: missing.append("Home Team (column not found)")
-            elif not _is_present(row.get(home_col)): missing.append("Home Team")
-            if not away_col: missing.append("Away Team (column not found)")
-            elif not _is_present(row.get(away_col)): missing.append("Away Team")
+            # STRICT only if NOT simulcast
+            if not is_simulcast:
+                if not home_col:
+                    missing.append("Home Team (column not found)")
+                elif not _is_present(row.get(home_col)):
+                    missing.append("Home Team")
+
+                if not away_col:
+                    missing.append("Away Team (column not found)")
+                elif not _is_present(row.get(away_col)):
+                    missing.append("Away Team")
+
         elif prog_type not in relaxed_types:
-            if home_col and not _is_present(row.get(home_col)): missing.append("Home Team")
-            if away_col and not _is_present(row.get(away_col)): missing.append("Away Team")
+            # Soft enforcement (unchanged)
+            if home_col and not _is_present(row.get(home_col)):
+                missing.append("Home Team")
+            if away_col and not _is_present(row.get(away_col)):
+                missing.append("Away Team")
+
+        # ---------------- Final result ----------------
         if missing:
             df.at[idx, "Completeness_OK"] = False
             df.at[idx, "Completeness_Remark"] = "; ".join(missing)
         else:
             df.at[idx, "Completeness_Remark"] = "All key fields present"
+
     return df
 
 

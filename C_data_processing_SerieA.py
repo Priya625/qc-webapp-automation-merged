@@ -255,38 +255,48 @@ class SerieAValidator:
 
     # --- S.NO 3: Consolidation Check ---
     def consolidation_check(self):
+
         check_key = "consolidation_check"
 
-        required_cols = {"market", "channel", "program_title", "start_time", "end_time"}
-        if not required_cols.issubset(self.df.columns):
+        required = {"market", "channel", "program_title", "start_time"}
+        missing = required - set(self.df.columns)
+
+        if missing:
             self.results_log.append({
                 "check_key": check_key,
-                "status": "Error",
-                "description": "Required columns missing for consolidation check."
+                "status": "Info",
+                "description": (
+                    "Consolidation check skipped. "
+                    f"Missing columns: {sorted(missing)}"
+                )
             })
             return
+
+        self.df["start_time"] = pd.to_datetime(self.df["start_time"], errors="coerce")
 
         grouped = (
             self.df
             .groupby(["market", "channel", "program_title"])
-            .agg(line_count=("start_time", "count"))
-            .reset_index()
+            .size()
+            .reset_index(name="line_count")
         )
 
-        split_programs = grouped[grouped["line_count"] > 1]
+        splits = grouped[grouped["line_count"] > 1]
 
-        if split_programs.empty:
+        if splits.empty:
             self.results_log.append({
                 "check_key": check_key,
                 "status": "Success",
-                "description": "No split programs detected."
+                "description": "No programs appear split across multiple lines."
             })
         else:
-            examples = split_programs.head(5).to_dict(orient="records")
             self.results_log.append({
                 "check_key": check_key,
                 "status": "Warning",
-                "description": f"{len(split_programs)} programs appear split. Examples: {examples}"
+                "description": (
+                    f"{len(splits)} programs appear split and may need consolidation. "
+                    f"Examples: {splits.head(5).to_dict(orient='records')}"
+                )
             })
 
     # --- S.NO 4: Irrelevant Data Filter ---
