@@ -766,7 +766,8 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 
 # ----------------------------- 6️⃣ Program Category Check -----------------------------
 def program_category_check(bsr_path, df, col_map, rules, file_rules):
-   # --- Fixture sheet detection (support list or string keywords) ---
+
+    # ---------- Fixture sheet detection ----------
     xl = pd.ExcelFile(bsr_path)
     fixture_keywords = file_rules.get("fixture_sheet_keyword", "fixture")
     if not isinstance(fixture_keywords, list):
@@ -774,8 +775,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
     fixture_sheet = None
     for s in xl.sheet_names:
-        s_lower = str(s).lower()
-        if any(str(kw).lower() in s_lower for kw in fixture_keywords if kw):
+        if any(str(kw).lower() in str(s).lower() for kw in fixture_keywords if kw):
             fixture_sheet = s
             break
 
@@ -794,16 +794,9 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
     col_home_bsr = _find_column(df, b.get("home_team"))
     col_away_bsr = _find_column(df, b.get("away_team"))
-	
-
-    col_date_bsr = _find_column(df, ["Date (UTC/GMT)","Date"])
-    col_start_bsr = _find_column(df, ["Start (UTC)","Start"])
+    col_date_bsr = _find_column(df, ["Date (UTC/GMT)", "Date"])
+    col_start_bsr = _find_column(df, ["Start (UTC)", "Start"])
     col_progtype = _find_column(df, b.get("type_of_program"))
-    col_broadcaster = _find_column(df, b.get("broadcaster"))
-
-    col_combined = _find_column(df, b.get("combined"))
-    col_prog_desc = _find_column(df, b.get("program_description"))
-    col_prog_title = _find_column(df, b.get("program_title"))
     col_duration = _find_column(df, b.get("duration"))
 
     col_home_fix = _find_column(df_fix, f.get("home_team"))
@@ -811,9 +804,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     col_date_fix = _find_column(df_fix, f.get("date"))
     col_start_fix = _find_column(df_fix, f.get("start_time"))
 
-    # ---------- Required columns check ----------
-    req = [col_home_bsr, col_away_bsr, col_date_bsr, col_start_bsr]
-    if any(c is None for c in req):
+    if any(c is None for c in [col_home_bsr, col_away_bsr, col_date_bsr, col_start_bsr]):
         df["Program_Category_Expected"] = pd.NA
         df["Program_Category_Actual"] = df[col_progtype] if col_progtype else ""
         df["Program_Category_OK"] = False
@@ -824,312 +815,111 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     def clean(x):
         if pd.isna(x):
             return ""
-        x = str(x).strip().lower()
-        x = x.replace("\u00A0", " ").replace("\u200b", "").strip()
-        x = re.sub(r"[^\w\s&]", " ", x)  # keep & since "Magazine & Support" uses it
-        return re.sub(r"\s+", " ", x).strip()
+        return re.sub(r"\s+", " ", str(x).lower().strip())
 
-    def parse_datetime_candidate(date_raw, time_raw):
-        """
-        Robust single-row parse producing timezone-naive pd.Timestamp or pd.NaT.
-        Tries multiple strategies but does NOT change business logic.
-        """
-        # quick NA guard
-        if (pd.isna(date_raw) or str(date_raw).strip() == "") and (pd.isna(time_raw) or str(time_raw).strip() == ""):
+    def parse_dt(d, t):
+        try:
+            ts = combine_parse(d, t)
+            if pd.notna(ts) and getattr(ts, "tzinfo", None):
+                ts = ts.tz_localize(None)
+            return ts
+        except Exception:
             return pd.NaT
 
-        # Clean text pieces
-        d_raw = date_raw
-        t_raw = time_raw
-
-        # normalize strings and remove invisible chars
-        def norm_obj(o):
-            if pd.isna(o):
-                return ""
-            s = str(o).strip().replace("\u00A0", " ").replace("\u200b", "").strip()
-            return s
-
-        d_s = norm_obj(d_raw)
-        t_s = norm_obj(t_raw)
-
-        # If time cell accidentally contains letters (e.g., extra text), try to extract leading time
-        if t_s and re.search(r"[A-Za-z]", t_s):
-            m = re.match(r"^\s*([0-9]{1,2}[:.\-][0-9]{2}(?:[:.\-][0-9]{2})?)", t_s)
-            if m:
-                t_s = m.group(1)
-
-        # Replace '.' or '-' separators with ':' for times like "20.45" or "20-45"
-        t_s = t_s.replace(".", ":").replace("-", ":")
-
-        # If time is an Excel time fraction (0 < t < 1) or numeric fraction string
-        try:
-            if t_s != "":
-                t_as_float = float(t_s)
-                if 0 <= t_as_float < 1:  # Excel fraction of day
-                    seconds = int(t_as_float * 24 * 3600)
-                    hh = seconds // 3600
-                    mm = (seconds % 3600) // 60
-                    ss = seconds % 60
-                    t_s = f"{hh:02}:{mm:02}:{ss:02}"
-        except Exception:
-            pass
-
-        # If time stored as int like 80000 representing HHMMSS
-        try:
-            if t_s != "" and re.fullmatch(r"\d{3,6}", t_s):
-                val = int(t_s)
-                if 0 <= val <= 235959:
-                    s6 = str(val).zfill(6)
-                    t_s = f"{s6[0:2]}:{s6[2:4]}:{s6[4:6]}"
-        except Exception:
-            pass
-
-        # Attempt 1: use existing combine_parse helper (handles Excel floats, pandas dates, time strings)
-        try:
-            ts = combine_parse(d_raw, t_raw)
-            # combine_parse may return Timestamp or NaT
-            if pd.notna(ts):
-                # ensure timezone-naive
-                try:
-                    if hasattr(ts, "tzinfo") and ts.tzinfo is not None:
-                        ts = ts.tz_convert(None)
-                except Exception:
-                    try:
-                        ts = ts.tz_localize(None)
-                    except Exception:
-                        pass
-                return ts
-        except Exception:
-            pass
-
-        # Attempt 2: If we have a cleaned date+time string, try pd.to_datetime (dayfirst False then True)
-        cand_strs = []
-        if t_s:
-            cand_strs.append(f"{d_s} {t_s}")
-        cand_strs.append(d_s)
-        for cand in cand_strs:
-            for dayfirst in (False, True):
-                try:
-                    dt = pd.to_datetime(cand, errors="coerce", dayfirst=dayfirst)
-                    if pd.notna(dt):
-                        # ensure timezone-naive
-                        try:
-                            if dt.tzinfo is not None:
-                                dt = dt.tz_convert(None)
-                        except Exception:
-                            try:
-                                dt = dt.tz_localize(None)
-                            except Exception:
-                                pass
-                        return dt
-                except Exception:
-                    pass
-
-        # Attempt 3: If date_raw looks numeric (excel serial), convert from serial
-        try:
-            if isinstance(d_raw, (int, float)) and not math.isnan(d_raw):
-                dt_try = pd.to_datetime(d_raw, unit="D", origin="1899-12-30", errors="coerce")
-                if pd.notna(dt_try):
-                    # if we have t_s, add time part
-                    if t_s:
-                        try:
-                            parts = [int(p) for p in t_s.split(":") if p != ""]
-                            hours = parts[0] if len(parts) >= 1 else 0
-                            minutes = parts[1] if len(parts) >= 2 else 0
-                            seconds = parts[2] if len(parts) >= 3 else 0
-                            dt_try = dt_try + pd.Timedelta(hours=hours, minutes=minutes, seconds=seconds)
-                        except Exception:
-                            pass
-                    # make tz-naive
-                    try:
-                        if dt_try.tzinfo is not None:
-                            dt_try = dt_try.tz_convert(None)
-                    except Exception:
-                        try:
-                            dt_try = dt_try.tz_localize(None)
-                        except Exception:
-                            pass
-                    return dt_try
-        except Exception:
-            pass
-
-        # Attempt 4: if time is numeric fraction only and date is parseable by pd.to_datetime separately
-        try:
-            base_date = pd.to_datetime(d_s, errors="coerce")
-            if pd.notna(base_date) and t_s:
-                # parse t_s into hours/mins/secs
-                m = re.match(r"^(\d{1,2}):(\d{2})(?::(\d{2}))?$", t_s)
-                if m:
-                    hours = int(m.group(1))
-                    minutes = int(m.group(2))
-                    seconds = int(m.group(3)) if m.group(3) else 0
-                    dt_final = base_date + pd.Timedelta(hours=hours, minutes=minutes, seconds=seconds)
-                    try:
-                        if dt_final.tzinfo is not None:
-                            dt_final = dt_final.tz_convert(None)
-                    except Exception:
-                        try:
-                            dt_final = dt_final.tz_localize(None)
-                        except Exception:
-                            pass
-                    return dt_final
-        except Exception:
-            pass
-
-        # fallback: NaT
-        return pd.NaT
-    # ---------- Prepare fixture lookup ----------
+    # ---------- Prepare fixture ----------
     df_fix["_home"] = df_fix[col_home_fix].map(clean)
     df_fix["_away"] = df_fix[col_away_fix].map(clean)
     df_fix["_date"] = pd.to_datetime(df_fix[col_date_fix], errors="coerce").dt.date
     df_fix["_start"] = [
-        parse_datetime_candidate(df_fix.at[i, col_date_fix], df_fix.at[i, col_start_fix])
+        parse_dt(df_fix.at[i, col_date_fix], df_fix.at[i, col_start_fix])
         for i in df_fix.index
     ]
 
-# ---------- Prepare BSR ----------
+    # ---------- Prepare BSR ----------
     df["_home"] = df[col_home_bsr].map(clean)
     df["_away"] = df[col_away_bsr].map(clean)
     df["_event_key"] = df["_home"] + "||" + df["_away"]
     df["_date"] = pd.to_datetime(df[col_date_bsr], errors="coerce").dt.date
     df["_start"] = [
-        parse_datetime_candidate(df.at[i, col_date_bsr], df.at[i, col_start_bsr])
+        parse_dt(df.at[i, col_date_bsr], df.at[i, col_start_bsr])
         for i in df.index
     ]
-    df["_broad"] = df[col_broadcaster].astype(str).str.lower().str.strip() if col_broadcaster else ""
 
-    # normalize actual to lower-case comparable form
     df["Program_Category_Actual"] = (
-        df[col_progtype].astype(str).str.lower().str.strip() if col_progtype else ""
+        df[col_progtype].astype(str).str.lower().str.strip()
+        if col_progtype else ""
     )
 
-    # combined text for keyword searches
-    def get_combined_text(row):
-        parts = []
-        for c in (col_combined, col_prog_desc, col_prog_title):
-            if c and pd.notna(row.get(c, "")):
-                parts.append(str(row[c]))
-        return " ".join(parts).strip()
-
-    df["_combined_text"] = df.apply(get_combined_text, axis=1).astype(str)
-    # duration parse - keep simple behavior
-    def parse_duration_minutes(x):
-        if pd.isna(x):
-            return None
-        try:
-            return int(float(x))
-        except Exception:
-            s = str(x).strip()
-            m = re.match(r"^(\d+):(\d+)", s)
-            if m:
-                return int(m.group(1))*60 + int(m.group(2))
-            return None
-    df["_duration_min"] = df[col_duration].apply(parse_duration_minutes) if col_duration else None
-
-    # keywords & bounds
-    highlights_keywords = ["hits", "highlights", "post", "review", "overview", "recap", "summary"]
-    magazine_keywords = ["pre", "post", "studio", "interview", "analysis", "previo"]
-    dur_min_bound, dur_max_bound = rules.get("flag_duration_min", 10), rules.get("flag_duration_max", 50)
+    # ---------- Live tolerance (FROM UI, DEFAULT = 60) ----------
+    LIVE_TOL = rules.get("live_tolerance_min", 60)
 
     df["Program_Category_Expected"] = pd.NA
     df["Program_Category_Remark"] = ""
 
-    LIVE_TOL = rules.get("live_tolerance_min", 35)
     # ---------- MAIN LOOP ----------
-    for idx, row in df.iterrows():
-        ev_key = row["_event_key"]
-        h = row["_home"]
-        a = row["_away"]
-        d = row["_date"]
+    for i, row in df.iterrows():
+        ev = row["_event_key"]
         bsr_start = row["_start"]
         actual = row["Program_Category_Actual"]
-        combined_text = row["_combined_text"]
-        dur_min = row["_duration_min"] if col_duration else None
 
-        # ---------- 1) HIGHLIGHTS / MAGAZINE (OVERRIDE) ----------
-        dur_ok = True
-        if col_duration:
-            if dur_min is None:
-                dur_ok = False
-            else:
-                dur_ok = (dur_min_bound <= dur_min <= dur_max_bound)
-
-        if actual == "highlights":
-            df.at[idx, "Program_Category_Expected"] = "highlights"
-            df.at[idx, "Program_Category_Remark"] = "Detected as Highlights (Program type)"
+        # Program type overrides
+        if actual in ("highlights", "magazine", "magazine & support"):
+            df.at[i, "Program_Category_Expected"] = actual
+            df.at[i, "Program_Category_Remark"] = "Program type override"
             continue
 
-        if actual in ("magazine", "magazine & support"):
-            df.at[idx, "Program_Category_Expected"] = "magazine & support"
-            df.at[idx, "Program_Category_Remark"] = "Detected as Magazine & Support (Program type)"
-            continue
-
-        if dur_ok and any(re.search(rf"\b{kw}\b", combined_text.lower()) for kw in highlights_keywords):
-            df.at[idx, "Program_Category_Expected"] = "highlights"
-            df.at[idx, "Program_Category_Remark"] = "Detected as Highlights (keyword & duration)"
-            continue
-
-        if dur_ok and any(re.search(rf"\b{kw}\b", combined_text.lower()) for kw in magazine_keywords):
-            df.at[idx, "Program_Category_Expected"] = "magazine & support"
-            df.at[idx, "Program_Category_Remark"] = "Detected as Magazine & Support (keyword & duration)"
-            continue
-
-        # ---------- 2) FIXTURE LOOKUP (LIVE / DELAYED / REPEAT) ----------
-        fixture_rows = df_fix[
-            (df_fix["_home"] == h)
-            & (df_fix["_away"] == a)
-            & (df_fix["_date"] == d)
+        fx = df_fix[
+            (df_fix["_home"] == row["_home"]) &
+            (df_fix["_away"] == row["_away"]) &
+            (df_fix["_date"] == row["_date"])
         ]
 
-        if not fixture_rows.empty and pd.notna(bsr_start):
-            fix_start = fixture_rows["_start"].iloc[0]
-
+        if not fx.empty and pd.notna(bsr_start):
+            fix_start = fx["_start"].iloc[0]
             if pd.notna(fix_start):
-                diff_min = abs((bsr_start - fix_start).total_seconds() / 60)
+                diff = abs((bsr_start - fix_start).total_seconds()) / 60
 
-                # LIVE
-                if diff_min <= LIVE_TOL:
-                    df.at[idx, "Program_Category_Expected"] = "live"
-                    df.at[idx, "Program_Category_Remark"] = f"Live (within ±{LIVE_TOL} min)"
+                if diff <= LIVE_TOL:
+                    df.at[i, "Program_Category_Expected"] = "live"
+                    df.at[i, "Program_Category_Remark"] = f"Live (≤ {LIVE_TOL} min)"
                     continue
 
-                same_event = df[df["_event_key"] == ev_key]
-                earliest = pd.to_datetime(same_event["_start"], errors="coerce").min()
+                same_event = df[df["_event_key"] == ev]
+                earliest = same_event["_start"].min()
 
-                # DELAYED
                 if bsr_start == earliest and bsr_start > fix_start:
-                    df.at[idx, "Program_Category_Expected"] = "delayed"
-                    df.at[idx, "Program_Category_Remark"] = f"Delayed (diff {diff_min:.1f} min)"
+                    df.at[i, "Program_Category_Expected"] = "delayed"
+                    df.at[i, "Program_Category_Remark"] = "Delayed (first after fixture)"
                     continue
 
-                # REPEAT (fixture-based)
                 if bsr_start > earliest:
-                    df.at[idx, "Program_Category_Expected"] = "repeat"
-                    df.at[idx, "Program_Category_Remark"] = "Repeat (subsequent broadcast)"
+                    df.at[i, "Program_Category_Expected"] = "repeat"
+                    df.at[i, "Program_Category_Remark"] = "Repeat (subsequent broadcast)"
                     continue
 
-        # ---------- 3) FALLBACK REPEAT (Program Type based) ----------
-        if actual == "repeat":
-            same_event = df[df["_event_key"] == ev_key]
-            earlier = same_event[
-                pd.to_datetime(same_event["_start"], errors="coerce") <
-                pd.to_datetime(bsr_start, errors="coerce")
-            ]
+    # ---------- FINAL OK LOGIC (FIXED) ----------
+    df["Program_Category_OK"] = True
 
-            if not earlier.empty:
-                df.at[idx, "Program_Category_Expected"] = "repeat"
-                df.at[idx, "Program_Category_Remark"] = "Repeat (Program Type & earlier broadcast)"
-            else:
-                df.at[idx, "Program_Category_Expected"] = pd.NA
-                df.at[idx, "Program_Category_Remark"] = "Repeat flagged but no earlier broadcast"
-            continue
+    comparable = (
+        df["Program_Category_Expected"].notna() &
+        (df["Program_Category_Expected"] != "")
+    )
 
-    # ---------- FINAL OK ----------
-    df["Program_Category_OK"] = df["Program_Category_Actual"] == df["Program_Category_Expected"]
+    df.loc[comparable, "Program_Category_OK"] = (
+        df.loc[comparable, "Program_Category_Actual"] ==
+        df.loc[comparable, "Program_Category_Expected"]
+    )
 
-    # cleanup internal cols
-    df.drop(columns=["_home", "_away", "_event_key", "_date", "_start", "_broad", "_combined_text", "_duration_min"],
-            errors="ignore", inplace=True)
+    df.loc[df["Program_Category_Expected"].isna(), "Program_Category_Remark"] = (
+        df["Program_Category_Remark"].replace("", "Not evaluated")
+    )
+
+    # ---------- Cleanup ----------
+    df.drop(
+        columns=["_home", "_away", "_event_key", "_date", "_start"],
+        errors="ignore",
+        inplace=True
+    )
 
     return df    
         
