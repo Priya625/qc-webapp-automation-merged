@@ -772,8 +772,18 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     # ---------- Column detection ----------
     b = col_map["bsr"]
 
-    col_progtype = _find_column(df, b.get("type_of_program"))
-    col_combined = _find_column(df, b.get("combined"))
+    # Flexible Type of Program detection
+    col_progtype = (
+        _find_column(df, b.get("type_of_program")) or
+        _find_column(df, ["Type of Program", "Program Type", "Program type"])
+    )
+
+    # Flexible Combined detection (Combined / Combined Translated)
+    col_combined = (
+        _find_column(df, b.get("combined")) or
+        _find_column(df, ["Combined", "Combined Translated", "Combined translated"])
+    )
+
     col_prog_desc = _find_column(df, b.get("program_description"))
     col_prog_title = _find_column(df, b.get("program_title"))
 
