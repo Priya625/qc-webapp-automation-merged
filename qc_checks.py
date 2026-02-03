@@ -766,160 +766,89 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 
 # ----------------------------- 6️⃣ Program Category Check -----------------------------
 def program_category_check(bsr_path, df, col_map, rules, file_rules):
-
-    # ---------- Fixture sheet detection ----------
-    xl = pd.ExcelFile(bsr_path)
-    fixture_keywords = file_rules.get("fixture_sheet_keyword", "fixture")
-    if not isinstance(fixture_keywords, list):
-        fixture_keywords = [fixture_keywords]
-
-    fixture_sheet = None
-    for s in xl.sheet_names:
-        if any(str(kw).lower() in str(s).lower() for kw in fixture_keywords if kw):
-            fixture_sheet = s
-            break
-
-    if not fixture_sheet:
-        df["Program_Category_Expected"] = pd.NA
-        df["Program_Category_Actual"] = ""
-        df["Program_Category_OK"] = False
-        df["Program_Category_Remark"] = "Fixture sheet missing"
-        return df
-
-    df_fix = xl.parse(fixture_sheet)
+    import pandas as pd
+    import re
 
     # ---------- Column detection ----------
     b = col_map["bsr"]
-    f = col_map["fixture"]
 
-    col_home_bsr = _find_column(df, b.get("home_team"))
-    col_away_bsr = _find_column(df, b.get("away_team"))
-    col_date_bsr = _find_column(df, ["Date (UTC/GMT)", "Date"])
-    col_start_bsr = _find_column(df, ["Start (UTC)", "Start"])
     col_progtype = _find_column(df, b.get("type_of_program"))
-    col_duration = _find_column(df, b.get("duration"))
+    col_combined = _find_column(df, b.get("combined"))
+    col_prog_desc = _find_column(df, b.get("program_description"))
+    col_prog_title = _find_column(df, b.get("program_title"))
 
-    col_home_fix = _find_column(df_fix, f.get("home_team"))
-    col_away_fix = _find_column(df_fix, f.get("away_team"))
-    col_date_fix = _find_column(df_fix, f.get("date"))
-    col_start_fix = _find_column(df_fix, f.get("start_time"))
-
-    if any(c is None for c in [col_home_bsr, col_away_bsr, col_date_bsr, col_start_bsr]):
+    # ---------- Safety check ----------
+    if not col_progtype:
         df["Program_Category_Expected"] = pd.NA
-        df["Program_Category_Actual"] = df[col_progtype] if col_progtype else ""
         df["Program_Category_OK"] = False
-        df["Program_Category_Remark"] = "Missing required columns for LIVE check"
+        df["Program_Category_Remark"] = "Type of Program column missing"
         return df
 
-    # ---------- Helpers ----------
-    def clean(x):
-        if pd.isna(x):
-            return ""
-        return re.sub(r"\s+", " ", str(x).lower().strip())
-
-    def parse_dt(d, t):
-        try:
-            ts = combine_parse(d, t)
-            if pd.notna(ts) and getattr(ts, "tzinfo", None):
-                ts = ts.tz_localize(None)
-            return ts
-        except Exception:
-            return pd.NaT
-
-    # ---------- Prepare fixture ----------
-    df_fix["_home"] = df_fix[col_home_fix].map(clean)
-    df_fix["_away"] = df_fix[col_away_fix].map(clean)
-    df_fix["_date"] = pd.to_datetime(df_fix[col_date_fix], errors="coerce").dt.date
-    df_fix["_start"] = [
-        parse_dt(df_fix.at[i, col_date_fix], df_fix.at[i, col_start_fix])
-        for i in df_fix.index
+    # ---------- Highlight keywords ----------
+    highlight_keywords = [
+        "hits",
+        "highlight",
+        "highlights",
+        "hl",
+        "hlts",
+        "goals",
+        "h/l",
+        "overview",
+        "summary",
+        "show"
     ]
 
-    # ---------- Prepare BSR ----------
-    df["_home"] = df[col_home_bsr].map(clean)
-    df["_away"] = df[col_away_bsr].map(clean)
-    df["_event_key"] = df["_home"] + "||" + df["_away"]
-    df["_date"] = pd.to_datetime(df[col_date_bsr], errors="coerce").dt.date
-    df["_start"] = [
-        parse_dt(df.at[i, col_date_bsr], df.at[i, col_start_bsr])
-        for i in df.index
-    ]
+    # ---------- Helper: build combined searchable text ----------
+    def build_combined_text(row):
+        parts = []
+        for c in (col_combined, col_prog_desc, col_prog_title):
+            if c and pd.notna(row.get(c)):
+                parts.append(str(row[c]))
+        return " ".join(parts).lower()
 
-    df["Program_Category_Actual"] = (
-        df[col_progtype].astype(str).str.lower().str.strip()
-        if col_progtype else ""
+    df["_combined_text"] = df.apply(build_combined_text, axis=1)
+
+    # ---------- Normalize actual program type ----------
+    df["_actual_type"] = (
+        df[col_progtype]
+        .astype(str)
+        .str.strip()
+        .str.lower()
     )
 
-    # ---------- Live tolerance (FROM UI, DEFAULT = 60) ----------
-    LIVE_TOL = rules.get("live_tolerance_min", 60)
-
+    # ---------- Initialize outputs ----------
     df["Program_Category_Expected"] = pd.NA
+    df["Program_Category_OK"] = True
     df["Program_Category_Remark"] = ""
 
-    # ---------- MAIN LOOP ----------
-    for i, row in df.iterrows():
-        ev = row["_event_key"]
-        bsr_start = row["_start"]
-        actual = row["Program_Category_Actual"]
+    # ---------- MAIN LOGIC (HIGHLIGHTS ONLY) ----------
+    for idx, row in df.iterrows():
 
-        # Program type overrides
-        if actual in ("highlights", "magazine", "magazine & support"):
-            df.at[i, "Program_Category_Expected"] = actual
-            df.at[i, "Program_Category_Remark"] = "Program type override"
+        # Only evaluate rows marked as Highlights
+        if row["_actual_type"] != "highlights":
             continue
 
-        fx = df_fix[
-            (df_fix["_home"] == row["_home"]) &
-            (df_fix["_away"] == row["_away"]) &
-            (df_fix["_date"] == row["_date"])
-        ]
+        text = row["_combined_text"]
 
-        if not fx.empty and pd.notna(bsr_start):
-            fix_start = fx["_start"].iloc[0]
-            if pd.notna(fix_start):
-                diff = abs((bsr_start - fix_start).total_seconds()) / 60
+        # Check for any highlight keyword (case-insensitive)
+        found = any(
+            re.search(rf"\b{re.escape(k)}\b", text)
+            for k in highlight_keywords
+        )
 
-                if diff <= LIVE_TOL:
-                    df.at[i, "Program_Category_Expected"] = "live"
-                    df.at[i, "Program_Category_Remark"] = f"Live (≤ {LIVE_TOL} min)"
-                    continue
+        df.at[idx, "Program_Category_Expected"] = "highlights"
 
-                same_event = df[df["_event_key"] == ev]
-                earliest = same_event["_start"].min()
-
-                if bsr_start == earliest and bsr_start > fix_start:
-                    df.at[i, "Program_Category_Expected"] = "delayed"
-                    df.at[i, "Program_Category_Remark"] = "Delayed (first after fixture)"
-                    continue
-
-                if bsr_start > earliest:
-                    df.at[i, "Program_Category_Expected"] = "repeat"
-                    df.at[i, "Program_Category_Remark"] = "Repeat (subsequent broadcast)"
-                    continue
-
-    # ---------- FINAL OK LOGIC (FIXED) ----------
-    df["Program_Category_OK"] = True
-
-    comparable = (
-        df["Program_Category_Expected"].notna() &
-        (df["Program_Category_Expected"] != "")
-    )
-
-    df.loc[comparable, "Program_Category_OK"] = (
-        df.loc[comparable, "Program_Category_Actual"] ==
-        df.loc[comparable, "Program_Category_Expected"]
-    )
-
-    df.loc[df["Program_Category_Expected"].isna(), "Program_Category_Remark"] = (
-        df["Program_Category_Remark"].replace("", "Not evaluated")
-    )
+        if found:
+            df.at[idx, "Program_Category_OK"] = True
+            df.at[idx, "Program_Category_Remark"] = "Valid Highlights content detected"
+        else:
+            df.at[idx, "Program_Category_OK"] = False
+            df.at[idx, "Program_Category_Remark"] = (
+                "Highlights program without highlight-related keywords"
+            )
 
     # ---------- Cleanup ----------
-    df.drop(
-        columns=["_home", "_away", "_event_key", "_date", "_start"],
-        errors="ignore",
-        inplace=True
-    )
+    df.drop(columns=["_combined_text", "_actual_type"], errors="ignore", inplace=True)
 
     return df    
         
