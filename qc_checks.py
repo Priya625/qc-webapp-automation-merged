@@ -769,96 +769,71 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     import pandas as pd
     import re
 
-    # ---------- Column detection ----------
     b = col_map["bsr"]
 
-    # Flexible Type of Program detection
+    # ---- Column detection (flexible) ----
     col_progtype = (
         _find_column(df, b.get("type_of_program")) or
-        _find_column(df, ["Type of Program", "Program Type", "Program type"])
+        _find_column(df, ["Type of Program", "Program Type"])
     )
 
-    # Flexible Combined detection (Combined / Combined Translated)
     col_combined = (
         _find_column(df, b.get("combined")) or
-        _find_column(df, ["Combined", "Combined Translated", "Combined translated"])
+        _find_column(df, ["Combined", "Combined Translated"])
     )
 
-    col_prog_desc = _find_column(df, b.get("program_description"))
-    col_prog_title = _find_column(df, b.get("program_title"))
+    col_desc  = _find_column(df, b.get("program_description"))
+    col_title = _find_column(df, b.get("program_title"))
 
-    # ---------- Safety check ----------
     if not col_progtype:
-        df["Program_Category_Expected"] = pd.NA
         df["Program_Category_OK"] = False
         df["Program_Category_Remark"] = "Type of Program column missing"
         return df
 
-    # ---------- Highlight keywords ----------
-    highlight_keywords = [
-        "hits",
-        "highlight",
-        "highlights",
-        "hl",
-        "hlts",
-        "goals",
-        "h/l",
-        "overview",
-        "summary",
-        "show"
-    ]
+    # ---- Highlight keywords (normalized form) ----
+    highlight_keywords = {
+        "hit", "hits","highlight", "highlights","hl", "hlts", "goals",
+        "overview", "summary", "show"
+    }
 
-    # ---------- Helper: build combined searchable text ----------
-    def build_combined_text(row):
+    # ---- Build normalized combined text ----
+    def norm_text(row):
         parts = []
-        for c in (col_combined, col_prog_desc, col_prog_title):
+        for c in (col_combined, col_desc, col_title):
             if c and pd.notna(row.get(c)):
                 parts.append(str(row[c]))
-        return " ".join(parts).lower()
+        text = " ".join(parts).lower()
+        # replace symbols like / with space → "h/l" → "h l"
+        text = re.sub(r"[^a-z0-9]+", " ", text)
+        return text
 
-    df["_combined_text"] = df.apply(build_combined_text, axis=1)
+    df["_text"] = df.apply(norm_text, axis=1)
+    df["_ptype"] = df[col_progtype].astype(str).str.lower().str.strip()
 
-    # ---------- Normalize actual program type ----------
-    df["_actual_type"] = (
-        df[col_progtype]
-        .astype(str)
-        .str.strip()
-        .str.lower()
-    )
-
-    # ---------- Initialize outputs ----------
+    # ---- Outputs ----
     df["Program_Category_Expected"] = pd.NA
     df["Program_Category_OK"] = True
     df["Program_Category_Remark"] = ""
 
-    # ---------- MAIN LOGIC (HIGHLIGHTS ONLY) ----------
-    for idx, row in df.iterrows():
+    # ---- MAIN LOGIC: HIGHLIGHTS ONLY ----
+    for i, row in df.iterrows():
 
-        # Only evaluate rows marked as Highlights
-        if row["_actual_type"] != "highlights":
+        if row["_ptype"] != "highlights":
             continue
 
-        text = row["_combined_text"]
+        tokens = set(row["_text"].split())
 
-        # Check for any highlight keyword (case-insensitive)
-        found = any(
-            re.search(rf"\b{re.escape(k)}\b", text)
-            for k in highlight_keywords
-        )
+        df.at[i, "Program_Category_Expected"] = "highlights"
 
-        df.at[idx, "Program_Category_Expected"] = "highlights"
-
-        if found:
-            df.at[idx, "Program_Category_OK"] = True
-            df.at[idx, "Program_Category_Remark"] = "Valid Highlights content detected"
+        if tokens & highlight_keywords:
+            df.at[i, "Program_Category_OK"] = True
+            df.at[i, "Program_Category_Remark"] = "Valid highlights content"
         else:
-            df.at[idx, "Program_Category_OK"] = False
-            df.at[idx, "Program_Category_Remark"] = (
-                "Highlights program without highlight-related keywords"
-            )
+            df.at[i, "Program_Category_OK"] = False
+            df.at[i, "Program_Category_Remark"] = "Highlights without highlight keywords"
 
-    # ---------- Cleanup ----------
-    df.drop(columns=["_combined_text", "_actual_type"], errors="ignore", inplace=True)
+    # ---- Cleanup ----
+    df.drop(columns=["_text", "_ptype"], errors="ignore", inplace=True)
 
     return df    
         
