@@ -523,7 +523,7 @@ with main_qc_tab:
 
     st.write("---")
     # --time picker--
-    st.subheader("⚙️ Live Tolerance Settings for Program Category Check")
+    st.subheader("Set Live Tolerance")
     col_p1, col_p2 = st.columns(2)
 
     with col_p1:
