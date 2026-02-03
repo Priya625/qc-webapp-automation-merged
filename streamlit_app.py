@@ -538,6 +538,7 @@ with main_qc_tab:
         user_input_total = (tol_hours * 60) + tol_mins
         final_tolerance = user_input_total if user_input_total > 0 else 60
         st.info(f"Active Tolerance: **{final_tolerance} minutes**")
+
     # -------------------- RUN BUTTON (SAFE PROCESS) --------------------
     if st.button("🚀 Run General QC Checks"):
         # Basic validations
@@ -550,7 +551,9 @@ with main_qc_tab:
                     col_map = config.get("column_mappings", {})
                     rules = config.get("qc_rules", {})
                     file_rules = config.get("file_rules", {})
-                    live_tolerance=final_tolerance
+                    # ---------------- LIVE TOLERANCE FROM UI ----------------
+                    rules.setdefault("program_category", {})
+                    rules["program_category"]["live_tolerance_min"] = final_tolerance
 
                     # Save uploaded files to disk
                     rosco_path = os.path.join(UPLOAD_FOLDER, main_rosco_file.name)
