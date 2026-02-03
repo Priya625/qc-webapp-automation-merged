@@ -436,8 +436,6 @@ def completeness_check(df, bsr_cols, rules):
 
 # ----------------------------- 5️⃣ Overlap / Duplicate / Day Break -----------------------------
 def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
-    import pandas as pd
-
     df = df.copy()
 
     # --------------------------------------------------

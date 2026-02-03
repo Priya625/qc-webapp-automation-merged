@@ -522,13 +522,11 @@ with main_qc_tab:
         st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
 
     st.write("---")
-    # --- PASTE THE TIME PICKER HERE ---
-    st.write("---")
-    st.subheader("⚙️ QC Parameters")
+    # --time picker--
+    st.subheader("⚙️ Live Tolerance Settings for Program Category Check")
     col_p1, col_p2 = st.columns(2)
 
     with col_p1:
-        st.markdown("**Live Tolerance Settings**")
         st.caption("If left at 0:00, the system defaults to 1 hour (60 min).")
         t_col1, t_col2 = st.columns(2)
         with t_col1:
