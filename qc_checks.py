@@ -597,12 +597,45 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
             duplicate_r[i] = "In-market duplicate (same channel/market/date/start/end)"
 
     # --------------------------------------------------
-    # ✅ OVERLAP CHECK (NO GROUPBY — ORDER SAFE)
+    # ✅ OVERLAP CHECK (WITH INTERNET / MATCH BYPASS)
     # --------------------------------------------------
     VALID_TYPES = {"live", "repeat", "delayed"}
 
+    col_pay_free = _find_column(df, ["Pay/Free TV", "Pay Free TV", "Platform", "Distribution"])
+    col_combined = _find_column(df, ["Combined"])
+    col_phase = _find_column(df, ["Phase/Fixture/Episode", "Phase / Fixture / Episode"])
+    col_prog_desc = _find_column(df, ["Program Description", "Program Desc"])
+
+    def normalize_match_text(text):
+        if not text:
+            return ""
+        text = str(text).lower()
+        text = re.sub(r"(simulcast|live|repeat|delayed)", "", text)
+        text = re.sub(r"\bvs\.?\b|\bv\b", "vs", text)
+        text = re.sub(r"[^a-z0-9\s]", " ", text)
+        text = re.sub(r"\s+", " ", text).strip()
+        return text
+
+    def get_match_signature(row):
+        parts = []
+        if col_combined:
+            parts.append(str(row[col_combined] or ""))
+        if col_phase:
+            parts.append(str(row[col_phase] or ""))
+        if col_prog_desc:
+            parts.append(str(row[col_prog_desc] or ""))
+        return normalize_match_text(" ".join(parts))
+
+    def is_internet_row(row):
+        if not col_pay_free:
+            return False
+        val = str(row[col_pay_free] or "").lower()
+        return "internet" in val or "www" in val
+
     prev_key = None
     prev_end = None
+    prev_row = None
+    prev_match = None
 
     for i in range(n):
         row = df.iloc[i]
@@ -613,6 +646,8 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 
         if key != prev_key:
             prev_end = None
+            prev_row = None
+            prev_match = None
 
         if ptype and ptype not in VALID_TYPES:
             overlap_ok[i] = pd.NA
@@ -630,6 +665,8 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
             overlap_ok[i] = True
             overlap_r[i] = "OK (first program)"
             prev_end = end
+            prev_row = row
+            prev_match = get_match_signature(row)
             prev_key = key
             continue
 
@@ -637,22 +674,46 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
             overlap_ok[i] = True
             overlap_r[i] = "OK – back-to-back"
             prev_end = end
+            prev_row = row
+            prev_match = get_match_signature(row)
             prev_key = key
             continue
 
         if start < prev_end:
+            # ---- INTERNET / MATCH BYPASS LOGIC ----
+            if (
+                ptype in VALID_TYPES and
+                is_internet_row(row) and
+                prev_row is not None and
+                is_internet_row(prev_row)
+            ):
+                curr_match = get_match_signature(row)
+
+                if curr_match and prev_match and curr_match != prev_match:
+                    overlap_ok[i] = True
+                    overlap_r[i] = "OK – Internet simulcast with different match"
+                    prev_end = max(prev_end, end)
+                    prev_row = row
+                    prev_match = curr_match
+                    prev_key = key
+                    continue
+
             overlap_ok[i] = False
             overlap_r[i] = (
                 f"Overlap: starts {start.time()} "
                 f"before previous ends {prev_end.time()}"
             )
             prev_end = max(prev_end, end)
+            prev_row = row
+            prev_match = get_match_signature(row)
             prev_key = key
             continue
 
         overlap_ok[i] = True
         overlap_r[i] = "OK"
         prev_end = end
+        prev_row = row
+        prev_match = get_match_signature(row)
         prev_key = key
 
     # --------------------------------------------------
