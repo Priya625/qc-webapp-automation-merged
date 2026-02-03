@@ -345,6 +345,7 @@ def completeness_check(df, bsr_cols, rules):
     colmap = {
         "tv_channel": _find_column(df, bsr_cols['tv_channel']),
         "channel_id": _find_column(df, bsr_cols.get('channel_id')),
+        "broadcaster": _find_column(df, bsr_cols.get('broadcaster')),
         "type_of_program": _find_column(df, bsr_cols.get('type_of_program')),
         "match_day": _find_column(df, bsr_cols.get('matchday') or bsr_cols.get('match_day', [])),
         "home_team": _find_column(df, bsr_cols.get('home_team')),
@@ -358,7 +359,6 @@ def completeness_check(df, bsr_cols, rules):
     df["Completeness_Remark"] = ""
 
     live_types = set(rules.get('live_types', ['live', 'repeat', 'delayed']))
-    relaxed_types = set(rules.get('relaxed_types', ['highlights']))
 
     for idx, row in df.iterrows():
         missing = []
@@ -367,6 +367,7 @@ def completeness_check(df, bsr_cols, rules):
         for logical, display in [
             ("tv_channel", "TV Channel"),
             ("channel_id", "Channel ID"),
+            ("broadcaster", "Broadcaster"),
             ("match_day", "Match Day"),
             ("source", "Source")
         ]:
@@ -395,7 +396,7 @@ def completeness_check(df, bsr_cols, rules):
         type_col = colmap.get("type_of_program")
         prog_type = str(row.get(type_col) or "").strip().lower() if type_col else ""
 
-        # ---------------- Simulcast detection (ROBUST FIX) ----------------
+        # ---------------- Simulcast detection ----------------
         is_simulcast = False
         for value in row.values:
             try:
@@ -409,24 +410,19 @@ def completeness_check(df, bsr_cols, rules):
         home_col = colmap.get("home_team")
         away_col = colmap.get("away_team")
 
-        if prog_type in live_types:
-            # STRICT only if NOT simulcast
-            if not is_simulcast:
-                if not home_col:
-                    missing.append("Home Team (column not found)")
-                elif not _is_present(row.get(home_col)):
-                    missing.append("Home Team")
-
-                if not away_col:
-                    missing.append("Away Team (column not found)")
-                elif not _is_present(row.get(away_col)):
-                    missing.append("Away Team")
-
-        elif prog_type not in relaxed_types:
-            if home_col and not _is_present(row.get(home_col)):
+        # ONLY enforce for Live / Repeat / Delayed AND not simulcast
+        if prog_type in live_types and not is_simulcast:
+            if not home_col:
+                missing.append("Home Team (column not found)")
+            elif not _is_present(row.get(home_col)):
                 missing.append("Home Team")
-            if away_col and not _is_present(row.get(away_col)):
+
+            if not away_col:
+                missing.append("Away Team (column not found)")
+            elif not _is_present(row.get(away_col)):
                 missing.append("Away Team")
+
+        # Highlights & Magazine & Support → no Home/Away checks at all
 
         # ---------------- Final result ----------------
         if missing:
