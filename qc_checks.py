@@ -766,29 +766,55 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 def program_category_check(bsr_path, df, col_map, rules, file_rules):
     import pandas as pd
     import re
-    from datetime import timedelta
+    from datetime import datetime, timedelta, time
 
     # -------------------------
-    # Helper: exact column match
+    # Helpers
     # -------------------------
-    def find_col(names, columns):
+    def find_col(names):
         for n in names:
-            for c in columns:
+            for c in df.columns:
                 if c.strip().lower() == n.strip().lower():
                     return c
         return None
 
+    def parse_date(val):
+        if pd.isna(val):
+            return None
+        if isinstance(val, (datetime, pd.Timestamp)):
+            return val.date()
+        try:
+            return pd.to_datetime(val, dayfirst=True, errors="coerce").date()
+        except Exception:
+            return None
+
+    def parse_time(val):
+        if pd.isna(val):
+            return None
+        if isinstance(val, time):
+            return val
+        if isinstance(val, (datetime, pd.Timestamp)):
+            return val.time()
+        if isinstance(val, str):
+            if val.strip().startswith("#"):
+                return None
+            try:
+                return pd.to_datetime(val, errors="coerce").time()
+            except Exception:
+                return None
+        return None
+
     # -------------------------
-    # BSR columns (NON-UTC)
+    # Columns (NON-UTC)
     # -------------------------
-    col_program_type = find_col(["program type", "type of program"], df.columns)
-    col_desc = find_col(["combined (translated)", "program description", "description"], df.columns)
-    col_duration = find_col(["duration", "duration (mins)"], df.columns)
-    col_date = find_col(["date"], df.columns)
-    col_start = find_col(["start"], df.columns)
-    col_end = find_col(["end"], df.columns)
-    col_home = find_col(["home team"], df.columns)
-    col_away = find_col(["away team"], df.columns)
+    col_program_type = find_col(["program type", "type of program"])
+    col_desc = find_col(["combined (translated)", "program description", "description"])
+    col_duration = find_col(["duration", "duration (mins)"])
+    col_date = find_col(["date"])
+    col_start = find_col(["start"])
+    col_end = find_col(["end"])
+    col_home = find_col(["home team"])
+    col_away = find_col(["away team"])
 
     if not col_program_type:
         return df
@@ -798,22 +824,22 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     # -------------------------
     highlight_re = re.compile(
         r"\b(hits|hl|highlights|hlts|overview|review|show|goals?|summary|specials|league|reload)\b",
-        re.I
+        re.I,
     )
 
     magazine_re = re.compile(
         r"\b(sports|show|league|magazine|support|studio|magazin|weekly|preview|analysis|review|specials|weekly new|coming soon)\b",
-        re.I
+        re.I,
     )
 
     # -------------------------
-    # Live tolerance (minutes)
+    # Tolerance
     # -------------------------
     tol_min = rules.get("live_tolerance_min")
     tolerance = timedelta(minutes=int(tol_min)) if tol_min else timedelta(minutes=60)
 
     # -------------------------
-    # Load Fixtures
+    # Load fixtures
     # -------------------------
     fixtures_df = None
     try:
@@ -826,13 +852,13 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         fixtures_df = None
 
     # -------------------------
-    # Output columns
+    # Output
     # -------------------------
     df["program_category_check_result"] = ""
     df["program_category_check_remark"] = ""
 
     # -------------------------
-    # Main validation
+    # Validation
     # -------------------------
     for idx, row in df.iterrows():
         ptype = str(row[col_program_type]).strip().lower()
@@ -866,26 +892,26 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
         # ---------- LIVE ----------
         elif ptype == "live":
-            if not fixtures_df is not None:
+            date_val = parse_date(row[col_date])
+            start_val = parse_time(row[col_start])
+            end_val = parse_time(row[col_end])
+
+            if not date_val or not start_val or not end_val:
                 df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = "Fixtures sheet not available"
+                df.at[idx, "program_category_check_remark"] = (
+                    "Invalid or unreadable Date / Start / End for Live program"
+                )
                 continue
 
-            # ---- Build BSR datetime (dayfirst=True) ----
-            try:
-                base_date = pd.to_datetime(row[col_date], dayfirst=True).date()
-                start_t = pd.to_datetime(row[col_start]).time()
-                end_t = pd.to_datetime(row[col_end]).time()
+            bsr_start = datetime.combine(date_val, start_val)
+            bsr_end = datetime.combine(date_val, end_val)
 
-                bsr_start = pd.Timestamp.combine(base_date, start_t)
-                bsr_end = pd.Timestamp.combine(base_date, end_t)
+            if bsr_end <= bsr_start:
+                bsr_end += timedelta(days=1)
 
-                if bsr_end <= bsr_start:
-                    bsr_end += pd.Timedelta(days=1)
-
-            except Exception:
+            if fixtures_df is None:
                 df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = "Invalid Date/Start/End for Live program"
+                df.at[idx, "program_category_check_remark"] = "Fixtures sheet not available"
                 continue
 
             home = str(row[col_home]).strip().lower()
@@ -893,27 +919,25 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
             matched = False
 
-            # ---- Fixture matching (DD-MM-YYYY safe) ----
             for _, fx in fixtures_df.iterrows():
-                try:
-                    fx_date = pd.to_datetime(fx["Date"], dayfirst=True).date()
-                    fx_start_t = pd.to_datetime(fx["Start Time"]).time()
-                    fx_end_t = pd.to_datetime(fx["End Time"]).time()
+                fx_date = parse_date(fx.get("Date"))
+                fx_start = parse_time(fx.get("Start Time"))
+                fx_end = parse_time(fx.get("End Time"))
 
-                    fx_start = pd.Timestamp.combine(fx_date, fx_start_t)
-                    fx_end = pd.Timestamp.combine(fx_date, fx_end_t)
-
-                    if fx_end <= fx_start:
-                        fx_end += pd.Timedelta(days=1)
-
-                except Exception:
+                if not fx_date or not fx_start or not fx_end:
                     continue
 
+                f_start = datetime.combine(fx_date, fx_start)
+                f_end = datetime.combine(fx_date, fx_end)
+
+                if f_end <= f_start:
+                    f_end += timedelta(days=1)
+
                 if (
-                    home == str(fx["Home Team"]).strip().lower()
-                    and away == str(fx["Away Team"]).strip().lower()
-                    and abs(bsr_start - fx_start) <= tolerance
-                    and abs(bsr_end - fx_end) <= tolerance
+                    home == str(fx.get("Home Team", "")).strip().lower()
+                    and away == str(fx.get("Away Team", "")).strip().lower()
+                    and abs(bsr_start - f_start) <= tolerance
+                    and abs(bsr_end - f_end) <= tolerance
                 ):
                     matched = True
                     break
