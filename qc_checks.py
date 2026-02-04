@@ -765,6 +765,7 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 
 # ----------------------------- 6️⃣ Program Category Check -----------------------------
 def program_category_check(bsr_path, df, col_map, rules, file_rules):
+   
     # -------------------------
     # Helper to find column
     # -------------------------
@@ -795,11 +796,11 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         _find_column(df, ["duration", "duration (mins)", "program duration"])
     )
 
-    if not col_program_type or not col_description or not col_duration:
-        return df  # fail-safe: do nothing if critical columns missing
+    if not col_program_type or not col_description:
+        return df  # fail-safe
 
     # -------------------------
-    # Highlight keywords
+    # Keywords
     # -------------------------
     highlight_keywords = [
         "hits", "hl", "highlights", "hlts", "overview", "review",
@@ -807,16 +808,26 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         "league", "reload"
     ]
 
-    keyword_pattern = re.compile(
+    magazine_support_keywords = [
+        "sports", "show", "league", "magazine", "support",
+        "studio", "magazin", "weekly", "preview", "analysis",
+        "review", "specials", "weekly new", "coming soon"
+    ]
+
+    highlight_pattern = re.compile(
         r"\b(" + "|".join(highlight_keywords) + r")\b",
         re.IGNORECASE
     )
 
+    magazine_support_pattern = re.compile(
+        r"\b(" + "|".join(magazine_support_keywords) + r")\b",
+        re.IGNORECASE
+    )
+
     # -------------------------
-    # Result columns
-    # -------------------------
-    df["Highlight_Check_Result"] = ""
-    df["Highlight_Check_Remark"] = ""
+    # Result columns (shared)
+    df["Program_Category_Check_Result"] = ""
+    df["Program_Category_Check_Remark"] = ""
 
     # -------------------------
     # Validation logic
@@ -824,38 +835,52 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     for idx, row in df.iterrows():
         prog_type = str(row[col_program_type]).strip().lower()
         description = str(row[col_description])
-        duration = row[col_duration]
 
-        # Only validate Highlights
+        # ---------- Highlights check ----------
         if prog_type == "highlights":
-            keyword_found = bool(keyword_pattern.search(description))
+            keyword_found = bool(highlight_pattern.search(description))
 
             try:
-                duration_val = float(duration)
-            except (ValueError, TypeError):
+                duration_val = float(row[col_duration])
+            except Exception:
                 duration_val = 0
 
             if not keyword_found:
-                df.at[idx, "Highlight_Check_Result"] = "False"
-                df.at[idx, "Highlight_Check_Remark"] = (
-                    "Program type is Highlights but description does not "
-                    "contain highlight-related keywords"
+                df.at[idx, "Program_Category_Check_Result"] = "False"
+                df.at[idx, "Program_Category_Check_Remark"] = (
+                    "Program type is Highlights but description does not contain "
+                    "highlight-related keywords"
                 )
 
             elif duration_val <= 10:
-                df.at[idx, "Highlight_Check_Result"] = "False"
-                df.at[idx, "Highlight_Check_Remark"] = (
-                    f"Duration is {duration_val} mins, which is not greater than 10 mins"
+                df.at[idx, "Program_Category_Check_Result"] = "False"
+                df.at[idx, "Program_Category_Check_Remark"] = (
+                    f"Program type is Highlights but duration is {duration_val} mins, "
+                    "which is not greater than 10 mins"
                 )
 
             else:
-                df.at[idx, "Highlight_Check_Result"] = "True"
-                df.at[idx, "Highlight_Check_Remark"] = "Valid Highlights program"
+                df.at[idx, "Program_Category_Check_Result"] = "True"
+                df.at[idx, "Program_Category_Check_Remark"] = "Valid Highlights program"
 
+        # ---------- Magazine & Support check ----------
+        elif prog_type in ["magazine & support", "magazine and support"]:
+            keyword_found = bool(magazine_support_pattern.search(description))
+
+            if not keyword_found:
+                df.at[idx, "Program_Category_Check_Result"] = "False"
+                df.at[idx, "Program_Category_Check_Remark"] = (
+                    "Program type is Magazine & Support but description does not contain "
+                    "magazine/support-related keywords"
+                )
+            else:
+                df.at[idx, "Program_Category_Check_Result"] = "True"
+                df.at[idx, "Program_Category_Check_Remark"] = "Valid Magazine & Support program"
+
+        # ---------- Other program types ----------
         else:
-            # Not a Highlights program → no validation needed
-            df.at[idx, "Highlight_Check_Result"] = "NA"
-            df.at[idx, "Highlight_Check_Remark"] = "Not a Highlights program"
+            df.at[idx, "Program_Category_Check_Result"] = "NA"
+            df.at[idx, "Program_Category_Check_Remark"] = "Program type not applicable for this check"
 
     return df
         
