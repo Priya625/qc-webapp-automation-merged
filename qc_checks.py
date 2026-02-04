@@ -765,109 +765,98 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 
 # ----------------------------- 6️⃣ Program Category Check -----------------------------
 def program_category_check(bsr_path, df, col_map, rules, file_rules):
-    # --- INTERNAL HELPERS ---
-    def norm_cat(val):
-        if pd.isna(val) or str(val).strip() == "": return ""
-        s = str(val).lower().strip()
-        s = s.replace("\u00A0", " ").replace("\u200b", "").replace("&", "and")
-        s = re.sub(r"[^\w\s]", " ", s) 
-        return re.sub(r"\s+", " ", s).strip()
-
-    def clean_team(val):
-        if pd.isna(val): return ""
-        s = str(val).lower().strip()
-        s = s.replace("ø", "o").replace("ö", "o").replace("ä", "a").replace("æ", "a")
-        return re.sub(r"\s+", " ", s).strip()
-
-    def _internal_find_col(dataframe, keys):
-        if not keys: return None
-        if isinstance(keys, str): keys = [keys]
-        for k in keys:
-            for c in dataframe.columns:
-                if str(k).lower() == str(c).lower(): return c
+    # -------------------------
+    # Helper to find column
+    # -------------------------
+    def _find_column(df, possible_names):
+        for col in df.columns:
+            for name in possible_names:
+                if col.strip().lower() == name.strip().lower():
+                    return col
         return None
 
-    def _internal_parse_dt(date_raw, time_raw):
-        if (pd.isna(date_raw) or str(date_raw).strip() == "") and (pd.isna(time_raw) or str(time_raw).strip() == ""):
-            return pd.NaT
-        d_s, t_s = str(date_raw).strip(), str(time_raw).strip().replace(".", ":").replace("-", ":")
-        for dfmt in (False, True):
-            try:
-                dt = pd.to_datetime(f"{d_s} {t_s}", errors='coerce', dayfirst=dfmt)
-                if pd.notna(dt): return dt.replace(tzinfo=None)
-            except: continue
-        return pd.NaT
+    # -------------------------
+    # Column detection
+    # -------------------------
+    bsr_cols = col_map.get("bsr", {})
 
-    # --- INITIALIZATION & COLUMN DETECTION ---
-    xl = pd.ExcelFile(bsr_path)
-    fixture_sheet = next((s for s in xl.sheet_names if "fixture" in s.lower()), None)
-    df_fix = xl.parse(fixture_sheet) if fixture_sheet else pd.DataFrame()
+    col_program_type = (
+        _find_column(df, bsr_cols.get("type_of_program", [])) or
+        _find_column(df, ["type of program", "program type"])
+    )
 
-    b, f = col_map["bsr"], col_map["fixture"]
-    col_home_bsr = _internal_find_col(df, b.get("home_team"))
-    col_away_bsr = _internal_find_col(df, b.get("away_team"))
-    col_date_bsr = _internal_find_col(df, ["Date (UTC/GMT)","Date"])
-    col_start_bsr = _internal_find_col(df, ["Start (UTC)","Start"])
-    col_progtype = _internal_find_col(df, b.get("type_of_program"))
-    col_duration = _internal_find_col(df, b.get("duration"))
-    
-    # Keyword Columns
-    col_combined = _internal_find_col(df, b.get("combined"))
-    col_title = _internal_find_col(df, b.get("program_title"))
-    col_desc = _internal_find_col(df, b.get("program_description"))
+    col_description = (
+        _find_column(df, bsr_cols.get("program_description", [])) or
+        _find_column(df, ["program description", "description", "combined description"])
+    )
 
-    # --- DATA PREP ---
-    df["Program_Category_Actual"] = df[col_progtype].apply(norm_cat) if col_progtype else ""
-    df["Program_Category_Expected"] = ""
-    df["Program_Category_Remark"] = ""
-    df["_start"] = [_internal_parse_dt(df.at[i, col_date_bsr], df.at[i, col_start_bsr]) for i in df.index]
+    col_duration = (
+        _find_column(df, bsr_cols.get("duration", [])) or
+        _find_column(df, ["duration", "duration (mins)", "program duration"])
+    )
 
-    # --- KEYWORD LOGIC DEFINITION ---
-    # Added "h/l" and "hlts" as requested
-    high_kws = [r"summary", r"hits", r"h/l", r"hlts", r"highlights", r"show", r"preview", r"review", r"recap"]
-    pattern = "|".join(high_kws)
+    if not col_program_type or not col_description or not col_duration:
+        return df  # fail-safe: do nothing if critical columns missing
 
-    # --- MAIN LOOP ---
+    # -------------------------
+    # Highlight keywords
+    # -------------------------
+    highlight_keywords = [
+        "hits", "hl", "highlights", "hlts", "overview", "review",
+        "show", "goals", "goal", "summary", "specials",
+        "league", "reload"
+    ]
+
+    keyword_pattern = re.compile(
+        r"\b(" + "|".join(highlight_keywords) + r")\b",
+        re.IGNORECASE
+    )
+
+    # -------------------------
+    # Result columns
+    # -------------------------
+    df["Highlight_Check_Result"] = ""
+    df["Highlight_Check_Remark"] = ""
+
+    # -------------------------
+    # Validation logic
+    # -------------------------
     for idx, row in df.iterrows():
-        # 1. Combine all text fields for searching
-        combined_search_text = " ".join([
-            str(row.get(col_combined, "")),
-            str(row.get(col_title, "")),
-            str(row.get(col_desc, ""))
-        ]).lower()
+        prog_type = str(row[col_program_type]).strip().lower()
+        description = str(row[col_description])
+        duration = row[col_duration]
 
-        # 2. Extract duration in minutes
-        raw_dur = row.get(col_duration, 0)
-        try:
-            # Handle float (43.18) or string durations
-            dur_mins = float(raw_dur)
-        except:
-            dur_mins = 0
+        # Only validate Highlights
+        if prog_type == "highlights":
+            keyword_found = bool(keyword_pattern.search(description))
 
-        # 3. HIGHLIGHTS KEYWORD + DURATION CHECK
-        has_keyword = re.search(pattern, combined_search_text)
-        
-        if has_keyword:
-            if 10 <= dur_mins <= 60:
-                df.at[idx, "Program_Category_Expected"] = norm_cat("highlights")
-                df.at[idx, "Program_Category_Remark"] = f"Highlights (Keyword found, Duration: {dur_mins:.1f}m)"
-                continue
+            try:
+                duration_val = float(duration)
+            except (ValueError, TypeError):
+                duration_val = 0
+
+            if not keyword_found:
+                df.at[idx, "Highlight_Check_Result"] = "False"
+                df.at[idx, "Highlight_Check_Remark"] = (
+                    "Program type is Highlights but description does not "
+                    "contain highlight-related keywords"
+                )
+
+            elif duration_val <= 10:
+                df.at[idx, "Highlight_Check_Result"] = "False"
+                df.at[idx, "Highlight_Check_Remark"] = (
+                    f"Duration is {duration_val} mins, which is not greater than 10 mins"
+                )
+
             else:
-                df.at[idx, "Program_Category_Expected"] = "FALSE"
-                df.at[idx, "Program_Category_Remark"] = f"Keyword match but duration ({dur_mins:.1f}m) out of range (10-60m)"
-                continue
+                df.at[idx, "Highlight_Check_Result"] = "True"
+                df.at[idx, "Highlight_Check_Remark"] = "Valid Highlights program"
 
-        # 4. MAGAZINE & SUPPORT CHECK
-        if any(kw in row["Program_Category_Actual"] for kw in ["magazine", "support", "studio"]):
-            df.at[idx, "Program_Category_Expected"] = norm_cat("magazine & support")
-            continue
+        else:
+            # Not a Highlights program → no validation needed
+            df.at[idx, "Highlight_Check_Result"] = "NA"
+            df.at[idx, "Highlight_Check_Remark"] = "Not a Highlights program"
 
-        # 5. FIXTURE LOOKUP (Only if not a highlight/magazine)
-        # [Insert your Live/Delayed/Repeat fixture code here if needed]
-
-    # --- FINAL VALIDATION ---
-    df["Program_Category_OK"] = df["Program_Category_Actual"] == df["Program_Category_Expected"]
-    
     return df
         
 
