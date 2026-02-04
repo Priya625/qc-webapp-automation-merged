@@ -763,9 +763,11 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
         errors="ignore"
     )
 
-# ----------------------------- 6️⃣ Program Category Check -----------------------------
 def program_category_check(bsr_path, df, col_map, rules, file_rules):
-   
+    import pandas as pd
+    import re
+    from datetime import timedelta
+
     # -------------------------
     # Helper to find column
     # -------------------------
@@ -791,13 +793,15 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         _find_column(df, ["program description", "description", "combined description"])
     )
 
-    col_duration = (
-        _find_column(df, bsr_cols.get("duration", [])) or
-        _find_column(df, ["duration", "duration (mins)", "program duration"])
-    )
+    col_duration = _find_column(df, ["duration", "duration (mins)", "program duration"])
+    col_date = _find_column(df, ["date", "program date"])
+    col_start = _find_column(df, ["start time", "start_time", "start time utc"])
+    col_end = _find_column(df, ["end time", "end_time", "end time utc"])
+    col_home = _find_column(df, ["home team", "home_team"])
+    col_away = _find_column(df, ["away team", "away_team"])
 
-    if not col_program_type or not col_description:
-        return df  # fail-safe
+    if not col_program_type:
+        return df
 
     # -------------------------
     # Keywords
@@ -814,29 +818,45 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         "review", "specials", "weekly new", "coming soon"
     ]
 
-    highlight_pattern = re.compile(
-        r"\b(" + "|".join(highlight_keywords) + r")\b",
-        re.IGNORECASE
-    )
-
-    magazine_support_pattern = re.compile(
-        r"\b(" + "|".join(magazine_support_keywords) + r")\b",
-        re.IGNORECASE
-    )
+    highlight_pattern = re.compile(r"\b(" + "|".join(highlight_keywords) + r")\b", re.I)
+    magazine_support_pattern = re.compile(r"\b(" + "|".join(magazine_support_keywords) + r")\b", re.I)
 
     # -------------------------
-    # Result columns (shared)
-    df["Program_Category_Check_Result"] = ""
-    df["Program_Category_Check_Remark"] = ""
+    # Live tolerance (UI driven)
+    # -------------------------
+    tolerance_min = rules.get("live_tolerance_min")
+    tolerance = timedelta(minutes=int(tolerance_min)) if tolerance_min else timedelta(minutes=60)
+
+    # -------------------------
+    # Load Fixtures from BSR
+    # -------------------------
+    fixtures_df = None
+    try:
+        xl = pd.ExcelFile(bsr_path)
+        fixture_keywords = ["fixture", "fixtures", "fixture list", "fixtures list"]
+        fixture_sheet = next(
+            (s for s in xl.sheet_names if any(k in s.lower() for k in fixture_keywords)),
+            None
+        )
+        if fixture_sheet:
+            fixtures_df = xl.parse(fixture_sheet)
+    except Exception:
+        fixtures_df = None
+
+    # -------------------------
+    # Result columns
+    # -------------------------
+    df["program_category_check_result"] = ""
+    df["program_category_check_remark"] = ""
 
     # -------------------------
     # Validation logic
     # -------------------------
     for idx, row in df.iterrows():
         prog_type = str(row[col_program_type]).strip().lower()
-        description = str(row[col_description])
+        description = str(row[col_description]) if col_description else ""
 
-        # ---------- Highlights check ----------
+        # ---------- Highlights ----------
         if prog_type == "highlights":
             keyword_found = bool(highlight_pattern.search(description))
 
@@ -846,41 +866,81 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                 duration_val = 0
 
             if not keyword_found:
-                df.at[idx, "Program_Category_Check_Result"] = "False"
-                df.at[idx, "Program_Category_Check_Remark"] = (
-                    "Program type is Highlights but description does not contain "
-                    "highlight-related keywords"
+                df.at[idx, "program_category_check_result"] = "False"
+                df.at[idx, "program_category_check_remark"] = (
+                    "Highlights program but description lacks highlight keywords"
                 )
-
             elif duration_val <= 10:
-                df.at[idx, "Program_Category_Check_Result"] = "False"
-                df.at[idx, "Program_Category_Check_Remark"] = (
-                    f"Program type is Highlights but duration is {duration_val} mins, "
-                    "which is not greater than 10 mins"
+                df.at[idx, "program_category_check_result"] = "False"
+                df.at[idx, "program_category_check_remark"] = (
+                    f"Highlights duration {duration_val} mins is not greater than 10 mins"
                 )
-
             else:
-                df.at[idx, "Program_Category_Check_Result"] = "True"
-                df.at[idx, "Program_Category_Check_Remark"] = "Valid Highlights program"
+                df.at[idx, "program_category_check_result"] = "True"
+                df.at[idx, "program_category_check_remark"] = "Valid Highlights program"
 
-        # ---------- Magazine & Support check ----------
+        # ---------- Magazine & Support ----------
         elif prog_type in ["magazine & support", "magazine and support"]:
-            keyword_found = bool(magazine_support_pattern.search(description))
-
-            if not keyword_found:
-                df.at[idx, "Program_Category_Check_Result"] = "False"
-                df.at[idx, "Program_Category_Check_Remark"] = (
-                    "Program type is Magazine & Support but description does not contain "
-                    "magazine/support-related keywords"
+            if not magazine_support_pattern.search(description):
+                df.at[idx, "program_category_check_result"] = "False"
+                df.at[idx, "program_category_check_remark"] = (
+                    "Magazine & Support program but description lacks relevant keywords"
                 )
             else:
-                df.at[idx, "Program_Category_Check_Result"] = "True"
-                df.at[idx, "Program_Category_Check_Remark"] = "Valid Magazine & Support program"
+                df.at[idx, "program_category_check_result"] = "True"
+                df.at[idx, "program_category_check_remark"] = "Valid Magazine & Support program"
 
-        # ---------- Other program types ----------
+        # ---------- Live ----------
+        elif prog_type == "live":
+            if fixtures_df is None:
+                df.at[idx, "program_category_check_result"] = "False"
+                df.at[idx, "program_category_check_remark"] = "Fixtures sheet not available in BSR"
+                continue
+
+            try:
+                bsr_start = pd.to_datetime(f"{row[col_date]} {row[col_start]}", utc=True)
+                bsr_end = pd.to_datetime(f"{row[col_date]} {row[col_end]}", utc=True)
+            except Exception:
+                df.at[idx, "program_category_check_result"] = "False"
+                df.at[idx, "program_category_check_remark"] = "Invalid date/time format for Live program"
+                continue
+
+            home = str(row[col_home]).strip().lower()
+            away = str(row[col_away]).strip().lower()
+
+            match_found = False
+
+            for _, fix in fixtures_df.iterrows():
+                try:
+                    fix_start = pd.to_datetime(fix["start time"], utc=True)
+                    fix_end = pd.to_datetime(fix["end time"], utc=True)
+                except Exception:
+                    continue
+
+                if (
+                    home == str(fix["home team"]).strip().lower() and
+                    away == str(fix["away team"]).strip().lower() and
+                    abs(bsr_start - fix_start) <= tolerance and
+                    abs(bsr_end - fix_end) <= tolerance
+                ):
+                    match_found = True
+                    break
+
+            if match_found:
+                df.at[idx, "program_category_check_result"] = "True"
+                df.at[idx, "program_category_check_remark"] = (
+                    f"Valid Live program matching fixture within {tolerance} tolerance"
+                )
+            else:
+                df.at[idx, "program_category_check_result"] = "False"
+                df.at[idx, "program_category_check_remark"] = (
+                    "Live program does not match fixture within allowed tolerance"
+                )
+
+        # ---------- Other ----------
         else:
-            df.at[idx, "Program_Category_Check_Result"] = "NA"
-            df.at[idx, "Program_Category_Check_Remark"] = "Program type not applicable for this check"
+            df.at[idx, "program_category_check_result"] = "NA"
+            df.at[idx, "program_category_check_remark"] = "Program type not applicable for category check"
 
     return df
         
