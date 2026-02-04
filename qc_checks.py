@@ -769,12 +769,14 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     from datetime import timedelta
 
     # -------------------------
-    # Helper to find column
+    # Helper: find column
     # -------------------------
     def _find_column(df, possible_names):
+        if not possible_names:
+            return None
         for col in df.columns:
             for name in possible_names:
-                if col.strip().lower() == name.strip().lower():
+                if col.strip().lower() == str(name).strip().lower():
                     return col
         return None
 
@@ -784,19 +786,19 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     bsr_cols = col_map.get("bsr", {})
 
     col_program_type = (
-        _find_column(df, bsr_cols.get("type_of_program", [])) or
-        _find_column(df, ["type of program", "program type"])
+        _find_column(df, bsr_cols.get("type_of_program")) or
+        _find_column(df, ["program type", "type of program"])
     )
 
     col_description = (
-        _find_column(df, bsr_cols.get("program_description", [])) or
-        _find_column(df, ["program description", "description", "combined description"])
+        _find_column(df, bsr_cols.get("program_description")) or
+        _find_column(df, ["program description", "combined", "combined (translated)", "description"])
     )
 
     col_duration = _find_column(df, ["duration", "duration (mins)", "program duration"])
-    col_date = _find_column(df, ["date", "program date"])
-    col_start = _find_column(df, ["start time", "start_time", "start time utc"])
-    col_end = _find_column(df, ["end time", "end_time", "end time utc"])
+    col_date = _find_column(df, ["date(utc)", "date", "program date"])
+    col_start = _find_column(df, ["start(utc)", "start time", "start"])
+    col_end = _find_column(df, ["end(utc)", "end time", "end"])
     col_home = _find_column(df, ["home team", "home_team"])
     col_away = _find_column(df, ["away team", "away_team"])
 
@@ -822,13 +824,13 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     magazine_support_pattern = re.compile(r"\b(" + "|".join(magazine_support_keywords) + r")\b", re.I)
 
     # -------------------------
-    # Live tolerance (UI driven)
+    # Live tolerance (from UI)
     # -------------------------
     tolerance_min = rules.get("live_tolerance_min")
     tolerance = timedelta(minutes=int(tolerance_min)) if tolerance_min else timedelta(minutes=60)
 
     # -------------------------
-    # Load Fixtures from BSR
+    # Load Fixtures sheet from BSR
     # -------------------------
     fixtures_df = None
     try:
@@ -850,13 +852,13 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     df["program_category_check_remark"] = ""
 
     # -------------------------
-    # Validation logic
+    # Main validation loop
     # -------------------------
     for idx, row in df.iterrows():
         prog_type = str(row[col_program_type]).strip().lower()
         description = str(row[col_description]) if col_description else ""
 
-        # ---------- Highlights ----------
+        # ========= HIGHLIGHTS =========
         if prog_type == "highlights":
             keyword_found = bool(highlight_pattern.search(description))
 
@@ -879,7 +881,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                 df.at[idx, "program_category_check_result"] = "True"
                 df.at[idx, "program_category_check_remark"] = "Valid Highlights program"
 
-        # ---------- Magazine & Support ----------
+        # ========= MAGAZINE & SUPPORT =========
         elif prog_type in ["magazine & support", "magazine and support"]:
             if not magazine_support_pattern.search(description):
                 df.at[idx, "program_category_check_result"] = "False"
@@ -890,19 +892,33 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                 df.at[idx, "program_category_check_result"] = "True"
                 df.at[idx, "program_category_check_remark"] = "Valid Magazine & Support program"
 
-        # ---------- Live ----------
+        # ========= LIVE =========
         elif prog_type == "live":
             if fixtures_df is None:
                 df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = "Fixtures sheet not available in BSR"
+                df.at[idx, "program_category_check_remark"] = (
+                    "Fixtures sheet not available in BSR for Live validation"
+                )
                 continue
 
+            # --- Build BSR datetime safely ---
             try:
-                bsr_start = pd.to_datetime(f"{row[col_date]} {row[col_start]}", utc=True)
-                bsr_end = pd.to_datetime(f"{row[col_date]} {row[col_end]}", utc=True)
+                base_date = pd.to_datetime(row[col_date]).date()
+                start_time = pd.to_datetime(row[col_start]).time()
+                end_time = pd.to_datetime(row[col_end]).time()
+
+                bsr_start = pd.Timestamp.combine(base_date, start_time).tz_localize("UTC")
+                bsr_end = pd.Timestamp.combine(base_date, end_time).tz_localize("UTC")
+
+                # Handle cross-midnight
+                if bsr_end <= bsr_start:
+                    bsr_end += pd.Timedelta(days=1)
+
             except Exception:
                 df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = "Invalid date/time format for Live program"
+                df.at[idx, "program_category_check_remark"] = (
+                    "Invalid or missing Date(UTC) / Start(UTC) / End(UTC) for Live program"
+                )
                 continue
 
             home = str(row[col_home]).strip().lower()
@@ -929,7 +945,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             if match_found:
                 df.at[idx, "program_category_check_result"] = "True"
                 df.at[idx, "program_category_check_remark"] = (
-                    f"Valid Live program matching fixture within {tolerance} tolerance"
+                    f"Valid Live program matching fixture within ±{int(tolerance.total_seconds()/60)} mins tolerance"
                 )
             else:
                 df.at[idx, "program_category_check_result"] = "False"
@@ -937,10 +953,12 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                     "Live program does not match fixture within allowed tolerance"
                 )
 
-        # ---------- Other ----------
+        # ========= OTHER PROGRAM TYPES =========
         else:
             df.at[idx, "program_category_check_result"] = "NA"
-            df.at[idx, "program_category_check_remark"] = "Program type not applicable for category check"
+            df.at[idx, "program_category_check_remark"] = (
+                "Program type not applicable for Program Category check"
+            )
 
     return df
         
