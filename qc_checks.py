@@ -771,9 +771,9 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     # -------------------------
     # Helpers
     # -------------------------
-    def find_col(names):
+    def find_col(names, columns):
         for n in names:
-            for c in df.columns:
+            for c in columns:
                 if c.strip().lower() == n.strip().lower():
                     return c
         return None
@@ -805,16 +805,19 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         return None
 
     # -------------------------
-    # Columns (NON-UTC)
+    # BSR columns
     # -------------------------
-    col_program_type = find_col(["program type", "type of program"])
-    col_desc = find_col(["combined (translated)", "program description", "description"])
-    col_duration = find_col(["duration", "duration (mins)"])
-    col_date = find_col(["date"])
-    col_start = find_col(["start"])
-    col_end = find_col(["end"])
-    col_home = find_col(["home team"])
-    col_away = find_col(["away team"])
+    col_program_type = find_col(["program type", "type of program"], df.columns)
+    col_desc = find_col(["combined (translated)", "program description", "description"], df.columns)
+    col_duration = find_col(["duration", "duration (mins)"], df.columns)
+
+    # 🔴 USE UTC FROM BSR
+    col_date_utc = find_col(["date(utc)"], df.columns)
+    col_start_utc = find_col(["start(utc)"], df.columns)
+    col_end_utc = find_col(["end(utc)"], df.columns)
+
+    col_home = find_col(["home team"], df.columns)
+    col_away = find_col(["away team"], df.columns)
 
     if not col_program_type:
         return df
@@ -824,22 +827,22 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     # -------------------------
     highlight_re = re.compile(
         r"\b(hits|hl|highlights|hlts|overview|review|show|goals?|summary|specials|league|reload)\b",
-        re.I,
+        re.I
     )
 
     magazine_re = re.compile(
         r"\b(sports|show|league|magazine|support|studio|magazin|weekly|preview|analysis|review|specials|weekly new|coming soon)\b",
-        re.I,
+        re.I
     )
 
     # -------------------------
-    # Tolerance
+    # Live tolerance (minutes)
     # -------------------------
     tol_min = rules.get("live_tolerance_min")
     tolerance = timedelta(minutes=int(tol_min)) if tol_min else timedelta(minutes=60)
 
     # -------------------------
-    # Load fixtures
+    # Load Fixtures (normal time)
     # -------------------------
     fixtures_df = None
     try:
@@ -852,7 +855,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         fixtures_df = None
 
     # -------------------------
-    # Output
+    # Output columns
     # -------------------------
     df["program_category_check_result"] = ""
     df["program_category_check_remark"] = ""
@@ -892,19 +895,20 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
         # ---------- LIVE ----------
         elif ptype == "live":
-            date_val = parse_date(row[col_date])
-            start_val = parse_time(row[col_start])
-            end_val = parse_time(row[col_end])
+            # ---- Parse BSR UTC ----
+            bsr_date = parse_date(row[col_date_utc])
+            bsr_start_t = parse_time(row[col_start_utc])
+            bsr_end_t = parse_time(row[col_end_utc])
 
-            if not date_val or not start_val or not end_val:
+            if not bsr_date or not bsr_start_t or not bsr_end_t:
                 df.at[idx, "program_category_check_result"] = "False"
                 df.at[idx, "program_category_check_remark"] = (
-                    "Invalid or unreadable Date / Start / End for Live program"
+                    "Invalid or unreadable Date(UTC)/Start(UTC)/End(UTC) for Live program"
                 )
                 continue
 
-            bsr_start = datetime.combine(date_val, start_val)
-            bsr_end = datetime.combine(date_val, end_val)
+            bsr_start = datetime.combine(bsr_date, bsr_start_t)
+            bsr_end = datetime.combine(bsr_date, bsr_end_t)
 
             if bsr_end <= bsr_start:
                 bsr_end += timedelta(days=1)
@@ -919,25 +923,26 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
             matched = False
 
+            # ---- Compare with normal fixture times ----
             for _, fx in fixtures_df.iterrows():
                 fx_date = parse_date(fx.get("Date"))
-                fx_start = parse_time(fx.get("Start Time"))
-                fx_end = parse_time(fx.get("End Time"))
+                fx_start_t = parse_time(fx.get("Start Time"))
+                fx_end_t = parse_time(fx.get("End Time"))
 
-                if not fx_date or not fx_start or not fx_end:
+                if not fx_date or not fx_start_t or not fx_end_t:
                     continue
 
-                f_start = datetime.combine(fx_date, fx_start)
-                f_end = datetime.combine(fx_date, fx_end)
+                fx_start = datetime.combine(fx_date, fx_start_t)
+                fx_end = datetime.combine(fx_date, fx_end_t)
 
-                if f_end <= f_start:
-                    f_end += timedelta(days=1)
+                if fx_end <= fx_start:
+                    fx_end += timedelta(days=1)
 
                 if (
                     home == str(fx.get("Home Team", "")).strip().lower()
                     and away == str(fx.get("Away Team", "")).strip().lower()
-                    and abs(bsr_start - f_start) <= tolerance
-                    and abs(bsr_end - f_end) <= tolerance
+                    and abs(bsr_start - fx_start) <= tolerance
+                    and abs(bsr_end - fx_end) <= tolerance
                 ):
                     matched = True
                     break
@@ -945,7 +950,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             if matched:
                 df.at[idx, "program_category_check_result"] = "True"
                 df.at[idx, "program_category_check_remark"] = (
-                    f"Valid Live program matching fixture within ±{int(tolerance.total_seconds()/60)} minutes"
+                    f"Valid Live program (BSR UTC vs Fixture local) within ±{int(tolerance.total_seconds()/60)} minutes"
                 )
             else:
                 df.at[idx, "program_category_check_result"] = "False"
