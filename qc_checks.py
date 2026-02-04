@@ -771,9 +771,9 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     # -------------------------
     # Helpers
     # -------------------------
-    def find_col(names, columns):
+    def find_col(names):
         for n in names:
-            for c in columns:
+            for c in df.columns:
                 if c.strip().lower() == n.strip().lower():
                     return c
         return None
@@ -805,18 +805,19 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         return None
 
     # -------------------------
-    # BSR columns
+    # Column detection
     # -------------------------
-    col_program_type = find_col(["program type", "type of program"], df.columns)
-    col_desc = find_col(["combined (translated)", "program description", "description"], df.columns)
+    col_program_type = find_col(["program type", "type of program"])
+    col_desc = find_col(["combined (translated)", "program description", "description"])
     col_duration = find_col(["duration", "duration (mins)"])
 
-    col_date_utc = find_col(["date(utc)"], df.columns)
-    col_start_utc = find_col(["start(utc)"], df.columns)
-    col_end_utc = find_col(["end(utc)"], df.columns)
+    # BSR UTC columns
+    col_date_utc = find_col(["date(utc)"])
+    col_start_utc = find_col(["start(utc)"])
+    col_end_utc = find_col(["end(utc)"])
 
-    col_home = find_col(["home team"], df.columns)
-    col_away = find_col(["away team"], df.columns)
+    col_home = find_col(["home team"])
+    col_away = find_col(["away team"])
 
     if not col_program_type:
         return df
@@ -835,13 +836,13 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     )
 
     # -------------------------
-    # Tolerance
+    # Live tolerance
     # -------------------------
     tol_min = rules.get("live_tolerance_min")
     tolerance = timedelta(minutes=int(tol_min)) if tol_min else timedelta(minutes=60)
 
     # -------------------------
-    # Load Fixtures
+    # Load fixtures (normal time)
     # -------------------------
     fixtures_df = None
     try:
@@ -854,26 +855,27 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         fixtures_df = None
 
     # -------------------------
-    # Pre-compute FIRST broadcast per fixture
+    # Precompute BSR UTC start (for Delayed logic)
     # -------------------------
     df["_bsr_start_utc"] = None
     for i, r in df.iterrows():
         d = parse_date(r.get(col_date_utc))
-        st = parse_time(r.get(col_start_utc))
-        if d and st:
-            df.at[i, "_bsr_start_utc"] = datetime.combine(d, st)
+        t = parse_time(r.get(col_start_utc))
+        if d and t:
+            df.at[i, "_bsr_start_utc"] = datetime.combine(d, t)
 
-    first_broadcast_map = {}
+    # First broadcast per match (Home, Away, Date)
+    first_broadcast = {}
     for i, r in df.iterrows():
-        if not r.get("_bsr_start_utc"):
+        if not r["_bsr_start_utc"]:
             continue
         key = (
             str(r.get(col_home)).strip().lower(),
             str(r.get(col_away)).strip().lower(),
             r["_bsr_start_utc"].date()
         )
-        if key not in first_broadcast_map or r["_bsr_start_utc"] < first_broadcast_map[key]:
-            first_broadcast_map[key] = r["_bsr_start_utc"]
+        if key not in first_broadcast or r["_bsr_start_utc"] < first_broadcast[key]:
+            first_broadcast[key] = r["_bsr_start_utc"]
 
     # -------------------------
     # Output columns
@@ -888,7 +890,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         ptype = str(row[col_program_type]).strip().lower()
         desc = str(row[col_desc]) if col_desc else ""
 
-        # ---------- HIGHLIGHTS ----------
+        # ===== HIGHLIGHTS =====
         if ptype == "highlights":
             try:
                 dur = float(row[col_duration])
@@ -905,7 +907,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                 df.at[idx, "program_category_check_result"] = "True"
                 df.at[idx, "program_category_check_remark"] = "Valid Highlights program"
 
-        # ---------- MAGAZINE & SUPPORT ----------
+        # ===== MAGAZINE & SUPPORT =====
         elif ptype in ["magazine & support", "magazine and support"]:
             if not magazine_re.search(desc):
                 df.at[idx, "program_category_check_result"] = "False"
@@ -914,19 +916,24 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                 df.at[idx, "program_category_check_result"] = "True"
                 df.at[idx, "program_category_check_remark"] = "Valid Magazine & Support program"
 
-        # ---------- LIVE ----------
+        # ===== LIVE =====
         elif ptype == "live":
-            bsr_date = parse_date(row[col_date_utc])
-            bsr_start_t = parse_time(row[col_start_utc])
-            bsr_end_t = parse_time(row[col_end_utc])
-
-            if not bsr_date or not bsr_start_t or not bsr_end_t or fixtures_df is None:
+            if fixtures_df is None:
                 df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = "Invalid Live timing or fixtures missing"
+                df.at[idx, "program_category_check_remark"] = "Fixtures sheet not available"
                 continue
 
-            bsr_start = datetime.combine(bsr_date, bsr_start_t)
-            bsr_end = datetime.combine(bsr_date, bsr_end_t)
+            bsr_date = parse_date(row[col_date_utc])
+            st = parse_time(row[col_start_utc])
+            et = parse_time(row[col_end_utc])
+
+            if not bsr_date or not st or not et:
+                df.at[idx, "program_category_check_result"] = "False"
+                df.at[idx, "program_category_check_remark"] = "Invalid Date(UTC)/Start(UTC)/End(UTC)"
+                continue
+
+            bsr_start = datetime.combine(bsr_date, st)
+            bsr_end = datetime.combine(bsr_date, et)
             if bsr_end <= bsr_start:
                 bsr_end += timedelta(days=1)
 
@@ -936,13 +943,13 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             matched = False
             for _, fx in fixtures_df.iterrows():
                 fx_date = parse_date(fx.get("Date"))
-                fx_start_t = parse_time(fx.get("Start Time"))
-                fx_end_t = parse_time(fx.get("End Time"))
-                if not fx_date or not fx_start_t or not fx_end_t:
+                fx_st = parse_time(fx.get("Start Time"))
+                fx_et = parse_time(fx.get("End Time"))
+                if not fx_date or not fx_st or not fx_et:
                     continue
 
-                fx_start = datetime.combine(fx_date, fx_start_t)
-                fx_end = datetime.combine(fx_date, fx_end_t)
+                fx_start = datetime.combine(fx_date, fx_st)
+                fx_end = datetime.combine(fx_date, fx_et)
                 if fx_end <= fx_start:
                     fx_end += timedelta(days=1)
 
@@ -962,9 +969,9 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                 df.at[idx, "program_category_check_result"] = "False"
                 df.at[idx, "program_category_check_remark"] = "Live program outside tolerance or fixture mismatch"
 
-        # ---------- DELAYED ----------
+        # ===== DELAYED =====
         elif ptype == "delayed":
-            bsr_start = row.get("_bsr_start_utc")
+            bsr_start = row["_bsr_start_utc"]
             if not bsr_start or fixtures_df is None:
                 df.at[idx, "program_category_check_result"] = "False"
                 df.at[idx, "program_category_check_remark"] = "Invalid Delayed timing or fixtures missing"
@@ -973,38 +980,33 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             home = str(row[col_home]).strip().lower()
             away = str(row[col_away]).strip().lower()
 
+            # first broadcast check
             is_first = (
-                first_broadcast_map.get((home, away, bsr_start.date())) == bsr_start
+                first_broadcast.get((home, away, bsr_start.date())) == bsr_start
             )
 
             fixture_start = None
             for _, fx in fixtures_df.iterrows():
                 fx_date = parse_date(fx.get("Date"))
-                fx_start_t = parse_time(fx.get("Start Time"))
-                if not fx_date or not fx_start_t:
+                fx_st = parse_time(fx.get("Start Time"))
+                if not fx_date or not fx_st:
                     continue
                 if (
                     home == str(fx.get("Home Team", "")).strip().lower()
                     and away == str(fx.get("Away Team", "")).strip().lower()
                 ):
-                    fixture_start = datetime.combine(fx_date, fx_start_t)
+                    fixture_start = datetime.combine(fx_date, fx_st)
                     break
 
             if fixture_start is None:
                 df.at[idx, "program_category_check_result"] = "False"
                 df.at[idx, "program_category_check_remark"] = "Fixture not found for Delayed program"
-                continue
-
-            if abs(bsr_start - fixture_start) <= tolerance:
+            elif abs(bsr_start - fixture_start) <= tolerance:
                 df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = (
-                    "Delayed program falls within Live tolerance window"
-                )
+                df.at[idx, "program_category_check_remark"] = "Delayed program falls within Live tolerance window"
             elif not is_first:
                 df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = (
-                    "Delayed program is not the first broadcast of the match"
-                )
+                df.at[idx, "program_category_check_remark"] = "Delayed program is not first broadcast"
             else:
                 df.at[idx, "program_category_check_result"] = "True"
                 df.at[idx, "program_category_check_remark"] = "Valid Delayed first broadcast"
