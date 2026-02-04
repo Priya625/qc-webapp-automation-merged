@@ -1490,13 +1490,18 @@ def color_excel(output_path, df):
 
     GREEN_FILL = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
     RED_FILL = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+    GREY_FILL = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
 
     wb = load_workbook(output_path)
     ws = wb.active
     headers = [cell.value for cell in ws[1]]
-    col_map = {name: idx+1 for idx, name in enumerate(headers)}
+    col_map = {name: idx + 1 for idx, name in enumerate(headers)}
 
-    qc_columns = [col for col in df.columns if col.endswith("_OK")]
+    # ✅ Support both old and new QC result columns
+    qc_columns = [
+        col for col in df.columns
+        if col.endswith("_OK") or col.endswith("_result")
+    ]
 
     for col_name in qc_columns:
         if col_name in col_map:
@@ -1508,11 +1513,17 @@ def color_excel(output_path, df):
                     cell.fill = GREEN_FILL
                 elif val in [False, "False"]:
                     cell.fill = RED_FILL
+                elif val in ["NA", None]:
+                    cell.fill = GREY_FILL
 
     wb.save(output_path)
 # -----------------------------------------------------------
 # Summary Sheet
 def generate_summary_sheet(output_path, df):
+    from openpyxl import load_workbook
+    from openpyxl.utils.dataframe import dataframe_to_rows
+    import pandas as pd
+
     wb = load_workbook(output_path)
 
     if "Summary" in wb.sheetnames:
@@ -1520,27 +1531,33 @@ def generate_summary_sheet(output_path, df):
 
     ws = wb.create_sheet("Summary")
 
-    qc_columns = [col for col in df.columns if col.endswith("_OK")]
+    # ✅ Support both old and new QC result columns
+    qc_columns = [
+        col for col in df.columns
+        if col.endswith("_OK") or col.endswith("_result")
+    ]
 
     summary_rows = []
 
     for col in qc_columns:
-        series = df[col]
+        series = df[col].astype(str)
 
-        passed = series.eq(True).sum()
-        failed = series.eq(False).sum()
-        total = passed + failed
+        passed = series.eq("True").sum()
+        failed = series.eq("False").sum()
+        na = series.eq("NA").sum()
+        total = passed + failed + na
 
         summary_rows.append([
             col,
             int(total),
             int(passed),
-            int(failed)
+            int(failed),
+            int(na)
         ])
 
     summary_df = pd.DataFrame(
         summary_rows,
-        columns=["Check", "Total Evaluated", "Passed", "Failed"]
+        columns=["Check", "Total Evaluated", "Passed", "Failed", "NA"]
     )
 
     for r in dataframe_to_rows(summary_df, index=False, header=True):
