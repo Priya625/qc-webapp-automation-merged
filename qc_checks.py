@@ -769,7 +769,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     from datetime import timedelta
 
     # -------------------------------------------------
-    # Helper: strict column finder (prevents UTC mixups)
+    # Helper: strict column finder
     # -------------------------------------------------
     def find_col(names):
         for n in names:
@@ -779,16 +779,16 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         return None
 
     # -------------------------------------------------
-    # Column detection (STRICT)
+    # Column detection (NON-UTC ONLY)
     # -------------------------------------------------
     col_program_type = find_col(["program type", "type of program"])
     col_desc = find_col(["combined (translated)", "program description", "description"])
     col_duration = find_col(["duration", "duration (mins)"])
 
-    # UTC columns ONLY for Live
-    col_date_utc = find_col(["date(utc)"])
-    col_start_utc = find_col(["start(utc)"])
-    col_end_utc = find_col(["end(utc)"])
+    # IMPORTANT: use NON-UTC columns only
+    col_date = find_col(["date"])
+    col_start = find_col(["start"])
+    col_end = find_col(["end"])
 
     col_home = find_col(["home team"])
     col_away = find_col(["away team"])
@@ -801,26 +801,28 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     # -------------------------------------------------
     highlight_kw = [
         "hits", "hl", "highlights", "hlts", "overview", "review",
-        "show", "goals", "goal", "summary", "specials", "league", "reload"
+        "show", "goals", "goal", "summary", "specials",
+        "league", "reload"
     ]
 
     magazine_kw = [
-        "sports", "show", "league", "magazine", "support", "studio",
-        "magazin", "weekly", "preview", "analysis", "review",
-        "specials", "weekly new", "coming soon"
+        "sports", "show", "league", "magazine", "support",
+        "studio", "magazin", "weekly", "preview",
+        "analysis", "review", "specials",
+        "weekly new", "coming soon"
     ]
 
     highlight_re = re.compile(r"\b(" + "|".join(highlight_kw) + r")\b", re.I)
     magazine_re = re.compile(r"\b(" + "|".join(magazine_kw) + r")\b", re.I)
 
     # -------------------------------------------------
-    # Live tolerance (from UI → minutes)
+    # Live tolerance (minutes from UI)
     # -------------------------------------------------
     tol_min = rules.get("live_tolerance_min")
     tolerance = timedelta(minutes=int(tol_min)) if tol_min else timedelta(minutes=60)
 
     # -------------------------------------------------
-    # Load Fixtures sheet (NON-UTC assumed)
+    # Load Fixtures (NON-UTC)
     # -------------------------------------------------
     fixtures_df = None
     try:
@@ -839,7 +841,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     df["program_category_check_remark"] = ""
 
     # -------------------------------------------------
-    # Main logic
+    # Main validation
     # -------------------------------------------------
     for idx, row in df.iterrows():
         ptype = str(row[col_program_type]).strip().lower()
@@ -879,30 +881,30 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
         # ========== LIVE ==========
         elif ptype == "live":
-            # Validate UTC fields
-            if not all([col_date_utc, col_start_utc, col_end_utc]):
+            # Validate presence
+            if not all([col_date, col_start, col_end]):
                 df.at[idx, "program_category_check_result"] = "False"
                 df.at[idx, "program_category_check_remark"] = (
-                    "Date(UTC)/Start(UTC)/End(UTC) columns missing"
+                    "Date/Start/End columns missing for Live program"
                 )
                 continue
 
-            # Reject ########
-            if any(str(row[c]).startswith("#") for c in [col_date_utc, col_start_utc, col_end_utc]):
+            # Reject #######
+            if any(str(row[c]).startswith("#") for c in [col_date, col_start, col_end]):
                 df.at[idx, "program_category_check_result"] = "False"
                 df.at[idx, "program_category_check_remark"] = (
-                    "Invalid or missing Date(UTC)/Start(UTC)/End(UTC) for Live program"
+                    "Invalid or missing Date/Start/End for Live program"
                 )
                 continue
 
-            # Build BSR UTC datetimes
+            # Build BSR datetime (NON-UTC)
             try:
-                base_date = pd.to_datetime(row[col_date_utc]).date()
-                start_t = pd.to_datetime(row[col_start_utc]).time()
-                end_t = pd.to_datetime(row[col_end_utc]).time()
+                base_date = pd.to_datetime(row[col_date]).date()
+                start_t = pd.to_datetime(row[col_start]).time()
+                end_t = pd.to_datetime(row[col_end]).time()
 
-                bsr_start = pd.Timestamp.combine(base_date, start_t).tz_localize("UTC")
-                bsr_end = pd.Timestamp.combine(base_date, end_t).tz_localize("UTC")
+                bsr_start = pd.Timestamp.combine(base_date, start_t)
+                bsr_end = pd.Timestamp.combine(base_date, end_t)
 
                 # Cross-midnight
                 if bsr_end <= bsr_start:
@@ -911,7 +913,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             except Exception:
                 df.at[idx, "program_category_check_result"] = "False"
                 df.at[idx, "program_category_check_remark"] = (
-                    "Invalid or missing Date(UTC)/Start(UTC)/End(UTC) for Live program"
+                    "Invalid Date/Start/End format for Live program"
                 )
                 continue
 
@@ -925,15 +927,20 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
             matched = False
 
-            # Fixture times are NON-UTC → tolerance based
+            # Fixture times are also NON-UTC
             for _, fx in fixtures_df.iterrows():
                 try:
-                    fx_start = pd.to_datetime(fx["start time"], errors="coerce")
-                    fx_end = pd.to_datetime(fx["end time"], errors="coerce")
-                except Exception:
-                    continue
+                    fx_date = pd.to_datetime(fx["date"]).date()
+                    fx_start_t = pd.to_datetime(fx["start time"]).time()
+                    fx_end_t = pd.to_datetime(fx["end time"]).time()
 
-                if pd.isna(fx_start) or pd.isna(fx_end):
+                    fx_start = pd.Timestamp.combine(fx_date, fx_start_t)
+                    fx_end = pd.Timestamp.combine(fx_date, fx_end_t)
+
+                    if fx_end <= fx_start:
+                        fx_end += pd.Timedelta(days=1)
+
+                except Exception:
                     continue
 
                 if (
