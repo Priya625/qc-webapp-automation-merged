@@ -1512,18 +1512,29 @@ def home_away_vs_phase_check(df, col_map):
     result_col = "Home_vs_Away_vs_Phase_OK"
     df[result_col] = "NA"
 
+    # --- Detect columns ---
     col_program_type = (
         _find_column(df, b.get("type_of_program")) or
         _find_column(df, ["Type of Program", "Program Type"])
     )
 
-    col_home = _find_column(df, b.get("home_team")) or _find_column(df, ["Home Team"])
-    col_away = _find_column(df, b.get("away_team")) or _find_column(df, ["Away Team"])
-    col_vs = _find_column(df, ["Vs", "VS", "v", "V"])
+    col_home = (
+        _find_column(df, b.get("home_team")) or
+        _find_column(df, ["Home Team"])
+    )
+
+    col_away_named = (
+        _find_column(df, b.get("away_team")) or
+        _find_column(df, ["Away Team"])
+    )
+
     col_phase = (
         _find_column(df, b.get("phase_fixture_episode")) or
         _find_column(df, ["Phase", "Fixture", "Episode"])
     )
+
+    # Column index lookup (for positional logic)
+    col_indices = {c: i for i, c in enumerate(df.columns)}
 
     for idx, row in df.iterrows():
         program_type = str(row.get(col_program_type, "")).strip().lower()
@@ -1531,19 +1542,32 @@ def home_away_vs_phase_check(df, col_map):
             continue
 
         home_team = str(row.get(col_home, "")).strip()
-
-        if col_away:
-            away_team = str(row.get(col_away, "")).strip()
-        elif col_vs:
-            away_team = str(row.get(col_vs, "")).strip()
-        else:
-            away_team = ""
-
-        phase_val = str(row.get(col_phase, "")).strip()
-
-        if not home_team or not away_team or not phase_val:
+        if not home_team or not col_phase:
             continue
 
+        # -------- Away team detection --------
+        away_team = ""
+
+        # Case 1: Proper Away Team column exists
+        if col_away_named:
+            away_team = str(row.get(col_away_named, "")).strip()
+
+        # Case 2: Home | Vs | Away pattern
+        else:
+            home_idx = col_indices.get(col_home)
+            if home_idx is not None and home_idx + 2 < len(df.columns):
+                sep_val = str(row.iloc[home_idx + 1]).strip().lower()
+                if sep_val in ["vs", "v", "vs."]:
+                    away_team = str(row.iloc[home_idx + 2]).strip()
+
+        if not away_team:
+            continue
+
+        phase_val = str(row.get(col_phase, "")).strip()
+        if not phase_val:
+            continue
+
+        # -------- Phase validation --------
         phase_norm = re.sub(r"\s+", " ", phase_val.lower())
 
         if home_team.lower() in phase_norm and away_team.lower() in phase_norm:
