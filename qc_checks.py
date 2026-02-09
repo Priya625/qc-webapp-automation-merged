@@ -1165,6 +1165,7 @@ def market_channel_consistency_check(df_bsr, rosco_path, col_map, file_rules):
 
 # -----------------------------------------------------------
 # 10️⃣ Domestic Market Coverage Check
+# -----------------------------------------------------------
 def domestic_market_check(df_worksheet, bsr_cols, monitoring_start_date=None, debug=False):
     df = df_worksheet.copy()
     df["Domestic_Market_Coverage_OK"] = True
@@ -1498,6 +1499,60 @@ def country_channel_id_check(df, bsr_cols):
         for i in idxs:
             df.at[i, "Market_Channel_ID_OK"] = not inconsistent
             df.at[i, "Market_Channel_ID_Remark"] = remark
+
+    return df
+
+# -----------------------------------------------------------
+# 14️⃣ Home vs Away vs Phase Consistency Check
+# -----------------------------------------------------------
+def home_away_vs_phase_check(df, col_map):
+    import re
+    import pandas as pd
+
+    b = col_map["bsr"]
+
+    result_col = "Home_vs_Away_vs_Phase_OK"
+    df[result_col] = "NA"   # default
+
+    # -------- Column detection --------
+    col_program_type = (
+        _find_column(df, b.get("type_of_program")) or
+        _find_column(df, ["Type of Program", "Program Type"])
+    )
+
+    col_home = _find_column(df, b.get("home_team")) or _find_column(df, ["Home Team"])
+    col_away = _find_column(df, b.get("away_team")) or _find_column(df, ["Away Team"])
+    col_phase = (
+        _find_column(df, b.get("phase_fixture_episode")) or
+        _find_column(df, ["Phase", "Fixture", "Episode"])
+    )
+
+    # -------- Row-wise validation --------
+    for idx, row in df.iterrows():
+        program_type = str(row.get(col_program_type, "")).strip().lower()
+        home_team = str(row.get(col_home, "")).strip()
+        away_team = str(row.get(col_away, "")).strip()
+        phase_val = str(row.get(col_phase, "")).strip()
+
+        # Only applicable for Live / Delayed / Repeat
+        if program_type not in ["live", "delayed", "repeat"]:
+            df.at[idx, result_col] = "NA"
+            continue
+
+        if not home_team or not away_team or not phase_val:
+            df.at[idx, result_col] = "NA"
+            continue
+
+        # Build flexible regex: Home Team vs Away Team
+        pattern = re.compile(
+            rf"{re.escape(home_team)}\s*vs\.?\s*{re.escape(away_team)}",
+            re.IGNORECASE
+        )
+
+        if pattern.search(phase_val):
+            df.at[idx, result_col] = True
+        else:
+            df.at[idx, result_col] = False
 
     return df
 

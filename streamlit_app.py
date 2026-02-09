@@ -660,6 +660,12 @@ with main_qc_tab:
                         df = qc_general.country_channel_id_check(df, col_map.get("bsr", {}))
                     except Exception as e:
                         raise RuntimeError(f"Error during country_channel_id_check: {e}")
+                    
+                    #10 Home vs away team check
+                    try:
+                        df = qc_general.home_away_vs_phase_check(df, col_map)
+                    except Exception as e:
+                        raise RuntimeError(f"Error during home_away_vs_phase_check: {e}")
 
                     # --- Write output Excel ---
                     output_file = f"General_QC_Result_{os.path.splitext(main_bsr_file.name)[0]}.xlsx"
