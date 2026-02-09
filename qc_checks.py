@@ -763,6 +763,9 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
         errors="ignore"
     )
 
+# --------------------------------------------------
+# 6️⃣ Program Category Check 
+# --------------------------------------------------
 def program_category_check(bsr_path, df, col_map, rules, file_rules):
     import pandas as pd
     import re
@@ -822,15 +825,18 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     )
 
     magazine_re = re.compile(
-        r"\b(sports|show|league|magazine|support|studio|magazin|weekly|preview|analysis|review|specials|weekly new|coming soon)\b",
+        r"\b(sports|show|league|magazine|support|studio|magazin|weekly|preview|analysis|review|specials|weekly new|coming soon|coming|pre|post|Chrcha|interview)\b",
         re.I
     )
 
     # -------------------------
-    # Tolerance
+    # Tolerances
     # -------------------------
-    tol_min = rules.get("live_tolerance_min")
-    tolerance = timedelta(minutes=int(tol_min)) if tol_min else timedelta(minutes=60)
+    live_tol_min = rules.get("live_tolerance_min")
+    live_tolerance = timedelta(minutes=int(live_tol_min)) if live_tol_min else timedelta(minutes=60)
+
+    highlight_tol_min = rules.get("highlight_tolerance_min")
+    highlight_tolerance_min = int(highlight_tol_min) if highlight_tol_min else 10
 
     # -------------------------
     # Load fixtures
@@ -891,15 +897,22 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             except Exception:
                 dur = 0
 
-            if not highlight_re.search(desc):
+            # Primary rule: duration
+            if dur <= highlight_tolerance_min:
                 df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = "Missing highlight keywords"
-            elif dur <= 10:
-                df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = "Highlight duration <= 10 minutes"
+                df.at[idx, "program_category_check_remark"] = (
+                    f"Highlight duration <= {highlight_tolerance_min} minutes"
+                )
             else:
                 df.at[idx, "program_category_check_result"] = "True"
-                df.at[idx, "program_category_check_remark"] = "Valid Highlights program"
+
+                # Optional soft remark based on keywords
+                if highlight_re.search(desc):
+                    df.at[idx, "program_category_check_remark"] = "Valid Highlights program"
+                else:
+                    df.at[idx, "program_category_check_remark"] = (
+                        "Valid Highlights program (keywords not detected)"
+                    )
 
         # ===== MAGAZINE & SUPPORT =====
         elif ptype in ["magazine & support", "magazine and support"]:
@@ -936,7 +949,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                 if (
                     home == str(fx.get("Home Team", "")).strip().lower()
                     and away == str(fx.get("Away Team", "")).strip().lower()
-                    and abs(bsr_start - fx_start) <= tolerance
+                    and abs(bsr_start - fx_start) <= live_tolerance
                 ):
                     matched = True
                     break
@@ -960,7 +973,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             elif bsr_start == first_time:
                 df.at[idx, "program_category_check_result"] = "False"
                 df.at[idx, "program_category_check_remark"] = "First broadcast cannot be Delayed"
-            elif abs(bsr_start - first_time) <= tolerance:
+            elif abs(bsr_start - first_time) <= live_tolerance:
                 df.at[idx, "program_category_check_result"] = "False"
                 df.at[idx, "program_category_check_remark"] = "Delayed program falls within Live tolerance"
             else:
