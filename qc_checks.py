@@ -836,7 +836,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     live_tolerance = timedelta(minutes=int(live_tol_min)) if live_tol_min else timedelta(minutes=60)
 
     highlight_tol_min = rules.get("highlight_tolerance_min")
-    highlight_tolerance_min = int(highlight_tol_min) if highlight_tol_min else 00
+    highlight_tolerance_min = int(highlight_tol_min) if highlight_tol_min not in [None, "", 0] else None
 
     # -------------------------
     # Load fixtures
@@ -895,24 +895,30 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             try:
                 dur = float(row[col_duration])
             except Exception:
-                dur = 0
+                dur = None
 
-            # Primary rule: duration
-            if dur <= highlight_tolerance_min:
-                df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = (
-                    f"Highlight duration <= {highlight_tolerance_min} minutes"
-                )
+            # Case 1: User has provided highlight tolerance → enforce duration
+            if highlight_tolerance_min is not None:
+                if dur is None or dur <= highlight_tolerance_min:
+                    df.at[idx, "program_category_check_result"] = "False"
+                    df.at[idx, "program_category_check_remark"] = (
+                        f"Highlight duration <= {highlight_tolerance_min} minutes"
+                    )
+                else:
+                    df.at[idx, "program_category_check_result"] = "True"
+                    if highlight_re.search(desc):
+                        df.at[idx, "program_category_check_remark"] = "Valid Highlights program"
+                    else:
+                        df.at[idx, "program_category_check_remark"] = (
+                            "Valid Highlights program (keywords not detected)"
+                        )
+
+            # Case 2: User did NOT provide tolerance → bypass duration check
             else:
                 df.at[idx, "program_category_check_result"] = "True"
-
-                # Optional soft remark based on keywords
-                if highlight_re.search(desc):
-                    df.at[idx, "program_category_check_remark"] = "Valid Highlights program"
-                else:
-                    df.at[idx, "program_category_check_remark"] = (
-                        "Valid Highlights program (keywords not detected)"
-                    )
+                df.at[idx, "program_category_check_remark"] = (
+                    "Valid Highlights program (duration check not applied)"
+                )
 
         # ===== MAGAZINE & SUPPORT =====
         elif ptype in ["magazine & support", "magazine and support"]:
