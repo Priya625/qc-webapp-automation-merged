@@ -521,54 +521,40 @@ with main_qc_tab:
 
     st.write("---")
     # --time picker--
-    st.subheader("Set Live Tolerance")
-    col_p1, col_p2 = st.columns(2)
+    # Create the top-level layout (2 main columns)
+    main_col1, main_col2 = st.columns(2)
 
-    with col_p1:
+    # --- LEFT COLUMN: LIVE TOLERANCE ---
+    with main_col1:
+        st.subheader("Set Live Tolerance")
         st.caption("If left at 0:00, the system defaults to 1 hour (60 min).")
+        
+        # Nested columns for hours/mins
         t_col1, t_col2 = st.columns(2)
         with t_col1:
             tol_hours = st.number_input("Hours", min_value=0, max_value=24, value=0, step=1, key="ui_tol_hr")
         with t_col2:
             tol_mins = st.number_input("Minutes", min_value=0, max_value=59, value=0, step=1, key="ui_tol_min")
         
-        # Calculation Logic
         user_input_total = (tol_hours * 60) + tol_mins
         final_tolerance = user_input_total if user_input_total > 0 else 60
-        st.info(f"Active Tolerance: **{final_tolerance} minutes**")
+        st.info(f"Active Tolerance: **{final_tolerance} min**")
 
-st.subheader("Set Highlights Tolerance")
-col_h1, col_h2 = st.columns(2)
+    # --- RIGHT COLUMN: HIGHLIGHTS TOLERANCE ---
+    with main_col2:
+        st.subheader("Set Highlights Tolerance")
+        st.caption("If left at 0:00, the system defaults to 10 minutes.")
+        
+        # Nested columns for hours/mins
+        h_col1, h_col2 = st.columns(2)
+        with h_col1:
+            hl_hours = st.number_input("Hours ", min_value=0, max_value=24, value=0, step=1, key="ui_hl_tol_hr")
+        with h_col2:
+            hl_mins = st.number_input("Minutes ", min_value=0, max_value=59, value=0, step=1, key="ui_hl_tol_min")
 
-with col_h1:
-    st.caption("If left at 0:00, the system defaults to 10 minutes.")
-    h_col1, h_col2 = st.columns(2)
-
-    with h_col1:
-        hl_hours = st.number_input(
-            "Hours",
-            min_value=0,
-            max_value=24,
-            value=0,
-            step=1,
-            key="ui_hl_tol_hr"
-        )
-
-    with h_col2:
-        hl_mins = st.number_input(
-            "Minutes",
-            min_value=0,
-            max_value=59,
-            value=0,
-            step=1,
-            key="ui_hl_tol_min"
-        )
-
-    # Calculation logic
-    hl_total = (hl_hours * 60) + hl_mins
-    highlight_tolerance = hl_total if hl_total > 0 else 10
-
-    st.info(f"Active Highlights Tolerance: **{highlight_tolerance} minutes**")
+        hl_total = (hl_hours * 60) + hl_mins
+        highlight_tolerance = hl_total if hl_total > 0 else 10
+        st.info(f"Active Highlights Tolerance: **{highlight_tolerance} min**")
 
     # -------------------- RUN BUTTON (SAFE PROCESS) --------------------
     if st.button("🚀 Run General QC Checks"):
