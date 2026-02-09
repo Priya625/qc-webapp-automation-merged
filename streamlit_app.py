@@ -540,10 +540,9 @@ with main_qc_tab:
         final_tolerance = user_input_total if user_input_total > 0 else 60
         st.info(f"Active Tolerance: **{final_tolerance} min**")
 
-    # --- RIGHT COLUMN: HIGHLIGHTS TOLERANCE ---
     with main_col2:
         st.subheader("Set Highlights Tolerance")
-        st.caption("If left at 0:00, the system defaults to 0 minutes.")
+        st.caption("Any duration ≥ 0 mins is valid. Default is 0.")
         
         # Nested columns for hours/mins
         h_col1, h_col2 = st.columns(2)
@@ -552,8 +551,8 @@ with main_qc_tab:
         with h_col2:
             hl_mins = st.number_input("Minutes ", min_value=0, max_value=59, value=0, step=1, key="ui_hl_tol_min")
 
-        hl_total = (hl_hours * 60) + hl_mins
-        highlight_tolerance = hl_total if hl_total > 0 else 0
+        # The logic change: remove the "if hl_total > 0 else 10" check
+        highlight_tolerance = (hl_hours * 60) + hl_mins
         st.info(f"Active Highlights Tolerance: **{highlight_tolerance} min**")
 
     # -------------------- RUN BUTTON --------------------
