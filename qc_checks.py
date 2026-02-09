@@ -836,7 +836,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     live_tolerance = timedelta(minutes=int(live_tol_min)) if live_tol_min else timedelta(minutes=60)
 
     highlight_tol_min = rules.get("highlight_tolerance_min")
-    highlight_tolerance_min = int(highlight_tol_min) if highlight_tol_min else 10
+    highlight_tolerance_min = int(highlight_tol_min) if highlight_tol_min else 00
 
     # -------------------------
     # Load fixtures
