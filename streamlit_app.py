@@ -543,7 +543,7 @@ with main_qc_tab:
     # --- RIGHT COLUMN: HIGHLIGHTS TOLERANCE ---
     with main_col2:
         st.subheader("Set Highlights Tolerance")
-        st.caption("If left at 0:00, the system defaults to 10 minutes.")
+        st.caption("If left at 0:00, the system defaults to 0 minutes.")
         
         # Nested columns for hours/mins
         h_col1, h_col2 = st.columns(2)
@@ -553,10 +553,10 @@ with main_qc_tab:
             hl_mins = st.number_input("Minutes ", min_value=0, max_value=59, value=0, step=1, key="ui_hl_tol_min")
 
         hl_total = (hl_hours * 60) + hl_mins
-        highlight_tolerance = hl_total if hl_total > 0 else 10
+        highlight_tolerance = hl_total if hl_total > 0 else 0
         st.info(f"Active Highlights Tolerance: **{highlight_tolerance} min**")
 
-    # -------------------- RUN BUTTON (SAFE PROCESS) --------------------
+    # -------------------- RUN BUTTON --------------------
     if st.button("🚀 Run General QC Checks"):
         # Basic validations
         if not main_rosco_file or not main_bsr_file or not config:
