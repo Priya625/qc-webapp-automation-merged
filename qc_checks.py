@@ -1507,90 +1507,81 @@ def country_channel_id_check(df, bsr_cols):
 # -----------------------------------------------------------
 def home_away_vs_phase_check(df, col_map):
     import re
+    import pandas as pd
 
-    # 1. Initialize result column
     result_col = "Home_vs_Away_vs_Phase_OK"
     df[result_col] = "NA"
 
-    # 2. Extract BSR mappings safely
-    # If col_map is a nested dict, get the 'bsr' part; otherwise use it as is
+    # 1. Safely extract the BSR mapping
     b = col_map.get("bsr", {}) if isinstance(col_map.get("bsr"), dict) else col_map
 
-    def _get_best_col(df, config_key, hardcoded_fallbacks):
-        """Helper to handle both list and string types from config and fallbacks."""
-        # Get value from config
+    def _get_best_col(df, config_key, fallbacks):
         config_val = b.get(config_key, [])
-        
-        # Ensure we have a flat list of search terms
         search_terms = []
-        if isinstance(config_val, list):
-            search_terms.extend(config_val)
-        elif isinstance(config_val, str):
-            search_terms.append(config_val)
+        if isinstance(config_val, list): search_terms.extend(config_val)
+        elif isinstance(config_val, str): search_terms.append(config_val)
         
-        search_terms.extend(hardcoded_fallbacks)
+        # Expanded fallbacks for UEFA/BSR standards
+        search_terms.extend(fallbacks)
 
-        # Search in dataframe columns
         for term in search_terms:
-            if term in df.columns:
-                return term
-            # Case-insensitive check
+            if term in df.columns: return term
             for actual_col in df.columns:
                 if str(actual_col).strip().lower() == str(term).strip().lower():
                     return actual_col
         return None
 
-    # Detect all required columns
-    col_program_type = _get_best_col(df, "type_of_program", ["Type of Program", "Program Type", "Status"])
-    col_home = _get_best_col(df, "home_team", ["Home Team", "Home", "Team 1"])
-    col_away_named = _get_best_col(df, "away_team", ["Away Team", "Away", "Team 2"])
-    col_phase = _get_best_col(df, "phase_fixture_episode", ["Phase", "Fixture", "Episode", "Program", "Description"])
+    # 2. Detect Columns with expanded Fallbacks
+    col_program_type = _get_best_col(df, "type_of_program", ["Type of Program", "Program Type", "Status", "Live/Repeat"])
+    col_home = _get_best_col(df, "home_team", ["Home Team", "Home", "Team 1", "Team A", "Home_Team"])
+    col_away_named = _get_best_col(df, "away_team", ["Away Team", "Away", "Team 2", "Team B", "Away_Team"])
+    # Phase is often 'Combined', 'Event', or 'Fixture Description' in UEFA logs
+    col_phase = _get_best_col(df, "phase_fixture_episode", ["Phase", "Fixture", "Combined", "Event", "Description", "Program"])
 
-    # Pre-calculate column indices for positional logic
     col_indices = {c: i for i, c in enumerate(df.columns)}
 
     # 3. Process Rows
     for idx, row in df.iterrows():
-        # A. Get and Clean Program Type
         raw_type = row.get(col_program_type, "")
         program_type = str(raw_type).strip().lower() if not pd.isna(raw_type) else ""
         
-        # Only check match-based broadcasts
         if program_type not in ["live", "delayed", "repeat"]:
             df.at[idx, result_col] = "Not Applicable"
             continue
 
-        # B. Check if required columns exist
+        # This is where your "Headers Not Found" error was coming from
         if not col_home or not col_phase:
-            df.at[idx, result_col] = "Error: Headers Not Found"
+            missing = []
+            if not col_home: missing.append("Home")
+            if not col_phase: missing.append("Phase/Fixture")
+            df.at[idx, result_col] = f"Error: {', '.join(missing)} column not found"
             continue
 
         home_team = str(row.get(col_home, "")).strip()
         phase_val = str(row.get(col_phase, "")).strip()
 
         if not home_team or home_team.lower() == "nan" or not phase_val:
-            df.at[idx, result_col] = "Error: Missing Data in Row"
+            df.at[idx, result_col] = "Error: Missing cell data"
             continue
 
-        # C. Detect Away Team
+        # 4. Away Team Detection Logic
         away_team = ""
         if col_away_named:
             away_val = row.get(col_away_named, "")
             away_team = str(away_val).strip() if not pd.isna(away_val) else ""
         
-        # If no away column or empty cell, try positional logic (Home | VS | Away)
         if not away_team or away_team.lower() == "nan":
             home_idx = col_indices.get(col_home)
             if home_idx is not None and home_idx + 2 < len(df.columns):
                 sep_val = str(row.iloc[home_idx + 1]).strip().lower()
-                if sep_val in ["vs", "v", "vs.", "-", "x"]:
+                if sep_val in ["vs", "v", "vs.", "-", "x", "v."]:
                     away_team = str(row.iloc[home_idx + 2]).strip()
 
         if not away_team or away_team.lower() == "nan":
-            df.at[idx, result_col] = "Error: Away Team Not Found"
+            df.at[idx, result_col] = "Error: Away Team not found"
             continue
 
-        # D. Perform Consistency Check
+        # 5. Validation
         phase_norm = re.sub(r"\s+", " ", phase_val.lower())
         if home_team.lower() in phase_norm and away_team.lower() in phase_norm:
             df.at[idx, result_col] = True
