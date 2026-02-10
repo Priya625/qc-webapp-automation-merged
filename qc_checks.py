@@ -1608,6 +1608,103 @@ def home_away_vs_phase_check(df, col_map):
     return df
 
 # -----------------------------------------------------------
+# 15️⃣ Multiple Live Match Consistency Check
+# -----------------------------------------------------------
+def multiple_live_match_check(df, col_map):
+    import pandas as pd
+
+    b = col_map["bsr"]
+    result_col = "Multiple_Live_Match_OK"
+    df[result_col] = "NA"
+
+    # -------- Column detection --------
+    col_program_type = (
+        _find_column(df, b.get("type_of_program")) or
+        _find_column(df, ["Type of Program", "Program Type"])
+    )
+
+    col_market = _find_column(df, b.get("market")) or _find_column(df, ["Market"])
+    col_broadcaster = _find_column(df, b.get("broadcaster")) or _find_column(df, ["Broadcaster"])
+    col_channel = _find_column(df, b.get("tv_channel")) or _find_column(df, ["TV Channel", "Channel"])
+    col_matchday = _find_column(df, b.get("matchday")) or _find_column(df, ["Matchday"])
+    col_match = (
+        _find_column(df, b.get("phase_fixture_episode")) or
+        _find_column(df, ["Phase", "Fixture", "Episode"])
+    )
+
+    required_cols = [
+        col_program_type,
+        col_market,
+        col_broadcaster,
+        col_channel,
+        col_matchday,
+        col_match,
+    ]
+
+    # If any mandatory column missing → entire check NA
+    if not all(required_cols):
+        return df
+
+    # -------- Filter Live programs only --------
+    live_df = df[
+        df[col_program_type].astype(str).str.lower().eq("live")
+    ]
+
+    if live_df.empty:
+        return df
+
+    # -------- Grouping logic --------
+    group_cols = [
+        col_market,
+        col_broadcaster,
+        col_channel,
+        col_matchday,
+        col_match,
+    ]
+
+    live_counts = (
+        live_df
+        .groupby(group_cols)
+        .size()
+        .reset_index(name="live_count")
+    )
+
+    # Identify duplicate live combinations
+    duplicate_keys = live_counts[live_counts["live_count"] > 1]
+
+    if duplicate_keys.empty:
+        # All live rows are valid
+        df.loc[live_df.index, result_col] = True
+        return df
+
+    # -------- Flag rows --------
+    for idx in live_df.index:
+        row = df.loc[idx]
+
+        key = (
+            row[col_market],
+            row[col_broadcaster],
+            row[col_channel],
+            row[col_matchday],
+            row[col_match],
+        )
+
+        match = duplicate_keys[
+            (duplicate_keys[col_market] == key[0]) &
+            (duplicate_keys[col_broadcaster] == key[1]) &
+            (duplicate_keys[col_channel] == key[2]) &
+            (duplicate_keys[col_matchday] == key[3]) &
+            (duplicate_keys[col_match] == key[4])
+        ]
+
+        if not match.empty:
+            df.at[idx, result_col] = False
+        else:
+            df.at[idx, result_col] = True
+
+    return df
+
+# -----------------------------------------------------------
 # ✅ Excel Coloring for True/False checks
 def color_excel(output_path, df):
     from openpyxl import load_workbook
