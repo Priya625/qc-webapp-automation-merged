@@ -708,22 +708,20 @@
 
 # --------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-from fastapi import APIRouter, FastAPI, Query, UploadFile, File, HTTPException, Form, Request
+from fastapi import FastAPI, APIRouter, UploadFile, File, HTTPException, Form, Query
 from fastapi.responses import FileResponse, JSONResponse
-from contextlib import asynccontextmanager
-import pandas as pd 
+import pandas as pd
 import os
 import time
+import json
+import shutil
 import threading
-import shutil 
-from typing import Optional, List 
-from C_data_processing import DataExplorer
-from io import BytesIO 
-import json 
+from typing import Optional, List
 
 # =========================
-# QC IMPORTS (DO NOT CHANGE)
+# QC IMPORTS
 # =========================
+import qc_checks as qc_general
 from qc_checks import (
     detect_period_from_rosco,
     load_bsr,
@@ -739,24 +737,16 @@ from qc_checks import (
     generate_summary_sheet,
 )
 
-
 from C_data_processing_f1 import BSRValidator
 from C_data_processing_EPL import EPLValidator
-
-# --- NEW QC IMPORTS ---
-import qc_checks as qc_general
-import epl_checks 
-
-# -------------------- ⚙️ Folder setup --------------------
-# =========================
-# APP + ROUTER
-# =========================
-app = FastAPI(title="QC Hub API")
-qc_router = APIRouter()
+from C_data_processing_SerieA import SerieAValidator
 
 # =========================
-# PATHS
+# APP SETUP
 # =========================
+app = FastAPI(title="Nielsen QC API")
+router = APIRouter()
+
 BASE_DIR = os.getcwd()
 UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 OUTPUT_FOLDER = os.path.join(BASE_DIR, "outputs")
@@ -765,7 +755,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 # =========================
-# BACKGROUND CLEANUP (SAFE)
+# BACKGROUND CLEANUP
 # =========================
 def cleanup_old_files(folder, max_age_minutes=30):
     now = time.time()
@@ -775,10 +765,10 @@ def cleanup_old_files(folder, max_age_minutes=30):
         if os.path.isfile(path) and now - os.path.getmtime(path) > max_age:
             try:
                 os.remove(path)
-            except:
+            except Exception:
                 pass
 
-def start_cleanup_thread():
+def start_cleanup():
     def loop():
         while True:
             cleanup_old_files(UPLOAD_FOLDER)
@@ -786,7 +776,7 @@ def start_cleanup_thread():
             time.sleep(300)
     threading.Thread(target=loop, daemon=True).start()
 
-start_cleanup_thread()
+start_cleanup()
 
 # =========================
 # CONFIG LOADER
@@ -796,133 +786,58 @@ def load_config():
         return json.load(f)
 
 # =========================
-# FIX: SAFE COLUMN FLATTENER
+# FIXTURE EXTRACTOR
 # =========================
-def _flatten(val):
-    if isinstance(val, list):
-        return val
-    if isinstance(val, str):
-        return [val]
-    return []
-
-# =========================
-# FIX: FIXTURE EXTRACTOR
-# =========================
-def extract_fixtures_sheet(bsr_path):
+def extract_fixtures(bsr_path):
     xl = pd.ExcelFile(bsr_path)
     for s in xl.sheet_names:
         if "fixture" in s.lower():
             return xl.parse(s)
     return None
 
-
-# -------------------- 📂 Original API Endpoints --------------------
-
-# 💡 NOTE: If you need app.state here, you must add 'request: Request' to parameters
-# and access it via request.app.state.df
-
-@qc_router.post("/api/upload_csv")
-async def upload_csv(request: Request, file: UploadFile = File(...)):
-    file_location = os.path.join(UPLOAD_FOLDER, file.filename) 
-    try:
-        with open(file_location, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-            
-        # Accessing state via request.app.state
-        if hasattr(request.app.state, 'df'):
-            request.app.state.df = pd.read_csv(file_location, index_col=0, parse_dates=True)
-
-        return {"filename": file.filename, "detail": f"File successfully uploaded and saved to {file_location}"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An error occurred during file upload: {e}")
-    finally:
-        await file.close()
-
-# --------------------  End Points Using DataExplorer Class  --------------------
-
-@qc_router.get("/api/summary")
-async def read_summary_data(request: Request):
-    if not hasattr(request.app.state, 'df') or request.app.state.df.empty:
-        raise HTTPException(status_code=404, detail="Data not loaded. Upload Sales.csv first.")
-    data = DataExplorer(request.app.state.df)
-    return data.summary().json_response()
-
-@qc_router.get("/api/kpis")
-async def read_kpis(request: Request, country: str = Query(None)):
-    if not hasattr(request.app.state, 'df') or request.app.state.df.empty:
-        raise HTTPException(status_code=404, detail="Data not loaded. Upload Sales.csv first.")
-    data = DataExplorer(request.app.state.df)
-    return data.kpis(country)
-
-@qc_router.get("/api/")
-async def read_sales(request: Request, limit: int = Query(100, gt=0, lt=150000)):
-    if not hasattr(request.app.state, 'df') or request.app.state.df.empty:
-        raise HTTPException(status_code=404, detail="Data not loaded. Upload Sales.csv first.")
-    data = DataExplorer(request.app.state.df, limit)
-    return data.json_response()
-
-# --------------------  QC API Endpoint --------------------
-
 # ======================================================
-# ================= GENERAL QC ENDPOINT =================
+# =============== GENERAL QC (STREAMLIT PARITY) =========
 # ======================================================
-@qc_router.post("/run_general_qc")
+@router.post("/run_general_qc")
 def run_general_qc(
     rosco_file: UploadFile = File(...),
-    bsr_file: UploadFile = File(...)
+    bsr_file: UploadFile = File(...),
+    live_tolerance_min: int = Form(60),
+    highlight_tolerance_min: int = Form(0),
 ):
-    """
-    Streamlit-parity General QC
-    Uses ONLY qc_checks.py
-    """
-
     config = load_config()
     col_map = config["column_mappings"]
     rules = config["qc_rules"]
     file_rules = config["file_rules"]
 
+    rules.setdefault("program_category", {})
+    rules["program_category"]["live_tolerance_min"] = live_tolerance_min
+    rules["program_category"]["highlight_tolerance_min"] = highlight_tolerance_min
+
     rosco_path = os.path.join(UPLOAD_FOLDER, rosco_file.filename)
     bsr_path = os.path.join(UPLOAD_FOLDER, bsr_file.filename)
 
     try:
-        # ---------------- Save files ----------------
         with open(rosco_path, "wb") as f:
             shutil.copyfileobj(rosco_file.file, f)
         with open(bsr_path, "wb") as f:
             shutil.copyfileobj(bsr_file.file, f)
 
-        # ---------------- Period ----------------
         start_date, end_date = detect_period_from_rosco(rosco_path)
-
-        # ---------------- Load BSR ----------------
         df = load_bsr(bsr_path)
+        df.columns = df.columns.str.replace("\xa0", " ").str.strip()
 
-        df.columns = (
-            df.columns.astype(str)
-            .str.replace("\xa0", " ", regex=False)
-            .str.strip()
-        )
-
-        # ---------------- AUTO SORT (FIXED) ----------------
-        sort_cols = []
-        for key in ("channel", "date", "start_time"):
-            sort_cols.extend(_flatten(col_map["bsr"].get(key)))
-
-        sort_cols = [c for c in sort_cols if c in df.columns]
-        if sort_cols:
-            df = df.sort_values(sort_cols).reset_index(drop=True)
-
-        # ---------------- QC CHECKS ----------------
+        df = qc_general.auto_sort_bsr(df, col_map["bsr"])
         df = period_check(df, start_date, end_date)
-        df = completeness_check(df, col_map["bsr"], rules.get("program_category", {}))
-        df = overlap_duplicate_daybreak_check(df, col_map["bsr"], rules.get("overlap_check", {}))
+        df = completeness_check(df, col_map["bsr"], rules["program_category"])
+        df = overlap_duplicate_daybreak_check(
+            df, col_map["bsr"], rules.get("overlap_check", {})
+        )
         df = program_category_check(
-            bsr_path, df, col_map,
-            rules.get("program_category", {}),
-            file_rules
+            bsr_path, df, col_map, rules["program_category"], file_rules
         )
 
-        fixtures_df = extract_fixtures_sheet(bsr_path)
+        fixtures_df = extract_fixtures(bsr_path)
         if fixtures_df is not None:
             df = check_event_matchday_competition(df, fixtures_df)
         else:
@@ -932,13 +847,11 @@ def run_general_qc(
         df = market_channel_consistency_check(df, rosco_path, col_map, file_rules)
         df = rates_and_ratings_check(df, col_map["bsr"])
         df = country_channel_id_check(df, col_map["bsr"])
+        df = qc_general.home_away_vs_phase_check(df, col_map)
+        df = qc_general.multiple_live_match_check(df, col_map)
 
-        # ---------------- OUTPUT ----------------
         output_file = f"General_QC_Result_{os.path.splitext(bsr_file.filename)[0]}.xlsx"
         output_path = os.path.join(OUTPUT_FOLDER, output_file)
-
-        for c in df.select_dtypes(include=["datetimetz"]).columns:
-            df[c] = df[c].dt.tz_localize(None)
 
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
             df.to_excel(writer, index=False, sheet_name="QC Results")
@@ -949,7 +862,7 @@ def run_general_qc(
         generate_summary_sheet(output_path, df)
 
         return FileResponse(
-            path=output_path,
+            output_path,
             filename=output_file,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
@@ -957,309 +870,174 @@ def run_general_qc(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# =========================
-# DOWNLOAD ENDPOINT
-# =========================
-@qc_router.get("/download_file")
+    finally:
+        for p in [rosco_path, bsr_path]:
+            if p and os.path.exists(p):
+                os.remove(p)
+
+# ======================================================
+# =============== SERIE A QC ENDPOINT ===================
+# ======================================================
+@router.post("/run_serie_a_qc")
+def run_serie_a_qc(
+    bsr_file: UploadFile = File(...),
+    duplicator_file: Optional[UploadFile] = File(None),
+    infront_file: Optional[UploadFile] = File(None),
+    checks: List[str] = Form(...),
+):
+    bsr_path = os.path.join(UPLOAD_FOLDER, bsr_file.filename)
+    dup_path = infront_path = None
+
+    output_file = f"Serie_A_QC_Result_{int(time.time())}.xlsx"
+    output_path = os.path.join(OUTPUT_FOLDER, output_file)
+
+    try:
+        with open(bsr_path, "wb") as f:
+            shutil.copyfileobj(bsr_file.file, f)
+
+        if duplicator_file:
+            dup_path = os.path.join(UPLOAD_FOLDER, duplicator_file.filename)
+            with open(dup_path, "wb") as f:
+                shutil.copyfileobj(duplicator_file.file, f)
+
+        if infront_file:
+            infront_path = os.path.join(UPLOAD_FOLDER, infront_file.filename)
+            with open(infront_path, "wb") as f:
+                shutil.copyfileobj(infront_file.file, f)
+
+        df = load_bsr(bsr_path)
+
+        validator = SerieAValidator(
+            df=df,
+            duplicator_path=dup_path,
+            infront_path=infront_path,
+        )
+
+        summaries = validator.market_check_processor(checks)
+        df_processed = validator.df
+
+        if df_processed.empty:
+            raise Exception("Serie A QC produced empty dataframe")
+
+        df_processed.to_excel(output_path, index=False)
+
+        return JSONResponse(
+            {
+                "status": "Success",
+                "download_url": f"/api/qc/download_file?filename={output_file}",
+                "summaries": summaries,
+            }
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        for p in [bsr_path, dup_path, infront_path]:
+            if p and os.path.exists(p):
+                os.remove(p)
+
+# ======================================================
+# ========== MARKET / F1 / EPL COMBINED =================
+# ======================================================
+EPL_CHECK_KEYS = set(EPLValidator.market_check_map.keys())
+
+@router.post("/market_check_and_process")
+def market_check_and_process(
+    bsr_file: UploadFile = File(...),
+    obligation_file: Optional[UploadFile] = File(None),
+    overnight_file: Optional[UploadFile] = File(None),
+    macro_file: Optional[UploadFile] = File(None),
+    checks: List[str] = Form(...),
+    check_configs: str = Form("{}"),
+):
+    bsr_path = os.path.join(UPLOAD_FOLDER, bsr_file.filename)
+    obligation_path = overnight_path = macro_path = None
+
+    try:
+        runtime_config = json.loads(check_configs)
+    except Exception:
+        runtime_config = {}
+
+    output_file = f"Processed_BSR_{int(time.time())}.xlsx"
+    output_path = os.path.join(OUTPUT_FOLDER, output_file)
+
+    try:
+        with open(bsr_path, "wb") as f:
+            shutil.copyfileobj(bsr_file.file, f)
+
+        if obligation_file:
+            obligation_path = os.path.join(UPLOAD_FOLDER, obligation_file.filename)
+            with open(obligation_path, "wb") as f:
+                shutil.copyfileobj(obligation_file.file, f)
+
+        if overnight_file:
+            overnight_path = os.path.join(UPLOAD_FOLDER, overnight_file.filename)
+            with open(overnight_path, "wb") as f:
+                shutil.copyfileobj(overnight_file.file, f)
+
+        if macro_file:
+            macro_path = os.path.join(UPLOAD_FOLDER, macro_file.filename)
+            with open(macro_path, "wb") as f:
+                shutil.copyfileobj(macro_file.file, f)
+
+        bsr_checks = [c for c in checks if c not in EPL_CHECK_KEYS]
+        epl_checks = [c for c in checks if c in EPL_CHECK_KEYS]
+
+        bsr_validator = BSRValidator(
+            bsr_path=bsr_path,
+            obligation_path=obligation_path,
+            overnight_path=overnight_path,
+            macro_path=macro_path,
+        )
+
+        summaries = []
+        if bsr_checks:
+            summaries.extend(bsr_validator.market_check_processor(bsr_checks))
+
+        df = bsr_validator.df
+
+        if epl_checks:
+            epl_validator = EPLValidator(
+                df=df,
+                bsr_path=bsr_path,
+                obligation_path=obligation_path,
+                overnight_path=overnight_path,
+                macro_path=macro_path,
+                check_configs=runtime_config,
+            )
+            summaries.extend(epl_validator.market_check_processor(epl_checks))
+            df = epl_validator.df
+
+        df.to_excel(output_path, index=False)
+
+        return JSONResponse(
+            {
+                "status": "Success",
+                "download_url": f"/api/qc/download_file?filename={output_file}",
+                "summaries": summaries,
+            }
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        for p in [bsr_path, obligation_path, overnight_path, macro_path]:
+            if p and os.path.exists(p):
+                os.remove(p)
+
+# ======================================================
+# ================= DOWNLOAD ============================
+# ======================================================
+@router.get("/download_file")
 def download_file(filename: str = Query(...)):
     path = os.path.join(OUTPUT_FOLDER, filename)
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(path, filename=filename)
 
-app.include_router(qc_router, prefix="/api/qc")
-
-
-# -------------------- 🌍 F1 MARKET CHECK ENDPOINT --------------------
-
-EPL_CHECK_KEYS = {
-    "impute_lt_live_status",
-    "consolidate_gillete_soccer",
-    "check_sky_showcase_live",
-    "standardize_uk_ire_region",
-    "check_fixture_vs_case",
-    "check_pan_balkans_serbia_parity",
-    "audit_multi_match_status",
-    "check_date_time_format_integrity",
-    "check_live_broadcast_uniqueness",
-    "audit_channel_line_item_count",
-    "check_combined_archive_status",
-    "suppress_duplicated_audience",
-    "harmonize_uk_ire_program_descriptions_strict",
-    "check_game_of_the_day_match",
-    "check_non_metered_primary_market_audience",
-    "check_legacy_mapping",
-    "check_premier_league_october_obligation",
-    "filter_short_programs",
-    "audit_ovn_whistle_to_whistle",
-    "check_star_sports_3_consolidation",
-    "check_bsa_nielsen_audience_presence",
-    "audit_uk_ire_volume_consistency",
-    
-    # --- Newly Added (Missing from your snippet) ---
-    "check_source_mediatype_validity",
-    "sa_nielsen_inclusion_check",
-    "epl_live_vs_delay_validation",
-    "pl_magazine_highlights_classification",
-    "audit_uk_ire_duplication_alignment",
-    "audit_ott_broadcast_consolidation",
-    "check_missing_live_games"
-}
-
-@qc_router.post("/market_check_and_process", response_model=None)
-def market_check_and_process( 
-    bsr_file: UploadFile = File(..., description="BSR file for market-specific checks"),
-    obligation_file: Optional[UploadFile] = File(None, description="F1 Obligation file for broadcaster checks"), 
-    overnight_file: Optional[UploadFile] = File(None, description="Overnight Audience file for upscale/integrity check"),
-    macro_file: Optional[UploadFile] = File(None, description="Macro BSA Market Duplicator file"),
-    checks: List[str] = Form(..., description="List of selected check keys"),
-    check_configs: str = Form("{}", description="JSON string of runtime configurations")
-):
-    bsr_file_path = os.path.join(UPLOAD_FOLDER, bsr_file.filename)
-    obligation_path, overnight_path, macro_path = None, None, None
-    
-    output_filename = f"Processed_BSR_{os.path.splitext(bsr_file.filename)[0]}_{int(time.time())}.xlsx"
-    output_path = os.path.join(OUTPUT_FOLDER, output_filename)
-
-    status_summaries = []
-    df_processed = None 
-    
-    try:
-        try:
-            config_dict = json.loads(check_configs)
-        except json.JSONDecodeError:
-            config_dict = {}
-            
-        with open(bsr_file_path, "wb") as buffer:
-            shutil.copyfileobj(bsr_file.file, buffer)
-            
-        if obligation_file and obligation_file.filename:
-            obligation_path = os.path.join(UPLOAD_FOLDER, obligation_file.filename)
-            with open(obligation_path, "wb") as buffer:
-                shutil.copyfileobj(obligation_file.file, buffer)
-        if overnight_file and overnight_file.filename: 
-            overnight_path = os.path.join(UPLOAD_FOLDER, overnight_file.filename)
-            with open(overnight_path, "wb") as buffer:
-                shutil.copyfileobj(overnight_file.file, buffer)
-        if macro_file and macro_file.filename: 
-            macro_path = os.path.join(UPLOAD_FOLDER, macro_file.filename)
-            with open(macro_path, "wb") as buffer:
-                shutil.copyfileobj(macro_file.file, buffer)
-
-        bsr_checks_to_run = [c for c in checks if c not in EPL_CHECK_KEYS]
-        epl_checks_to_run = [c for c in checks if c in EPL_CHECK_KEYS]
-
-        shared_kwargs = {
-            'bsr_path': bsr_file_path, 
-            'obligation_path': obligation_path, 
-            'overnight_path': overnight_path, 
-            'macro_path': macro_path
-        }
-        
-        bsr_validator = BSRValidator(**shared_kwargs)
-        epl_validator = EPLValidator(df=bsr_validator.df,**shared_kwargs)
-
-        if bsr_checks_to_run:
-            status_summaries.extend(bsr_validator.market_check_processor(bsr_checks_to_run))
-            df_processed = bsr_validator.df 
-        
-        if epl_checks_to_run:
-            if bsr_checks_to_run and df_processed is not None:
-                epl_validator.df = df_processed
-                
-            epl_summaries = [epl_validator.market_check_map[c]() for c in epl_checks_to_run if c in epl_validator.market_check_map]
-            status_summaries.extend(epl_summaries)
-            df_processed = epl_validator.df 
-
-        if df_processed is None:
-            df_processed = bsr_validator.df 
-        
-        if df_processed.empty:
-            raise Exception("Processed DataFrame is empty after applying checks.")
-
-        clean_summaries = [s for s in status_summaries if isinstance(s, dict)]
-        
-        with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-            df_processed.to_excel(writer, sheet_name='Processed BSR', index=False)
-            
-        download_url = f"/api/qc/download_file?filename={output_filename}" 
-
-        return JSONResponse(content={
-            "status": "Success",
-            "message": f"Successfully applied {len(checks)} market checks.",
-            "download_url": download_url,
-            "summaries": clean_summaries
-        })
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An error occurred during market checks: {str(e)}")
-        
-    finally:
-        for path in [bsr_file_path, obligation_path, overnight_path, macro_path]:
-            if path and os.path.exists(path):
-                try:
-                    os.remove(path)
-                except OSError:
-                    pass
-
-# -------------------- 📥 NEW DOWNLOAD ENDPOINT --------------------
-@qc_router.get("/download_file")
-async def download_file(filename: str = Query(...)):
-    file_path = os.path.join(OUTPUT_FOLDER, filename)
-
-    # --- DEBUG PRINTS ---
-    print(f"DEBUG: Endpoint hit! Looking for file: {filename}")
-    print(f"DEBUG: Full path constructed: {file_path}")
-    print(f"DEBUG: Does file exist? {os.path.exists(file_path)}")
-    # --------------------
-
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found or link has expired.")
-    return FileResponse(
-        path=file_path,
-        filename=filename,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-
-# -------------------- 2. UPDATED LALIGA QC ENDPOINT --------------------
-@qc_router.post("/api/run_laliga_qc")
-def run_laliga_qc_checks(
-    rosco_file: UploadFile = File(...),
-    bsr_file: UploadFile = File(...),
-    macro_file: UploadFile = File(...)
-):
-    config = load_config()
-    col_map = config["column_mappings"]
-    rules = config["qc_rules"]
-    project = config["project_rules"]
-    file_rules = config["file_rules"]
-
-    rosco_path = os.path.join(UPLOAD_FOLDER, rosco_file.filename)
-    bsr_path = os.path.join(UPLOAD_FOLDER, bsr_file.filename)
-    macro_path = os.path.join(UPLOAD_FOLDER, macro_file.filename)
-    
-    try:
-        with open(rosco_path, "wb") as buffer:
-            shutil.copyfileobj(rosco_file.file, buffer)
-        with open(bsr_path, "wb") as buffer:
-            shutil.copyfileobj(bsr_file.file, buffer)
-        with open(macro_path, "wb") as buffer:
-            shutil.copyfileobj(macro_file.file, buffer)
-
-        start_date, end_date = qc_general.detect_period_from_rosco(rosco_path)
-        df = qc_general.load_bsr(bsr_path, col_map["bsr"])
-
-        df.columns = df.columns.str.strip().str.replace("\xa0", " ", regex=True)
-        df = df.applymap(lambda x: str(x).replace("\xa0", " ").strip() if isinstance(x, str) else x)
-        df.rename(columns={"Start(UTC)": "Start (UTC)", "End(UTC)": "End (UTC)"}, inplace=True)
-
-        df = qc_general.period_check(df, start_date, end_date, col_map["bsr"])
-        df = qc_general.completeness_check(df, col_map["bsr"], rules)
-        df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules.get("overlap_check", {}))
-        df = qc_general.program_category_check(bsr_path, df, col_map, rules.get("program_category", {}), file_rules)
-        df = qc_general.check_event_matchday_competition(df, bsr_path, col_map, file_rules)
-        df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
-        df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
-        df = qc_general.country_channel_id_check(df, col_map["bsr"])
-        df = qc_general.client_lstv_ott_check(df, col_map["bsr"], rules.get("client_check", {}))
-        
-        df = qc_general.domestic_market_check(df, project, col_map["bsr"], debug=True)
-        df = qc_general.duplicated_market_check(df, macro_path, project, col_map, file_rules, debug=True)
-
-        df = qc_general.overlap_duplicate_daybreak_check(
-            df, col_map["bsr"], rules.get("overlap_check", {})
-        )
-
-        output_prefix = file_rules.get("output_prefix", "Laliga_QC_Result_")
-        output_sheet = file_rules.get("output_sheet_name", "Laliga QC Results")
-        output_file = f"{output_prefix}{os.path.splitext(bsr_file.filename)[0]}.xlsx"
-        output_path = os.path.join(OUTPUT_FOLDER, output_file)
-
-        for col in df.select_dtypes(include=["datetimetz"]).columns:
-            df[col] = df[col].dt.tz_convert(None).dt.tz_localize(None) if hasattr(df[col].dt, "tz") else df[col].dt.tz_localize(None)
-
-        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-            df.to_excel(writer, index=False, sheet_name=output_sheet)
-
-        qc_general.color_excel(output_path, df)
-        qc_general.generate_summary_sheet(output_path, df, file_rules)
-
-        return FileResponse(
-            path=output_path,
-            filename=output_file,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-    except Exception as e:
-        for path in [rosco_path, bsr_path, macro_path]:
-            if path and os.path.exists(path): os.remove(path)
-        raise HTTPException(status_code=500, detail=f"An error occurred during Laliga QC: {str(e)}")
-
-# -------------------- EPL Endpoints --------------------
-
-@qc_router.post("/api/run_epl_pre_checks")
-def run_epl_pre_checks(
-    notfinal_bsr: UploadFile = File(...),
-    rosco_file: UploadFile = File(...),
-    market_dup_file: UploadFile = File(...)
-):
-    bsr_path = os.path.join(UPLOAD_FOLDER, notfinal_bsr.filename)
-    rosco_path = os.path.join(UPLOAD_FOLDER, rosco_file.filename)
-    market_dup_path = os.path.join(UPLOAD_FOLDER, market_dup_file.filename)
-
-    try:
-        for obj, path in [
-            (notfinal_bsr, bsr_path),
-            (rosco_file, rosco_path),
-            (market_dup_file, market_dup_path)
-        ]:
-            with open(path, "wb") as f:
-                shutil.copyfileobj(obj.file, f)
-
-        df = epl_checks.run_pre_checks(
-            bsr_path=bsr_path,
-            rosco_path=rosco_path,
-            market_dup_path=market_dup_path
-        )
-
-        output_file = "EPL_Pre_Checks.xlsx"
-        output_path = os.path.join(OUTPUT_FOLDER, output_file)
-
-        df.to_excel(output_path, index=False)
-        return FileResponse(output_path, filename=output_file)
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@qc_router.post("/api/run_epl_post_checks")
-def run_epl_post_checks(
-    bsr_file: UploadFile = File(...),
-    rosco_file: UploadFile = File(...),
-    macro_file: UploadFile = File(...)
-):
-    bsr_path = os.path.join(UPLOAD_FOLDER, bsr_file.filename)
-    rosco_path = os.path.join(UPLOAD_FOLDER, rosco_file.filename)
-    macro_path = os.path.join(UPLOAD_FOLDER, macro_file.filename)
-
-    try:
-        for obj, path in [
-            (bsr_file, bsr_path),
-            (rosco_file, rosco_path),
-            (macro_file, macro_path)
-        ]:
-            with open(path, "wb") as f:
-                shutil.copyfileobj(obj.file, f)
-
-        df = epl_checks.run_post_checks(
-            bsr_path=bsr_path,
-            rosco_path=rosco_path,
-            macro_path=macro_path
-        )
-
-        output_file = "EPL_Post_Checks.xlsx"
-        output_path = os.path.join(OUTPUT_FOLDER, output_file)
-
-        df.to_excel(output_path, index=False)
-        return FileResponse(output_path, filename=output_file)
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# =========================
+# REGISTER ROUTER
+# =========================
+app.include_router(router, prefix="/api/qc")

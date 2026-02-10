@@ -1010,8 +1010,9 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     df.drop(columns=["_bsr_start_utc"], inplace=True, errors="ignore")
     return df
         
-
+# -----------------------------------------------------------
 # 8️⃣ Event / Matchday / Competition Check
+# -----------------------------------------------------------
 def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None, debug_rows=20):
     """
     Validate Worksheet rows against Fixture List using exact match.
@@ -1101,6 +1102,7 @@ def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None,
 
 # -----------------------------------------------------------
 # 9️⃣ Market / Channel / Program / Duration Consistency Check
+# -----------------------------------------------------------
 
 def market_channel_consistency_check(df_bsr, rosco_path, col_map, file_rules):
     logging.info("🔍 Starting Market & Channel Consistency Check...")
@@ -1254,6 +1256,7 @@ def rates_and_ratings_check(df, bsr_cols):
 
 # -----------------------------------------------------------
 # 12️⃣ Comparison of Duplicated Markets
+# -----------------------------------------------------------
 def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, debug=False):
 
     result_col = "Duplicated_Markets_Check_OK"
@@ -1423,6 +1426,7 @@ def duplicated_market_check(df_bsr, macro_path, project, col_map, file_rules, de
     return df_bsr
 # -----------------------------------------------------------
 # 13️⃣ Country & Channel IDs Check
+# -----------------------------------------------------------
 def country_channel_id_check(df, bsr_cols):
     """
     Check consistency of channel IDs per (market, tv_channel) pair.
