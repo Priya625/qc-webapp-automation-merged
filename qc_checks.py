@@ -1613,94 +1613,78 @@ def home_away_vs_phase_check(df, col_map):
 def multiple_live_match_check(df, col_map):
     import pandas as pd
 
-    b = col_map["bsr"]
+    # 1. Initialize result column
     result_col = "Multiple_Live_Match_OK"
     df[result_col] = "NA"
 
-    # -------- Column detection --------
-    col_program_type = (
-        _find_column(df, b.get("type_of_program")) or
-        _find_column(df, ["Type of Program", "Program Type"])
-    )
+    # Safely get mapping dictionary
+    b = col_map.get("bsr", {}) if isinstance(col_map.get("bsr"), dict) else col_map
 
-    col_market = _find_column(df, b.get("market")) or _find_column(df, ["Market"])
-    col_broadcaster = _find_column(df, b.get("broadcaster")) or _find_column(df, ["Broadcaster"])
-    col_channel = _find_column(df, b.get("tv_channel")) or _find_column(df, ["TV Channel", "Channel"])
-    col_matchday = _find_column(df, b.get("matchday")) or _find_column(df, ["Matchday"])
-    col_match = (
-        _find_column(df, b.get("phase_fixture_episode")) or
-        _find_column(df, ["Phase", "Fixture", "Episode"])
-    )
+    # Robust local finder function
+    def _get_best_col(df, config_key, fallbacks):
+        config_val = b.get(config_key, [])
+        search_terms = []
+        if isinstance(config_val, list): search_terms.extend(config_val)
+        elif isinstance(config_val, str): search_terms.append(config_val)
+        search_terms.extend(fallbacks)
 
-    required_cols = [
-        col_program_type,
-        col_market,
-        col_broadcaster,
-        col_channel,
-        col_matchday,
-        col_match,
-    ]
+        for term in search_terms:
+            if not term: continue
+            if term in df.columns: return term
+            for actual_col in df.columns:
+                if str(actual_col).strip().lower() == str(term).strip().lower():
+                    return actual_col
+        return None
 
-    # If any mandatory column missing → entire check NA
-    if not all(required_cols):
+    # 2. Detect Columns (Updated fallbacks based on your actual file)
+    col_program_type = _get_best_col(df, "type_of_program", ["Program Type", "Type of Program", "Status", "Live/Repeat"])
+    col_market = _get_best_col(df, "market", ["Market", "Region", "Country"])
+    col_broadcaster = _get_best_col(df, "broadcaster", ["Broadcaster", "Station"])
+    col_channel = _get_best_col(df, "tv_channel", ["Channel", "TV Channel", "Channel ID"])
+    col_matchday = _get_best_col(df, "matchday", ["Matchday", "Match Day", "MD"])
+    col_match = _get_best_col(df, "phase_fixture_episode", ["PhaseFixtureEpisode", "Phase", "Fixture", "Event", "Combined (translated)"])
+
+    required_cols_map = {
+        "Program Type": col_program_type,
+        "Market": col_market,
+        "Broadcaster": col_broadcaster,
+        "Channel": col_channel,
+        "Matchday": col_matchday,
+        "Match/Phase": col_match
+    }
+
+    # 3. Validation: Identify missing headers
+    missing_headers = [label for label, val in required_cols_map.items() if not val]
+    if missing_headers:
+        df[result_col] = f"Error: Missing Headers ({', '.join(missing_headers)})"
         return df
 
-    # -------- Filter Live programs only --------
-    live_df = df[
-        df[col_program_type].astype(str).str.lower().eq("live")
-    ]
-
-    if live_df.empty:
+    # 4. Filter for Live rows
+    # Logic: Only rows marked as 'Live' (case-insensitive)
+    live_mask = df[col_program_type].astype(str).str.strip().lower() == "live"
+    
+    if not live_mask.any():
+        df[result_col] = "Not Applicable (No Live Rows)"
         return df
 
-    # -------- Grouping logic --------
-    group_cols = [
-        col_market,
-        col_broadcaster,
-        col_channel,
-        col_matchday,
-        col_match,
-    ]
+    # 5. Grouping logic to find duplicates
+    group_cols = [col_market, col_broadcaster, col_channel, col_matchday, col_match]
+    
+    # We create a temporary column to flag duplicates
+    # keep=False marks ALL occurrences of a duplicate as True
+    is_duplicate = df[live_mask].duplicated(subset=group_cols, keep=False)
 
-    live_counts = (
-        live_df
-        .groupby(group_cols)
-        .size()
-        .reset_index(name="live_count")
-    )
+    # 6. Assign Results
+    # Default everything that is Live to True first
+    df.loc[live_mask, result_col] = True
+    
+    # Update only the actual duplicates to False
+    # Indices in 'is_duplicate' match the indices in the original 'df'
+    duplicate_indices = is_duplicate[is_duplicate == True].index
+    df.loc[duplicate_indices, result_col] = False
 
-    # Identify duplicate live combinations
-    duplicate_keys = live_counts[live_counts["live_count"] > 1]
-
-    if duplicate_keys.empty:
-        # All live rows are valid
-        df.loc[live_df.index, result_col] = True
-        return df
-
-    # -------- Flag rows --------
-    for idx in live_df.index:
-        row = df.loc[idx]
-
-        key = (
-            row[col_market],
-            row[col_broadcaster],
-            row[col_channel],
-            row[col_matchday],
-            row[col_match],
-        )
-
-        match = duplicate_keys[
-            (duplicate_keys[col_market] == key[0]) &
-            (duplicate_keys[col_broadcaster] == key[1]) &
-            (duplicate_keys[col_channel] == key[2]) &
-            (duplicate_keys[col_matchday] == key[3]) &
-            (duplicate_keys[col_match] == key[4])
-        ]
-
-        if not match.empty:
-            df.at[idx, result_col] = False
-        else:
-            df.at[idx, result_col] = True
+    # Set non-live rows to Not Applicable for clarity
+    df.loc[~live_mask, result_col] = "Not Applicable"
 
     return df
 
