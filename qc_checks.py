@@ -1620,7 +1620,7 @@ def multiple_live_match_check(df, col_map):
     # Safely get mapping dictionary
     b = col_map.get("bsr", {}) if isinstance(col_map.get("bsr"), dict) else col_map
 
-    # Robust local finder function
+    # Robust local finder function (self-contained)
     def _get_best_col(df, config_key, fallbacks):
         config_val = b.get(config_key, [])
         search_terms = []
@@ -1660,30 +1660,28 @@ def multiple_live_match_check(df, col_map):
         return df
 
     # 4. Filter for Live rows
-    # Logic: Only rows marked as 'Live' (case-insensitive)
-    live_mask = df[col_program_type].astype(str).str.strip().lower() == "live"
+    # FIX: Added .str before .lower() to handle the Series correctly
+    live_mask = df[col_program_type].astype(str).str.strip().str.lower() == "live"
     
     if not live_mask.any():
-        df[result_col] = "Not Applicable (No Live Rows)"
+        df.loc[:, result_col] = "Not Applicable (No Live Rows)"
         return df
 
     # 5. Grouping logic to find duplicates
     group_cols = [col_market, col_broadcaster, col_channel, col_matchday, col_match]
     
-    # We create a temporary column to flag duplicates
-    # keep=False marks ALL occurrences of a duplicate as True
+    # Identify rows that are duplicates within the 'Live' subset
     is_duplicate = df[live_mask].duplicated(subset=group_cols, keep=False)
 
     # 6. Assign Results
-    # Default everything that is Live to True first
+    # Default all Live rows to True
     df.loc[live_mask, result_col] = True
     
-    # Update only the actual duplicates to False
-    # Indices in 'is_duplicate' match the indices in the original 'df'
+    # Update only the flagged duplicates to False
     duplicate_indices = is_duplicate[is_duplicate == True].index
     df.loc[duplicate_indices, result_col] = False
 
-    # Set non-live rows to Not Applicable for clarity
+    # Set non-live rows to Not Applicable
     df.loc[~live_mask, result_col] = "Not Applicable"
 
     return df
