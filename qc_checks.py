@@ -1508,69 +1508,86 @@ def country_channel_id_check(df, bsr_cols):
 def home_away_vs_phase_check(df, col_map):
     import re
 
-    b = col_map["bsr"]
+    # 1. Initialize result column
     result_col = "Home_vs_Away_vs_Phase_OK"
     df[result_col] = "NA"
 
-    # --- Detect columns ---
-    col_program_type = (
-        _find_column(df, b.get("type_of_program")) or
-        _find_column(df, ["Type of Program", "Program Type"])
-    )
+    # 2. Extract column mappings safely
+    b = col_map.get("bsr", {})
 
-    col_home = (
-        _find_column(df, b.get("home_team")) or
-        _find_column(df, ["Home Team"])
-    )
+    # Helper to find columns in the dataframe
+    def _local_find(df, config_key, fallbacks):
+        conf_val = b.get(config_key)
+        if conf_val in df.columns:
+            return conf_val
+        for f in fallbacks:
+            if f in df.columns:
+                return f
+        # Case-insensitive last resort
+        for col in df.columns:
+            if str(col).lower().strip() in [str(x).lower() for x in fallbacks]:
+                return col
+        return None
 
-    col_away_named = (
-        _find_column(df, b.get("away_team")) or
-        _find_column(df, ["Away Team"])
-    )
+    # Detect all required columns
+    col_program_type = _local_find(df, "type_of_program", ["Type of Program", "Program Type", "Status"])
+    col_home = _local_find(df, "home_team", ["Home Team", "Home", "Team 1"])
+    col_away_named = _local_find(df, "away_team", ["Away Team", "Away", "Team 2"])
+    col_phase = _local_find(df, "phase_fixture_episode", ["Phase", "Fixture", "Episode", "Program", "Description"])
 
-    col_phase = (
-        _find_column(df, b.get("phase_fixture_episode")) or
-        _find_column(df, ["Phase", "Fixture", "Episode"])
-    )
-
-    # Column index lookup (for positional logic)
+    # Column index lookup for positional logic
     col_indices = {c: i for i, c in enumerate(df.columns)}
 
+    # 3. Process Rows
     for idx, row in df.iterrows():
+        # A. Check Program Type
         program_type = str(row.get(col_program_type, "")).strip().lower()
         if program_type not in ["live", "delayed", "repeat"]:
+            df.at[idx, result_col] = "Not Applicable (Non-Match)"
             continue
 
+        # B. Check if required logic columns were even found
+        if not col_home or not col_phase:
+            missing = []
+            if not col_home: missing.append("Home Column")
+            if not col_phase: missing.append("Phase/Fixture Column")
+            df.at[idx, result_col] = f"Error: {', '.join(missing)} not found"
+            continue
+
+        # C. Home Team & Phase Value extraction
         home_team = str(row.get(col_home, "")).strip()
-        if not home_team or not col_phase:
+        phase_val = str(row.get(col_phase, "")).strip()
+
+        if not home_team or not phase_val:
+            df.at[idx, result_col] = "Error: Empty Home/Phase cell"
             continue
 
-        # -------- Away team detection --------
+        # D. Away Team Detection
         away_team = ""
-
-        # Case 1: Proper Away Team column exists
         if col_away_named:
             away_team = str(row.get(col_away_named, "")).strip()
-
-        # Case 2: Home | Vs | Away pattern
-        else:
+        
+        # Positional Fallback (If Away Column is missing, look 2 cells to the right of Home)
+        if not away_team:
             home_idx = col_indices.get(col_home)
             if home_idx is not None and home_idx + 2 < len(df.columns):
+                # Check the middle cell for a separator (vs, v, -, x)
                 sep_val = str(row.iloc[home_idx + 1]).strip().lower()
-                if sep_val in ["vs", "v", "vs."]:
+                if sep_val in ["vs", "v", "vs.", "-", "x"]:
                     away_team = str(row.iloc[home_idx + 2]).strip()
 
         if not away_team:
+            df.at[idx, result_col] = "Error: Away Team not detected"
             continue
 
-        phase_val = str(row.get(col_phase, "")).strip()
-        if not phase_val:
-            continue
-
-        # -------- Phase validation --------
+        # E. Final Validation (Normalization & Regex)
+        # Remove extra spaces and convert to lower
         phase_norm = re.sub(r"\s+", " ", phase_val.lower())
+        h_match = home_team.lower()
+        a_match = away_team.lower()
 
-        if home_team.lower() in phase_norm and away_team.lower() in phase_norm:
+        # Check if both team names exist inside the Phase/Fixture string
+        if h_match in phase_norm and a_match in phase_norm:
             df.at[idx, result_col] = True
         else:
             df.at[idx, result_col] = False
