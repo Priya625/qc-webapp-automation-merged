@@ -1654,48 +1654,32 @@ with serie_a_tab:
 #         🔍 BSA CHANNEL CONSISTENCY TAB 
 # -----------------------------------------------------------
 with bsa_tab:
-    st.header("BSA & Aura Channel Consistency Check")
-    st.info("This check flags gaps in daily schedules for exclusive BSA channels.")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        u_rosco = st.file_uploader("📘 Upload ROSCO File", type=["xlsx"], key="bsa_rosco")
-    with col2:
-        u_bsa = st.file_uploader("📗 Upload Weekly BSA Reporting GSheet", type=["xlsx"], key="bsa_ref")
+    st.header("BSA Channel Consistency & Schedule Audit")
+    st.markdown("Compare ROSCO inventory against BSA reference lists to flag missing daily logs.")
     
-    u_bsr = st.file_uploader("📙 Upload BSR File (Current Month Data)", type=["xlsx"], key="bsa_bsr")
+    c1, c2 = st.columns(2)
+    with c1:
+        bsa_rosco = st.file_uploader("Upload Rosco", type=["xlsx"], key="bsa_u1")
+    with c2:
+        bsa_ref = st.file_uploader("Upload Weekly BSA Reporting", type=["xlsx"], key="bsa_u2")
+    
+    bsa_bsr = st.file_uploader("Upload BSR File", type=["xlsx"], key="bsa_u3")
 
-    if st.button("🚀 Run BSA Consistency Check"):
-        if not (u_rosco and u_bsa and u_bsr):
-            st.error("Please upload all three files to continue.")
+    if st.button("Run BSA Comparison"):
+        if bsa_rosco and bsa_ref and bsa_bsr:
+            with st.spinner("Analyzing channels..."):
+                bsr_df = pd.read_excel(bsa_bsr)
+                validator = BSAValidator(bsa_rosco, bsa_ref, bsr_df)
+                results = validator.run_comparison()
+                
+                if not results.empty:
+                    st.warning(f"Found {len(results)} instances of missing schedules.")
+                    st.dataframe(results, use_container_width=True)
+                    
+                    # CSV Download
+                    csv = results.to_csv(index=False).encode('utf-8')
+                    st.download_button("📥 Download Gap Report", csv, "bsa_gaps.csv", "text/csv")
+                else:
+                    st.success("Consistency check passed! No missing schedules found.")
         else:
-            with st.spinner("Analyzing schedule consistency..."):
-                try:
-                    # 1. Load BSR for processing
-                    bsr_df = pd.read_excel(u_bsr)
-                    
-                    # 2. Initialize the separate logic class
-                    validator = BSAValidator(u_rosco, u_bsa, bsr_df)
-                    
-                    # 3. Run the check
-                    df_results, missing_rosco = validator.run_consistency_check()
-                    
-                    # 4. Display Summary
-                    st.success("Analysis Complete!")
-                    m1, m2 = st.columns(2)
-                    m1.metric("Critical Gaps Found", len(df_results[df_results['Severity'] == 'CRITICAL']))
-                    m2.metric("Missing from ROSCO", len(missing_rosco))
-
-                    # 5. Show Detailed Flags
-                    if not df_results.empty:
-                        st.subheader("Daily Schedule Gap Report")
-                        st.dataframe(df_results, use_container_width=True)
-                        
-                        # Download results
-                        output_name = f"BSA_Consistency_Report_{datetime.now().strftime('%Y%m%d')}.xlsx"
-                        df_results.to_excel(output_name, index=False)
-                        with open(output_name, "rb") as f:
-                            st.download_button("📥 Download Full Gap Report", f, file_name=output_name)
-                    
-                except Exception as e:
-                    st.error(f"Error during BSA check: {e}")
+            st.error("Please upload all three files.")
