@@ -1,4 +1,5 @@
 # streamlit_app.py (corrected for simplified qc_checks.py signatures)
+from datetime import datetime
 import streamlit as st
 import pandas as pd
 import requests
@@ -25,6 +26,7 @@ try:
     from C_data_processing_f1 import BSRValidator
     from C_data_processing_EPL import EPLValidator
     from C_data_processing_SerieA import SerieAValidator
+    from C_data_processing_BSA import BSAValidator
 
 except ImportError as e:
     st.error(f"Failed to import your QC file (qc_checks.py) or validators: {e}")
@@ -180,13 +182,14 @@ except Exception:
 
 # --- Use Tabs for Clear Separation (MODIFIED) ---
 LOGO_PATH_4 = "images/Nielsen_Sports_logo.svg"
-home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab , epl_tab, serie_a_tab= st.tabs([
+home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab , epl_tab, serie_a_tab, bsa_tab = st.tabs([
     " Home Page", 
     " Main QC Automation", 
     " Laliga Specific QC", 
     " F1 Market Specific Checks",
     " EPL Specific Checks",
     " Serie A Specific Checks"
+    " BSA/AURA/ROSCO Channel Consistency"
 ])
 
 # --- Define all market check keys globally for management ---
@@ -1646,3 +1649,53 @@ with serie_a_tab:
                 except Exception as e:
                     st.error(f"❌ Error during Serie A processing: {e}")
                     st.exception(e) # This will show the full error trace for debugging
+
+# -----------------------------------------------------------
+#         🔍 BSA CHANNEL CONSISTENCY TAB 
+# -----------------------------------------------------------
+with bsa_tab:
+    st.header("BSA & Aura Channel Consistency Check")
+    st.info("This check flags gaps in daily schedules for exclusive BSA channels.")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        u_rosco = st.file_uploader("📘 Upload ROSCO File", type=["xlsx"], key="bsa_rosco")
+    with col2:
+        u_bsa = st.file_uploader("📗 Upload Weekly BSA Reporting GSheet", type=["xlsx"], key="bsa_ref")
+    
+    u_bsr = st.file_uploader("📙 Upload BSR File (Current Month Data)", type=["xlsx"], key="bsa_bsr")
+
+    if st.button("🚀 Run BSA Consistency Check"):
+        if not (u_rosco and u_bsa and u_bsr):
+            st.error("Please upload all three files to continue.")
+        else:
+            with st.spinner("Analyzing schedule consistency..."):
+                try:
+                    # 1. Load BSR for processing
+                    bsr_df = pd.read_excel(u_bsr)
+                    
+                    # 2. Initialize the separate logic class
+                    validator = BSAValidator(u_rosco, u_bsa, bsr_df)
+                    
+                    # 3. Run the check
+                    df_results, missing_rosco = validator.run_consistency_check()
+                    
+                    # 4. Display Summary
+                    st.success("Analysis Complete!")
+                    m1, m2 = st.columns(2)
+                    m1.metric("Critical Gaps Found", len(df_results[df_results['Severity'] == 'CRITICAL']))
+                    m2.metric("Missing from ROSCO", len(missing_rosco))
+
+                    # 5. Show Detailed Flags
+                    if not df_results.empty:
+                        st.subheader("Daily Schedule Gap Report")
+                        st.dataframe(df_results, use_container_width=True)
+                        
+                        # Download results
+                        output_name = f"BSA_Consistency_Report_{datetime.now().strftime('%Y%m%d')}.xlsx"
+                        df_results.to_excel(output_name, index=False)
+                        with open(output_name, "rb") as f:
+                            st.download_button("📥 Download Full Gap Report", f, file_name=output_name)
+                    
+                except Exception as e:
+                    st.error(f"Error during BSA check: {e}")
