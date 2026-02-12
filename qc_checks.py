@@ -705,7 +705,7 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
         prev_key = key
 
     # --------------------------------------------------
-    # Daybreak logic (unchanged)
+    #  Daybreak logic
     # --------------------------------------------------
     gap_tolerance = rules.get("daybreak_gap_tolerance_min", 5)
 
@@ -713,6 +713,7 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
         prev = df.iloc[i - 1]
         curr = df.iloc[i]
 
+        # Must be same channel + market
         if not (
             str(prev[compare_channel]) == str(curr[compare_channel]) and
             str(prev[col_market]) == str(curr[col_market])
@@ -724,17 +725,31 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
             daybreak_r[i] = "Not Applicable – missing timestamps"
             continue
 
-        if prev["_end_dt"].hour >= 23 and curr["_start_dt"].hour <= 1:
-            gap = (curr["_start_dt"] - prev["_end_dt"]).total_seconds() / 60
+        prev_end = prev["_end_dt"]
+        curr_start = curr["_start_dt"]
+
+        # -----------------------------------------
+        # STRICT MIDNIGHT BOUNDARY CHECK
+        # -----------------------------------------
+        is_next_day = curr_start.date() > prev_end.date()
+
+        is_late_night = prev_end.time() >= pd.to_datetime("23:00:00").time()
+        is_early_morning = curr_start.time() <= pd.to_datetime("01:00:00").time()
+
+        if is_next_day and is_late_night and is_early_morning:
+
+            gap = (curr_start - prev_end).total_seconds() / 60
+
             if 0 <= gap <= gap_tolerance:
                 daybreak_ok[i] = True
                 daybreak_r[i] = "Valid midnight continuation"
             else:
                 daybreak_ok[i] = False
                 daybreak_r[i] = f"Invalid continuation gap ({gap:.1f} min)"
+
         else:
             daybreak_ok[i] = pd.NA
-            daybreak_r[i] = "Not Applicable"
+            daybreak_r[i] = "Not a midnight continuation"
 
     # --------------------------------------------------
     # Final assignment
