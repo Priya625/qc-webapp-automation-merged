@@ -643,7 +643,7 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
         # --------------------------------------------------
         if is_internet_row(row):
             overlap_ok[i] = True
-            overlap_r[i] = "Bypassed – Internet platform"
+            overlap_r[i] = "Internet Channel, skipped overlap check"
             prev_key = key
             prev_end = end
             prev_row = row
