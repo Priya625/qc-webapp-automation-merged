@@ -638,6 +638,18 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
         end = row["_end_dt"]
         ptype = row["_prog_type_norm"]
 
+        # --------------------------------------------------
+        # 🚀 HARD INTERNET BYPASS
+        # --------------------------------------------------
+        if is_internet_row(row):
+            overlap_ok[i] = True
+            overlap_r[i] = "Bypassed – Internet platform"
+            prev_key = key
+            prev_end = end
+            prev_row = row
+            prev_match = get_match_signature(row)
+            continue
+
         if key != prev_key:
             prev_end = None
             prev_row = None
@@ -674,24 +686,6 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
             continue
 
         if start < prev_end:
-            # ---- INTERNET / MATCH BYPASS LOGIC ----
-            if (
-                ptype in VALID_TYPES and
-                is_internet_row(row) and
-                prev_row is not None and
-                is_internet_row(prev_row)
-            ):
-                curr_match = get_match_signature(row)
-
-                if curr_match and prev_match and curr_match != prev_match:
-                    overlap_ok[i] = True
-                    overlap_r[i] = "OK – Internet simulcast with different match"
-                    prev_end = max(prev_end, end)
-                    prev_row = row
-                    prev_match = curr_match
-                    prev_key = key
-                    continue
-
             overlap_ok[i] = False
             overlap_r[i] = (
                 f"Overlap: starts {start.time()} "
