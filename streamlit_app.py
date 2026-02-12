@@ -183,10 +183,9 @@ except Exception:
 # --- Use Tabs for Clear Separation (MODIFIED) ---
 LOGO_PATH_4 = "images/Nielsen_Sports_logo.svg"
 # Fixed: 7 variables for 7 tab labels
-home_page_tab, main_qc_tab, bsa_tab, laliga_qc_tab, f1_tab, epl_tab, serie_a_tab = st.tabs([
+home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab, epl_tab, serie_a_tab = st.tabs([
     " Home Page", 
     " Main QC Automation", 
-    " 🔍 BSA Consistency",      # The new tab
     " Laliga Specific QC", 
     " F1 Market Specific Checks",
     " EPL Specific Checks",
@@ -1650,37 +1649,3 @@ with serie_a_tab:
                 except Exception as e:
                     st.error(f"❌ Error during Serie A processing: {e}")
                     st.exception(e) # This will show the full error trace for debugging
-
-# -----------------------------------------------------------
-#         🔍 BSA CHANNEL CONSISTENCY TAB 
-# -----------------------------------------------------------
-with bsa_tab:
-    st.header("BSA Channel Consistency & Schedule Audit")
-    st.markdown("Compare ROSCO inventory against BSA reference lists to flag missing daily logs.")
-    
-    c1, c2 = st.columns(2)
-    with c1:
-        bsa_rosco = st.file_uploader("Upload Rosco", type=["xlsx"], key="bsa_u1")
-    with c2:
-        bsa_ref = st.file_uploader("Upload Weekly BSA Reporting", type=["xlsx"], key="bsa_u2")
-    
-    bsa_bsr = st.file_uploader("Upload BSR File", type=["xlsx"], key="bsa_u3")
-
-    if st.button("Run BSA Comparison"):
-        if bsa_rosco and bsa_ref and bsa_bsr:
-            with st.spinner("Analyzing channels..."):
-                bsr_df = pd.read_excel(bsa_bsr)
-                validator = BSAValidator(bsa_rosco, bsa_ref, bsr_df)
-                results = validator.run_comparison()
-                
-                if not results.empty:
-                    st.warning(f"Found {len(results)} instances of missing schedules.")
-                    st.dataframe(results, use_container_width=True)
-                    
-                    # CSV Download
-                    csv = results.to_csv(index=False).encode('utf-8')
-                    st.download_button("📥 Download Gap Report", csv, "bsa_gaps.csv", "text/csv")
-                else:
-                    st.success("Consistency check passed! No missing schedules found.")
-        else:
-            st.error("Please upload all three files.")
