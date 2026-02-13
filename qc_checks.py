@@ -933,10 +933,16 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
         # ===== HIGHLIGHTS =====
         if ptype == "highlights":
-            try:
-                dur = float(row[col_duration])
-            except Exception:
-                dur = None
+            # Clean duration properly
+            dur = None
+            raw_dur = row.get(col_duration)
+
+            if pd.notna(raw_dur):
+                try:
+                    # Extract numeric part only
+                    dur = float(re.findall(r"\d+\.?\d*", str(raw_dur))[0])
+                except Exception:
+                    dur = None
 
             # Case 1: User has provided highlight tolerance → enforce duration
             if highlight_tolerance_min is not None:
