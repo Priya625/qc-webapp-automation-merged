@@ -1062,8 +1062,8 @@ def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None,
     - Use Event column if present, else fallback to Competition
     - Match on:
         Event/Competition + Matchday + Home Team + Away Team
-    - If exact match exists in Fixture List → OK
-    - Else → fail with remark
+    - If Program Type = Highlights:
+        Home/Away can be blank → match only on Event + Matchday
     """
 
     # ---------- helpers ----------
@@ -1074,7 +1074,7 @@ def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None,
 
     def get_col(df, possible_names):
         for c in df.columns:
-            c_norm = str(c).strip().lower()   # FIX: cast to string
+            c_norm = str(c).strip().lower()
             if c_norm in possible_names:
                 return c
         return None
@@ -1085,6 +1085,7 @@ def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None,
     ws_matchday_col = get_col(df_worksheet, {"matchday", "match day"})
     ws_home_col = get_col(df_worksheet, {"home team", "hometeam", "home"})
     ws_away_col = get_col(df_worksheet, {"away team", "awayteam", "away"})
+    ws_program_type_col = get_col(df_worksheet, {"program type", "type of program", "programtype"})
 
     fx_event_col = get_col(df_fixtures, {"event"})
     fx_comp_col = get_col(df_fixtures, {"competition"})
@@ -1092,18 +1093,18 @@ def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None,
     fx_home_col = get_col(df_fixtures, {"home team", "hometeam", "home"})
     fx_away_col = get_col(df_fixtures, {"away team", "awayteam", "away"})
 
-    # ---------- build fixture lookup set ----------
-    fixture_keys = set()
+    # ---------- build fixture lookup sets ----------
+    fixture_full_keys = set()
+    fixture_event_md_keys = set()
 
     for _, r in df_fixtures.iterrows():
         event_val = norm(r.get(fx_event_col)) or norm(r.get(fx_comp_col))
-        key = (
-            event_val,
-            norm(r.get(fx_matchday_col)),
-            norm(r.get(fx_home_col)),
-            norm(r.get(fx_away_col))
-        )
-        fixture_keys.add(key)
+        matchday_val = norm(r.get(fx_matchday_col))
+        home_val = norm(r.get(fx_home_col))
+        away_val = norm(r.get(fx_away_col))
+
+        fixture_full_keys.add((event_val, matchday_val, home_val, away_val))
+        fixture_event_md_keys.add((event_val, matchday_val))
 
     # ---------- prepare output ----------
     df = df_worksheet.copy()
@@ -1116,15 +1117,28 @@ def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None,
         matchday = norm(r.get(ws_matchday_col))
         home = norm(r.get(ws_home_col))
         away = norm(r.get(ws_away_col))
+        program_type = norm(r.get(ws_program_type_col))
 
-        key = (event_val, matchday, home, away)
+        # 🔹 HIGHLIGHTS LOGIC
+        if program_type == "highlights":
+            key_event_md = (event_val, matchday)
 
-        if key in fixture_keys and all(key):
-            df.at[idx, "Event_Matchday_Competition_OK"] = True
-            df.at[idx, "Event_Matchday_Competition_Remark"] = "OK"
+            if key_event_md in fixture_event_md_keys and event_val and matchday:
+                df.at[idx, "Event_Matchday_Competition_OK"] = True
+                df.at[idx, "Event_Matchday_Competition_Remark"] = "OK (Highlights match)"
+            else:
+                df.at[idx, "Event_Matchday_Competition_OK"] = False
+                df.at[idx, "Event_Matchday_Competition_Remark"] = "Highlights: Event + Matchday not found"
+
+        # 🔹 NORMAL MATCH LOGIC
         else:
-            df.at[idx, "Event_Matchday_Competition_OK"] = False
-            df.at[idx, "Event_Matchday_Competition_Remark"] = "Exact match not found in fixture"
+            key_full = (event_val, matchday, home, away)
+
+            if key_full in fixture_full_keys and all(key_full):
+                df.at[idx, "Event_Matchday_Competition_OK"] = True
+                df.at[idx, "Event_Matchday_Competition_Remark"] = "OK"
+            else:
+                df.at[idx, "Event_Matchday_Competition_Remark"] = "Exact match not found in fixture"
 
     # ---------- debug ----------
     print("=== Exact Fixture Match QC (sample rows) ===")
@@ -1134,6 +1148,7 @@ def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None,
             f"[Row {i}] Event/Comp='{norm(r.get(ws_event_col)) or norm(r.get(ws_comp_col))}' | "
             f"MD='{r.get(ws_matchday_col)}' | "
             f"Home='{r.get(ws_home_col)}' | Away='{r.get(ws_away_col)}' | "
+            f"ProgramType='{r.get(ws_program_type_col)}' | "
             f"OK={r['Event_Matchday_Competition_OK']} | "
             f"Remark={r['Event_Matchday_Competition_Remark']}"
         )
