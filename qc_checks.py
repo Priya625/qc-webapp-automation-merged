@@ -1563,107 +1563,100 @@ def country_channel_id_check(df, bsr_cols):
     return df
 
 # -----------------------------------------------------------
-# 14️⃣ Home vs Away vs Phase Consistency Check
+# 14️⃣ Home vs Away vs Phase Consistency Check (Updated Logic)
 # -----------------------------------------------------------
 def home_away_vs_phase_check(df, col_map):
     import re
     import pandas as pd
 
-    # 1. Initialize result column
     result_col = "Home_vs_Away_vs_Phase_OK"
     df[result_col] = "NA"
 
-    # 2. Extract BSR mappings safely (Handles both nested and flat dictionaries)
+    # Extract mapping safely
     if isinstance(col_map.get("bsr"), dict):
         b = col_map["bsr"]
     else:
         b = col_map
 
     def _get_best_col(df, config_key, fallbacks):
-        """Robustly finds a column name from config or fallback list."""
         search_terms = []
-        # Add terms from config
+
         config_val = b.get(config_key, [])
-        if isinstance(config_val, list): search_terms.extend(config_val)
-        elif isinstance(config_val, str): search_terms.append(config_val)
-        
-        # Add hardcoded fallbacks
+        if isinstance(config_val, list):
+            search_terms.extend(config_val)
+        elif isinstance(config_val, str):
+            search_terms.append(config_val)
+
         search_terms.extend(fallbacks)
 
         for term in search_terms:
-            if not term: continue
-            # Exact match
-            if term in df.columns: return term
-            # Case-insensitive / whitespace match
+            if not term:
+                continue
+            if term in df.columns:
+                return term
             for actual_col in df.columns:
                 if str(actual_col).strip().lower() == str(term).strip().lower():
                     return actual_col
         return None
 
-    # 3. Detect Columns (Expanded fallbacks to match your specific headers)
-    col_program_type = _get_best_col(df, "type_of_program", ["Type of Program", "Program Type", "Status", "Live/Repeat", "Program_Type"])
-    col_home = _get_best_col(df, "home_team", ["Home Team", "Home", "Team 1", "Team A", "Home_Team"])
-    col_away_named = _get_best_col(df, "away_team", ["Away Team", "Away", "Team 2", "Team B", "Away_Team"])
-    col_phase = _get_best_col(df, "phase_fixture_episode", ["PhaseFixtureEpisode", "Phase", "Fixture", "Combined (translated)", "Event", "Description", "Program"])
+    # Detect Columns
+    col_home = _get_best_col(df, "home_team",
+                             ["Home Team", "Home", "Team 1", "Team A", "Home_Team"])
 
-    # Pre-calculate column indices for the "Vs" positional logic
+    col_away = _get_best_col(df, "away_team",
+                             ["Away Team", "Away", "Team 2", "Team B", "Away_Team"])
+
+    col_phase = _get_best_col(df, "phase_fixture_episode",
+                              ["PhaseFixtureEpisode", "Phase", "Fixture",
+                               "Combined (translated)", "Event", "Description", "Program"])
+
     col_indices = {c: i for i, c in enumerate(df.columns)}
 
-    # 4. Helper for text cleaning
     def clean_text(text):
-        if pd.isna(text): return ""
-        # Remove extra spaces, newlines, and convert to lowercase
+        if pd.isna(text):
+            return ""
         return re.sub(r"\s+", " ", str(text).strip().lower())
 
-    # 5. Process Rows
+    # Process Rows
     for idx, row in df.iterrows():
-        program_type = clean_text(row.get(col_program_type, ""))
-        
-        # Skip non-match content
-        if program_type not in ["live", "delayed", "repeat"]:
-            df.at[idx, result_col] = "Not Applicable"
-            continue
 
-        # Check if the critical headers were found
+        # Column validation
         if not col_home or not col_phase:
-            missing = []
-            if not col_home: missing.append("Home")
-            if not col_phase: missing.append("Phase/Fixture")
-            df.at[idx, result_col] = f"Error: {', '.join(missing)} column not found"
+            df.at[idx, result_col] = "Error: Required columns missing"
             continue
 
         home_team = clean_text(row.get(col_home, ""))
         phase_val = clean_text(row.get(col_phase, ""))
 
-        if not home_team or home_team == "nan" or not phase_val:
-            df.at[idx, result_col] = "Error: Missing cell data"
+        # If no home team → Not Applicable
+        if not home_team:
+            df.at[idx, result_col] = "Not Applicable"
             continue
 
         # Detect Away Team
         away_team = ""
-        if col_away_named:
-            away_team = clean_text(row.get(col_away_named, ""))
-        
-        # If no away column cell, try positional logic (Home | Vs | Away)
-        if not away_team or away_team == "nan":
+
+        if col_away:
+            away_team = clean_text(row.get(col_away, ""))
+
+        # Fallback positional logic (Home | Vs | Away)
+        if not away_team:
             home_idx = col_indices.get(col_home)
             if home_idx is not None and home_idx + 2 < len(df.columns):
                 sep_val = clean_text(row.iloc[home_idx + 1])
                 if sep_val in ["vs", "v", "vs.", "-", "x", "v."]:
                     away_team = clean_text(row.iloc[home_idx + 2])
 
-        if not away_team or away_team == "nan":
-            df.at[idx, result_col] = "Error: Away Team not found"
+        # If either team missing → Not Applicable
+        if not home_team or not away_team:
+            df.at[idx, result_col] = "Not Applicable"
             continue
 
-        # 6. Final Validation
-        # Using "in" check on normalized strings ensures consistency
+        # Final Validation
         if home_team in phase_val and away_team in phase_val:
             df.at[idx, result_col] = True
         else:
-            # Check for partial matches (e.g. "Kairat" inside "Kairat Almaty") 
-            # only if exact match fails
-            df.at[idx, result_col] = False
+            df.at[idx, result_col] = "Highlights and Magazine & Support is incorrect remark"
 
     return df
 
