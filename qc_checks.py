@@ -940,19 +940,21 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
             # Case 1: User has provided highlight tolerance → enforce duration
             if highlight_tolerance_min is not None:
-                if dur is None or dur <= highlight_tolerance_min:
+                if dur is None:
+                    df.at[idx, "program_category_check_result"] = "False"
+                    df.at[idx, "program_category_check_remark"] = "Highlight duration missing"
+
+                elif dur <= highlight_tolerance_min:
+                    df.at[idx, "program_category_check_result"] = "True"
+                    df.at[idx, "program_category_check_remark"] = (
+                        f"Valid Highlight (duration ≤ {highlight_tolerance_min} mins)"
+                    )
+
+                else:
                     df.at[idx, "program_category_check_result"] = "False"
                     df.at[idx, "program_category_check_remark"] = (
-                        f"Highlight duration <= {highlight_tolerance_min} minutes"
+                        f"Highlight duration exceeds {highlight_tolerance_min} mins"
                     )
-                else:
-                    df.at[idx, "program_category_check_result"] = "True"
-                    if highlight_re.search(desc):
-                        df.at[idx, "program_category_check_remark"] = "Valid Highlights program"
-                    else:
-                        df.at[idx, "program_category_check_remark"] = (
-                            "Valid Highlights program (keywords not detected)"
-                        )
 
             # Case 2: User did NOT provide tolerance → bypass duration check
             else:
