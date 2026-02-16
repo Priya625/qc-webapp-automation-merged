@@ -816,9 +816,10 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     # Helpers
     # -------------------------
     def find_col(names):
-        for n in names:
-            for c in df.columns:
-                if c.strip().lower() == n.strip().lower():
+        for c in df.columns:
+            c_clean = c.strip().lower()
+            for n in names:
+                if n.strip().lower() in c_clean:
                     return c
         return None
 
