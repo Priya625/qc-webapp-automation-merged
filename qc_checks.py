@@ -1129,8 +1129,9 @@ def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None,
     def get_col(df, possible_names):
         for c in df.columns:
             c_norm = str(c).strip().lower()
-            if c_norm in possible_names:
-                return c
+            for name in possible_names:
+                if name in c_norm:
+                    return c
         return None
 
     # ---------- resolve column names ----------
