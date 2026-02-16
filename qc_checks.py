@@ -1006,6 +1006,13 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
         # ===== LIVE =====
         elif ptype == "live":
+            # --- NEW SIMULCAST OVERRIDE ---
+            phase_val = str(row.get(col_phase, "")).strip().lower() if col_phase else ""
+            if "simulcast" in phase_val:
+                df.at[idx, "program_category_check_result"] = "True"
+                df.at[idx, "program_category_check_remark"] = "Valid Live program (Simulcast keyword detected)"
+                continue
+
             if fixtures_df is None or not bsr_start:
                 df.at[idx, "program_category_check_result"] = "False"
                 df.at[idx, "program_category_check_remark"] = "Invalid Live timing or fixtures missing"
