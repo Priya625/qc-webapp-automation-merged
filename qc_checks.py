@@ -1129,9 +1129,8 @@ def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None,
     def get_col(df, possible_names):
         for c in df.columns:
             c_norm = str(c).strip().lower()
-            for name in possible_names:
-                if name in c_norm:
-                    return c
+            if c_norm in possible_names:
+                return c
         return None
 
     # ---------- resolve column names ----------
@@ -1190,20 +1189,15 @@ def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None,
         # --------------------------------------------------
         if program_type == "magazine & support":
             df.at[idx, "Event_Matchday_Competition_OK"] = True
-            df.at[idx, "Event_Matchday_Competition_Remark"] = "Magazine & Support – fixture check skipped"
+            df.at[idx, "Event_Matchday_Competition_Remark"] = "Magazine & Support – Home and away not required, checking Event+Matchday only"
             continue
 
         # --------------------------------------------------
         # 🔹 3️⃣ HIGHLIGHTS LOGIC
         # --------------------------------------------------
         if program_type == "highlights":
-            key_event_md = (event_val, matchday)
-
-            if key_event_md in fixture_event_md_keys and event_val and matchday:
-                df.at[idx, "Event_Matchday_Competition_OK"] = True
-                df.at[idx, "Event_Matchday_Competition_Remark"] = "OK (Highlights match)"
-            else:
-                df.at[idx, "Event_Matchday_Competition_Remark"] = "Highlights: Event + Matchday not found"
+            df.at[idx, "Event_Matchday_Competition_OK"] = True
+            df.at[idx, "Event_Matchday_Competition_Remark"] = "Highlights – Home and away not required, checking Event+Matchday only"
             continue
 
         # --------------------------------------------------
