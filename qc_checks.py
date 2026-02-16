@@ -1177,11 +1177,15 @@ def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None,
         phase_val = norm(r.get(ws_phase_col))
 
         # --------------------------------------------------
-        # 🔹 1️⃣ SIMULCAST RULE
+        # 🔹 1️⃣ SIMULCAST RULE (Live / Repeat / Delayed Only)
         # --------------------------------------------------
-        if "simulcast" in phase_val:
+        if (
+            program_type in ["live", "repeat", "delayed"]
+            and ws_phase_col is not None
+            and "simulcast" in phase_val
+        ):
             df.at[idx, "Event_Matchday_Competition_OK"] = True
-            df.at[idx, "Event_Matchday_Competition_Remark"] = "Simulcast event"
+            df.at[idx, "Event_Matchday_Competition_Remark"] = "NA – Simulcast"
             continue
 
         # --------------------------------------------------
