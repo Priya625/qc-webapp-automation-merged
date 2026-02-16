@@ -808,7 +808,6 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 # 6️⃣ Program Category Check 
 # --------------------------------------------------
 def program_category_check(bsr_path, df, col_map, rules, file_rules):
-
     import pandas as pd
     import re
     from datetime import datetime, timedelta, time
@@ -847,15 +846,17 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     col_program_type = find_col(["program type", "type of program"])
     col_desc = find_col(["combined (translated)", "program description", "description"])
     col_duration = find_col(["duration", "duration (mins)"])
+
     col_date_utc = find_col(["date(utc)"])
     col_start_utc = find_col(["start(utc)"])
+    col_end_utc = find_col(["end(utc)"])
+
     col_home = find_col(["home team"])
     col_away = find_col(["away team"])
-    col_phase = find_col(["phase", "fixture", "episode"])
 
     if not col_program_type:
         return df
-
+    
     # -------------------------
     # Extract Monitoring Period (C3 of ROSCO)
     # -------------------------
@@ -875,6 +876,18 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                 monitor_end = pd.to_datetime(dates[1], dayfirst=True).date()
         except Exception:
             pass
+    # -------------------------
+    # Keywords
+    # -------------------------
+    highlight_re = re.compile(
+        r"\b(hits|hl|highlights|hlts|overview|review|show|goals?|summary|specials|league|reload)\b",
+        re.I
+    )
+
+    magazine_re = re.compile(
+        r"\b(sports|show|league|magazine|support|studio|magazin|weekly|preview|analysis|review|specials|weekly new|coming soon|coming|pre|post|Chrcha|interview)\b",
+        re.I
+    )
 
     # -------------------------
     # Tolerances
@@ -940,13 +953,61 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     df["program_category_check_remark"] = ""
 
     # -------------------------
-    # Validation Loop
+    # Validation
     # -------------------------
     for idx, row in df.iterrows():
-
         ptype = str(row[col_program_type]).strip().lower()
         desc = str(row[col_desc]) if col_desc else ""
         bsr_start = row["_bsr_start_utc"]
+
+        # ===== HIGHLIGHTS =====
+        if ptype == "highlights":
+            # Clean duration properly
+            dur = None
+            raw_dur = row.get(col_duration)
+
+            if pd.notna(raw_dur):
+                try:
+                    # Extract numeric part only
+                    dur = float(re.findall(r"\d+\.?\d*", str(raw_dur))[0])
+                except Exception:
+                    dur = None
+
+            # Case 1: User has provided highlight tolerance → enforce duration
+            if highlight_tolerance_min is not None:
+                if dur is None:
+                    df.at[idx, "program_category_check_result"] = "False"
+                    df.at[idx, "program_category_check_remark"] = "Highlight duration missing"
+
+                elif dur <= highlight_tolerance_min:
+                    df.at[idx, "program_category_check_result"] = "True"
+                    df.at[idx, "program_category_check_remark"] = (
+                        f"Valid Highlight (duration ≤ {highlight_tolerance_min} mins)"
+                    )
+
+                else:
+                    df.at[idx, "program_category_check_result"] = "False"
+                    df.at[idx, "program_category_check_remark"] = (
+                        f"Highlight duration exceeds {highlight_tolerance_min} mins"
+                    )
+
+            # Case 2: User did NOT provide tolerance → bypass duration check
+            else:
+                df.at[idx, "program_category_check_result"] = "True"
+                df.at[idx, "program_category_check_remark"] = (
+                    "Valid Highlights program (duration check not applied)"
+                )
+
+        # ===== MAGAZINE & SUPPORT =====
+        elif ptype in ["magazine & support", "magazine and support"]:
+
+            # Always True irrespective of keywords
+            df.at[idx, "program_category_check_result"] = "True"
+
+            if magazine_re.search(desc):
+                df.at[idx, "program_category_check_remark"] = "Valid Magazine & Support (keywords present)"
+            else:
+                df.at[idx, "program_category_check_remark"] = "Valid Magazine & Support"
 
         # =====================================================
         # LIVE CHECK
@@ -1042,10 +1103,6 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             else:
                 df.at[idx, "program_category_check_result"] = "False"
                 df.at[idx, "program_category_check_remark"] = "First broadcast cannot be Repeat"
-
-        # =====================================================
-        # HIGHLIGHTS + MAGAZINE (UNCHANGED FROM YOUR VERSION)
-        # =====================================================
         else:
             df.at[idx, "program_category_check_result"] = "NA"
             df.at[idx, "program_category_check_remark"] = "Program type not applicable"
