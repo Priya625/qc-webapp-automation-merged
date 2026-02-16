@@ -1206,15 +1206,34 @@ def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None,
             continue
 
         # --------------------------------------------------
-        # 🔹 4️⃣ NORMAL MATCH LOGIC
+        # 🔹 4️⃣ LIVE LOGIC (Match Home + Away Only)
         # --------------------------------------------------
-        key_full = (event_val, matchday, home, away)
+        if program_type == "live":
 
-        if key_full in fixture_full_keys and all(key_full):
+            match_found = False
+
+            for _, fx in df_fixtures.iterrows():
+                fx_home = norm(fx.get(fx_home_col))
+                fx_away = norm(fx.get(fx_away_col))
+
+                if home and away and home == fx_home and away == fx_away:
+                    match_found = True
+                    break
+
+            if match_found:
+                df.at[idx, "Event_Matchday_Competition_OK"] = True
+                df.at[idx, "Event_Matchday_Competition_Remark"] = "Event match found"
+            else:
+                df.at[idx, "Event_Matchday_Competition_Remark"] = "Home/Away not found in fixture"
+
+            continue
+        # --------------------------------------------------
+        # 🔹 5️⃣ REPEAT / DELAYED LOGIC
+        # --------------------------------------------------
+        if program_type in ["repeat", "delayed"]:
             df.at[idx, "Event_Matchday_Competition_OK"] = True
-            df.at[idx, "Event_Matchday_Competition_Remark"] = "OK"
-        else:
-            df.at[idx, "Event_Matchday_Competition_Remark"] = "Exact match not found in fixture"
+            df.at[idx, "Event_Matchday_Competition_Remark"] = "Event match found"
+            continue
 
     # ---------- debug ----------
     print("=== Exact Fixture Match QC (sample rows) ===")
