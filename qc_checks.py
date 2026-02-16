@@ -888,7 +888,11 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     # Tolerances
     # -------------------------
     live_tol_min = rules.get("live_tolerance_min")
-    live_tolerance = timedelta(minutes=int(live_tol_min)) if live_tol_min else timedelta(minutes=60)
+
+    if live_tol_min in [None, "", 0]:
+        live_tol_min = 80  # Default tolerance
+
+    live_tolerance = timedelta(minutes=int(live_tol_min))
 
     highlight_tol_min = rules.get("highlight_tolerance_min")
     highlight_tolerance_min = int(highlight_tol_min) if highlight_tol_min not in [None, "", 0] else None
