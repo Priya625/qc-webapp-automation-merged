@@ -840,7 +840,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             return pd.to_datetime(val, errors="coerce").time()
         return None
 
-     # -------------------------
+    # -------------------------
     # Column detection
     # -------------------------
     col_program_type = find_col(["program type", "type of program"])
@@ -1004,56 +1004,43 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             else:
                 df.at[idx, "program_category_check_remark"] = "Valid Magazine & Support"
 
-        # =====================================================
-        # LIVE CHECK
-        # =====================================================
-        if ptype == "live":
-
-            if not bsr_start:
+        # ===== LIVE =====
+        elif ptype == "live":
+            if fixtures_df is None or not bsr_start:
                 df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = "Invalid start time"
-                continue
-
-            # Simulcast override
-            if col_phase and "simulcast" in str(row[col_phase]).lower():
-                df.at[idx, "program_category_check_result"] = "True"
-                df.at[idx, "program_category_check_remark"] = "Valid Live - Simulcast"
+                df.at[idx, "program_category_check_remark"] = "Invalid Live timing or fixtures missing"
                 continue
 
             home = str(row[col_home]).strip().lower()
             away = str(row[col_away]).strip().lower()
 
-            fixture_start = None
+            matched = False
+            for _, fx in fixtures_df.iterrows():
+                fx_date = parse_date(fx.get("Date"))
+                fx_st = parse_time(fx.get("Start Time"))
+                fx_et = parse_time(fx.get("End Time"))
+                if not fx_date or not fx_st or not fx_et:
+                    continue
 
-            if fixtures_df is not None:
-                for _, fx in fixtures_df.iterrows():
-                    fx_date = parse_date(fx.get("Date"))
-                    fx_st = parse_time(fx.get("Start Time"))
+                fx_start = datetime.combine(fx_date, fx_st)
+                fx_end = datetime.combine(fx_date, fx_et)
+                if fx_end <= fx_start:
+                    fx_end += timedelta(days=1)
 
-                    if not fx_date or not fx_st:
-                        continue
+                if (
+                    home == str(fx.get("Home Team", "")).strip().lower()
+                    and away == str(fx.get("Away Team", "")).strip().lower()
+                    and abs(bsr_start - fx_start) <= live_tolerance
+                ):
+                    matched = True
+                    break
 
-                    if (
-                        home == str(fx.get("Home Team", "")).strip().lower()
-                        and away == str(fx.get("Away Team", "")).strip().lower()
-                    ):
-                        fixture_start = datetime.combine(fx_date, fx_st)
-                        break
-
-            if not fixture_start:
-                df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = "Matching fixture not found"
-                continue
-
-            # Must be first broadcast
-            first_time = first_broadcast.get((home, away))
-
-            if first_time and bsr_start == first_time and abs(bsr_start - fixture_start) <= live_tolerance:
+            if matched:
                 df.at[idx, "program_category_check_result"] = "True"
-                df.at[idx, "program_category_check_remark"] = "Valid Live (within tolerance)"
+                df.at[idx, "program_category_check_remark"] = "Valid Live program"
             else:
                 df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = "Live outside tolerance or not first broadcast"
+                df.at[idx, "program_category_check_remark"] = "Live program outside tolerance"
 
         # =====================================================
         # DELAYED
