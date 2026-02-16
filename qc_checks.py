@@ -1018,22 +1018,52 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
         # ===== DELAYED =====
         elif ptype == "delayed":
+
+            if fixtures_df is None or not bsr_start:
+                df.at[idx, "program_category_check_result"] = "False"
+                df.at[idx, "program_category_check_remark"] = "Fixtures missing or invalid start time"
+                continue
+
             home = str(row[col_home]).strip().lower()
             away = str(row[col_away]).strip().lower()
-            first_time = first_broadcast.get((home, away, bsr_start.date())) if bsr_start else None
 
-            if not bsr_start or not first_time:
+            # --- Find matching fixture ---
+            fixture_start = None
+
+            for _, fx in fixtures_df.iterrows():
+                fx_date = parse_date(fx.get("Date"))
+                fx_st = parse_time(fx.get("Start Time"))
+
+                if not fx_date or not fx_st:
+                    continue
+
+                if (
+                    home == str(fx.get("Home Team", "")).strip().lower()
+                    and away == str(fx.get("Away Team", "")).strip().lower()
+                ):
+                    fixture_start = datetime.combine(fx_date, fx_st)
+                    break
+
+            if not fixture_start:
                 df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = "Unable to determine first broadcast"
-            elif bsr_start == first_time:
+                df.at[idx, "program_category_check_remark"] = "Matching fixture not found"
+                continue
+
+            # --- Check if within live tolerance ---
+            if abs(bsr_start - fixture_start) <= live_tolerance:
                 df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = "First broadcast cannot be Delayed"
-            elif abs(bsr_start - first_time) <= live_tolerance:
-                df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = "Delayed program falls within Live tolerance"
-            else:
+                df.at[idx, "program_category_check_remark"] = "Falls within Live tolerance - should be Live"
+                continue
+
+            # --- Check if first occurrence in BSR ---
+            first_time = first_broadcast.get((home, away, bsr_start.date()))
+
+            if first_time and bsr_start == first_time:
                 df.at[idx, "program_category_check_result"] = "True"
-                df.at[idx, "program_category_check_remark"] = "Valid Delayed first broadcast"
+                df.at[idx, "program_category_check_remark"] = "Valid Delayed (first broadcast outside Live tolerance)"
+            else:
+                df.at[idx, "program_category_check_result"] = "False"
+                df.at[idx, "program_category_check_remark"] = "Not first broadcast - should be Repeat"
 
         # ===== REPEAT =====
         elif ptype == "repeat":
