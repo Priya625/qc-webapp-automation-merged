@@ -840,22 +840,17 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             return pd.to_datetime(val, errors="coerce").time()
         return None
 
-    # -------------------------
+     # -------------------------
     # Column detection
     # -------------------------
     col_program_type = find_col(["program type", "type of program"])
     col_desc = find_col(["combined (translated)", "program description", "description"])
     col_duration = find_col(["duration", "duration (mins)"])
-
     col_date_utc = find_col(["date(utc)"])
     col_start_utc = find_col(["start(utc)"])
-    col_end_utc = find_col(["end(utc)"])
-
     col_home = find_col(["home team"])
     col_away = find_col(["away team"])
-
-    if not col_program_type:
-        return df
+    col_phase = find_col(["phase", "fixture", "episode"])
     
     # -------------------------
     # Extract Monitoring Period (C3 of ROSCO)
