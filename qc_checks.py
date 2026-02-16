@@ -1011,17 +1011,18 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         # =====================================================
         # LIVE CHECK
         # =====================================================
-        if ptype == "live":
+        elif ptype == "live":
 
-            if not bsr_start:
-                df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = "Invalid start time"
-                continue
-
-            # Simulcast override
+            # 1️⃣ Simulcast override FIRST (no dependency on date/home/away)
             if col_phase and "simulcast" in str(row[col_phase]).lower():
                 df.at[idx, "program_category_check_result"] = "True"
                 df.at[idx, "program_category_check_remark"] = "Valid Live - Simulcast"
+                continue
+
+            # 2️⃣ Now check start time
+            if not bsr_start:
+                df.at[idx, "program_category_check_result"] = "False"
+                df.at[idx, "program_category_check_remark"] = "Invalid start time"
                 continue
 
             home = str(row[col_home]).strip().lower()
@@ -1049,7 +1050,6 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                 df.at[idx, "program_category_check_remark"] = "Matching fixture not found"
                 continue
 
-            # Must be first broadcast
             first_time = first_broadcast.get((home, away))
 
             if first_time and bsr_start == first_time and abs(bsr_start - fixture_start) <= live_tolerance:
