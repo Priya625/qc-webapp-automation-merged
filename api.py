@@ -722,6 +722,7 @@ from typing import Optional, List
 # QC IMPORTS
 # =========================
 import qc_checks as qc_general
+
 from qc_checks import (
     detect_period_from_rosco,
     load_bsr,
@@ -796,7 +797,7 @@ def extract_fixtures(bsr_path):
     return None
 
 # ======================================================
-# =============== GENERAL QC (STREAMLIT PARITY) =========
+# ================= GENERAL QC =========================
 # ======================================================
 @router.post("/run_general_qc")
 def run_general_qc(
@@ -823,21 +824,22 @@ def run_general_qc(
         with open(bsr_path, "wb") as f:
             shutil.copyfileobj(bsr_file.file, f)
 
+        # === EXACT STREAMLIT ORDER ===
         start_date, end_date = detect_period_from_rosco(rosco_path)
         df = load_bsr(bsr_path)
-        df.columns = df.columns.str.replace("\xa0", " ").str.strip()
 
-        df = qc_general.auto_sort_bsr(df, col_map["bsr"])
+        df = qc_general.auto_sort_bsr(df, col_map.get("bsr", {}))
         df = period_check(df, start_date, end_date)
-        df = completeness_check(df, col_map["bsr"], rules["program_category"])
+        df = completeness_check(df, col_map.get("bsr", {}), rules.get("program_category", {}))
         df = overlap_duplicate_daybreak_check(
-            df, col_map["bsr"], rules.get("overlap_check", {})
+            df, col_map.get("bsr", {}), rules.get("overlap_check", {})
         )
         df = program_category_check(
-            bsr_path, df, col_map, rules["program_category"], file_rules
+            bsr_path, df, col_map, rules.get("program_category", {}), file_rules
         )
 
         fixtures_df = extract_fixtures(bsr_path)
+
         if fixtures_df is not None:
             df = check_event_matchday_competition(df, fixtures_df)
         else:
@@ -845,12 +847,12 @@ def run_general_qc(
             df["Event_Matchday_Competition_Remark"] = "Fixtures sheet missing"
 
         df = market_channel_consistency_check(df, rosco_path, col_map, file_rules)
-        df = rates_and_ratings_check(df, col_map["bsr"])
-        df = country_channel_id_check(df, col_map["bsr"])
+        df = rates_and_ratings_check(df, col_map.get("bsr", {}))
+        df = country_channel_id_check(df, col_map.get("bsr", {}))
         df = qc_general.home_away_vs_phase_check(df, col_map)
         df = qc_general.multiple_live_match_check(df, col_map)
 
-        output_file = f"General_QC_Result_{os.path.splitext(bsr_file.filename)[0]}.xlsx"
+        output_file = f"General_QC_Result_{int(time.time())}.xlsx"
         output_path = os.path.join(OUTPUT_FOLDER, output_file)
 
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
@@ -876,7 +878,163 @@ def run_general_qc(
                 os.remove(p)
 
 # ======================================================
-# =============== SERIE A QC ENDPOINT ===================
+# ================= LALIGA QC ==========================
+# ======================================================
+@router.post("/run_laliga_qc")
+def run_laliga_qc(
+    rosco_file: UploadFile = File(...),
+    bsr_file: UploadFile = File(...),
+    macro_file: UploadFile = File(...),
+):
+    config = load_config()
+    col_map = config["column_mappings"]
+    rules = config["qc_rules"]
+    project = config["project_rules"]
+    file_rules = config["file_rules"]
+
+    rosco_path = os.path.join(UPLOAD_FOLDER, rosco_file.filename)
+    bsr_path = os.path.join(UPLOAD_FOLDER, bsr_file.filename)
+    macro_path = os.path.join(UPLOAD_FOLDER, macro_file.filename)
+
+    try:
+        with open(rosco_path, "wb") as f:
+            shutil.copyfileobj(rosco_file.file, f)
+        with open(bsr_path, "wb") as f:
+            shutil.copyfileobj(bsr_file.file, f)
+        with open(macro_path, "wb") as f:
+            shutil.copyfileobj(macro_file.file, f)
+
+        start_date, end_date = detect_period_from_rosco(rosco_path)
+        df = load_bsr(bsr_path)
+
+        df = period_check(df, start_date, end_date)
+        df = completeness_check(df, col_map["bsr"], rules["program_category"])
+        df = overlap_duplicate_daybreak_check(df, col_map["bsr"], rules["overlap_check"])
+        df = program_category_check(bsr_path, df, col_map, rules["program_category"], file_rules)
+
+        fixtures_df = extract_fixtures(bsr_path)
+        if fixtures_df is not None:
+            df = check_event_matchday_competition(df, fixtures_df)
+
+        df = market_channel_consistency_check(df, rosco_path, col_map, file_rules)
+        df = rates_and_ratings_check(df, col_map["bsr"])
+        df = country_channel_id_check(df, col_map["bsr"])
+
+        df = qc_general.domestic_market_check(
+            df, col_map["bsr"], project.get("monitoring_start_date"), debug=False
+        )
+        df = qc_general.duplicated_market_check(
+            df, macro_path, project, col_map, file_rules, debug=False
+        )
+
+        output_file = f"Laliga_QC_Result_{int(time.time())}.xlsx"
+        output_path = os.path.join(OUTPUT_FOLDER, output_file)
+
+        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False, sheet_name="Laliga QC Results")
+
+        color_excel(output_path, df)
+        generate_summary_sheet(output_path, df)
+
+        return FileResponse(output_path, filename=output_file)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        for p in [rosco_path, bsr_path, macro_path]:
+            if p and os.path.exists(p):
+                os.remove(p)
+
+# ======================================================
+# ================= F1 + EPL ===========================
+# ======================================================
+EPL_CHECK_KEYS = set(EPLValidator.market_check_map.keys())
+
+@router.post("/market_check_and_process")
+def market_check_and_process(
+    bsr_file: UploadFile = File(...),
+    obligation_file: Optional[UploadFile] = File(None),
+    overnight_file: Optional[UploadFile] = File(None),
+    macro_file: Optional[UploadFile] = File(None),
+    checks: List[str] = Form(...),
+    check_configs: str = Form("{}"),
+):
+    bsr_path = os.path.join(UPLOAD_FOLDER, bsr_file.filename)
+    obligation_path = overnight_path = macro_path = None
+
+    runtime_config = json.loads(check_configs)
+
+    output_file = f"Processed_BSR_{int(time.time())}.xlsx"
+    output_path = os.path.join(OUTPUT_FOLDER, output_file)
+
+    try:
+        with open(bsr_path, "wb") as f:
+            shutil.copyfileobj(bsr_file.file, f)
+
+        if obligation_file:
+            obligation_path = os.path.join(UPLOAD_FOLDER, obligation_file.filename)
+            with open(obligation_path, "wb") as f:
+                shutil.copyfileobj(obligation_file.file, f)
+
+        if overnight_file:
+            overnight_path = os.path.join(UPLOAD_FOLDER, overnight_file.filename)
+            with open(overnight_path, "wb") as f:
+                shutil.copyfileobj(overnight_file.file, f)
+
+        if macro_file:
+            macro_path = os.path.join(UPLOAD_FOLDER, macro_file.filename)
+            with open(macro_path, "wb") as f:
+                shutil.copyfileobj(macro_file.file, f)
+
+        bsr_checks = [c for c in checks if c not in EPL_CHECK_KEYS]
+        epl_checks = [c for c in checks if c in EPL_CHECK_KEYS]
+
+        validator = BSRValidator(
+            bsr_path=bsr_path,
+            obligation_path=obligation_path,
+            overnight_path=overnight_path,
+            macro_path=macro_path,
+        )
+
+        summaries = []
+        if bsr_checks:
+            summaries.extend(validator.market_check_processor(bsr_checks))
+
+        df = validator.df
+
+        if epl_checks:
+            epl_validator = EPLValidator(
+                df=df,
+                bsr_path=bsr_path,
+                obligation_path=obligation_path,
+                overnight_path=overnight_path,
+                macro_path=macro_path,
+                check_configs=runtime_config,
+            )
+            summaries.extend(epl_validator.market_check_processor(epl_checks))
+            df = epl_validator.df
+
+        df.to_excel(output_path, index=False)
+
+        return JSONResponse(
+            {
+                "status": "Success",
+                "download_url": f"/api/qc/download_file?filename={output_file}",
+                "summaries": summaries,
+            }
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    finally:
+        for p in [bsr_path, obligation_path, overnight_path, macro_path]:
+            if p and os.path.exists(p):
+                os.remove(p)
+
+# ======================================================
+# ================= SERIE A ============================
 # ======================================================
 @router.post("/run_serie_a_qc")
 def run_serie_a_qc(
@@ -916,9 +1074,6 @@ def run_serie_a_qc(
         summaries = validator.market_check_processor(checks)
         df_processed = validator.df
 
-        if df_processed.empty:
-            raise Exception("Serie A QC produced empty dataframe")
-
         df_processed.to_excel(output_path, index=False)
 
         return JSONResponse(
@@ -938,97 +1093,7 @@ def run_serie_a_qc(
                 os.remove(p)
 
 # ======================================================
-# ========== MARKET / F1 / EPL COMBINED =================
-# ======================================================
-EPL_CHECK_KEYS = set(EPLValidator.market_check_map.keys())
-
-@router.post("/market_check_and_process")
-def market_check_and_process(
-    bsr_file: UploadFile = File(...),
-    obligation_file: Optional[UploadFile] = File(None),
-    overnight_file: Optional[UploadFile] = File(None),
-    macro_file: Optional[UploadFile] = File(None),
-    checks: List[str] = Form(...),
-    check_configs: str = Form("{}"),
-):
-    bsr_path = os.path.join(UPLOAD_FOLDER, bsr_file.filename)
-    obligation_path = overnight_path = macro_path = None
-
-    try:
-        runtime_config = json.loads(check_configs)
-    except Exception:
-        runtime_config = {}
-
-    output_file = f"Processed_BSR_{int(time.time())}.xlsx"
-    output_path = os.path.join(OUTPUT_FOLDER, output_file)
-
-    try:
-        with open(bsr_path, "wb") as f:
-            shutil.copyfileobj(bsr_file.file, f)
-
-        if obligation_file:
-            obligation_path = os.path.join(UPLOAD_FOLDER, obligation_file.filename)
-            with open(obligation_path, "wb") as f:
-                shutil.copyfileobj(obligation_file.file, f)
-
-        if overnight_file:
-            overnight_path = os.path.join(UPLOAD_FOLDER, overnight_file.filename)
-            with open(overnight_path, "wb") as f:
-                shutil.copyfileobj(overnight_file.file, f)
-
-        if macro_file:
-            macro_path = os.path.join(UPLOAD_FOLDER, macro_file.filename)
-            with open(macro_path, "wb") as f:
-                shutil.copyfileobj(macro_file.file, f)
-
-        bsr_checks = [c for c in checks if c not in EPL_CHECK_KEYS]
-        epl_checks = [c for c in checks if c in EPL_CHECK_KEYS]
-
-        bsr_validator = BSRValidator(
-            bsr_path=bsr_path,
-            obligation_path=obligation_path,
-            overnight_path=overnight_path,
-            macro_path=macro_path,
-        )
-
-        summaries = []
-        if bsr_checks:
-            summaries.extend(bsr_validator.market_check_processor(bsr_checks))
-
-        df = bsr_validator.df
-
-        if epl_checks:
-            epl_validator = EPLValidator(
-                df=df,
-                bsr_path=bsr_path,
-                obligation_path=obligation_path,
-                overnight_path=overnight_path,
-                macro_path=macro_path,
-                check_configs=runtime_config,
-            )
-            summaries.extend(epl_validator.market_check_processor(epl_checks))
-            df = epl_validator.df
-
-        df.to_excel(output_path, index=False)
-
-        return JSONResponse(
-            {
-                "status": "Success",
-                "download_url": f"/api/qc/download_file?filename={output_file}",
-                "summaries": summaries,
-            }
-        )
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-    finally:
-        for p in [bsr_path, obligation_path, overnight_path, macro_path]:
-            if p and os.path.exists(p):
-                os.remove(p)
-
-# ======================================================
-# ================= DOWNLOAD ============================
+# ================= DOWNLOAD ===========================
 # ======================================================
 @router.get("/download_file")
 def download_file(filename: str = Query(...)):
@@ -1037,7 +1102,4 @@ def download_file(filename: str = Query(...)):
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(path, filename=filename)
 
-# =========================
-# REGISTER ROUTER
-# =========================
 app.include_router(router, prefix="/api/qc")
