@@ -856,8 +856,8 @@ with main_qc_tab:
             st.markdown(
                 """
                 <div class='qc-card'>
-                    <h4>0️⃣ Multiple Live Match Consistency Check</h4>
-                    <div class='qc-small'>Identifies duplicate entries by flagging rows where the same Live match is recorded multiple times for the same Market, Broadcaster, and Channel.</div>
+                    <h4>10️⃣ Multiple Live Match Consistency Check</h4>
+                    <div class='qc-small'>Flags duplicate entries by flagging rows where the same Live match is recorded multiple times for same Market, Broadcaster, and Channel.</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
