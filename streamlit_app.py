@@ -857,7 +857,7 @@ with main_qc_tab:
                 """
                 <div class='qc-card'>
                     <h4>10️⃣ Multiple Live Match Consistency Check</h4>
-                    <div class='qc-small'>Flags duplicate entries by flagging rows where the same Live match is recorded multiple times for same Market, Broadcaster, and Channel.</div>
+                    <div class='qc-small'>Flags duplicate entries by flagging rows where the same Live match is recorded multiple times.</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
