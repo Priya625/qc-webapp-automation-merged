@@ -842,6 +842,27 @@ with main_qc_tab:
             unsafe_allow_html=True,
         )
 
+    r3c1, r3c2, r3c3, r3c4 = st.columns(4)
+    with r3c1:
+            st.markdown("""
+                <div class='qc-card'>
+                    <h4>9️⃣ Home vs Away vs Phase Consistency Check</h4>
+                    <div class='qc-small'>Ensures both the Home and Away team names are present within the Phase/Fixture description to prevent data mismatches.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+    with r3c2:
+            st.markdown(
+                """
+                <div class='qc-card'>
+                    <h4>0️⃣ Multiple Live Match Consistency Check</h4>
+                    <div class='qc-small'>Identifies duplicate entries by flagging rows where the same Live match is recorded multiple times for the same Market, Broadcaster, and Channel.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
 
 
 # -----------------------------------------------------------
