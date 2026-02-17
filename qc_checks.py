@@ -1052,53 +1052,76 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             else:
                 df.at[idx, "program_category_check_result"] = "False"
                 df.at[idx, "program_category_check_remark"] = "Live program outside tolerance"
-
+        
         # =====================================================
         # DELAYED
         # =====================================================
-        elif ptype == "delayed":
+        elif "delayed" in ptype:
 
-            if not bsr_start:
-                df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = "Invalid start time"
-                continue
-
-            home = str(row[col_home]).strip().lower()
-            away = str(row[col_away]).strip().lower()
-
-            first_time = first_broadcast.get((home, away))
-
-            if first_time and bsr_start == first_time:
-                df.at[idx, "program_category_check_result"] = "True"
-                df.at[idx, "program_category_check_remark"] = "Valid Delayed (first in monitoring period)"
-            else:
-                df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = "Not first in monitoring period - should be Repeat"
+            df.at[idx, "program_category_check_result"] = "True"
+            df.at[idx, "program_category_check_remark"] = "Valid Delayed"
 
         # =====================================================
         # REPEAT
         # =====================================================
-        elif ptype == "repeat":
+        elif "repeat" in ptype:
 
-            if not bsr_start:
-                df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = "Invalid start time"
-                continue
+            df.at[idx, "program_category_check_result"] = "True"
+            df.at[idx, "program_category_check_remark"] = "Valid Repeat"
 
-            home = str(row[col_home]).strip().lower()
-            away = str(row[col_away]).strip().lower()
-
-            first_time = first_broadcast.get((home, away))
-
-            if first_time and bsr_start > first_time:
-                df.at[idx, "program_category_check_result"] = "True"
-                df.at[idx, "program_category_check_remark"] = "Valid Repeat"
-            else:
-                df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = "First broadcast cannot be Repeat"
+        # =====================================================
+        # OTHERS
+        # =====================================================
         else:
             df.at[idx, "program_category_check_result"] = "NA"
             df.at[idx, "program_category_check_remark"] = "Program type not applicable"
+
+        # # =====================================================
+        # # DELAYED
+        # # =====================================================
+        # elif ptype == "delayed":
+
+        #     if not bsr_start:
+        #         df.at[idx, "program_category_check_result"] = "False"
+        #         df.at[idx, "program_category_check_remark"] = "Invalid start time"
+        #         continue
+
+        #     home = str(row[col_home]).strip().lower()
+        #     away = str(row[col_away]).strip().lower()
+
+        #     first_time = first_broadcast.get((home, away))
+
+        #     if first_time and bsr_start == first_time:
+        #         df.at[idx, "program_category_check_result"] = "True"
+        #         df.at[idx, "program_category_check_remark"] = "Valid Delayed (first in monitoring period)"
+        #     else:
+        #         df.at[idx, "program_category_check_result"] = "False"
+        #         df.at[idx, "program_category_check_remark"] = "Not first in monitoring period - should be Repeat"
+
+        # # =====================================================
+        # # REPEAT
+        # # =====================================================
+        # elif ptype == "repeat":
+
+        #     if not bsr_start:
+        #         df.at[idx, "program_category_check_result"] = "False"
+        #         df.at[idx, "program_category_check_remark"] = "Invalid start time"
+        #         continue
+
+        #     home = str(row[col_home]).strip().lower()
+        #     away = str(row[col_away]).strip().lower()
+
+        #     first_time = first_broadcast.get((home, away))
+
+        #     if first_time and bsr_start > first_time:
+        #         df.at[idx, "program_category_check_result"] = "True"
+        #         df.at[idx, "program_category_check_remark"] = "Valid Repeat"
+        #     else:
+        #         df.at[idx, "program_category_check_result"] = "False"
+        #         df.at[idx, "program_category_check_remark"] = "First broadcast cannot be Repeat"
+        # else:
+        #     df.at[idx, "program_category_check_result"] = "NA"
+        #     df.at[idx, "program_category_check_remark"] = "Program type not applicable"
 
     df.drop(columns=["_bsr_start_utc"], inplace=True, errors="ignore")
     return df
@@ -1227,6 +1250,7 @@ def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None,
                 df.at[idx, "Event_Matchday_Competition_Remark"] = "Home/Away not found in fixture"
 
             continue
+
         # --------------------------------------------------
         # 🔹 5️⃣ REPEAT / DELAYED LOGIC
         # --------------------------------------------------
