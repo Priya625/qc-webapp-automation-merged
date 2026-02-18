@@ -1859,6 +1859,58 @@ def multiple_live_match_check(df, col_map):
     return df
 
 # -----------------------------------------------------------
+# 16️⃣ Metered Channel Estimation Check 
+# -----------------------------------------------------------
+def metered_channel_estimation_check(df, metered_list_df, bsr_cols):
+    """
+    Flags channels that are on the Metered Master List but are being 
+    reported as 'Estimated' instead of 'Metered' in the BSR.
+    """
+    df = df.copy()
+    df["Metered_Estimation_Check_OK"] = True
+    df["Metered_Estimation_Check_Remark"] = "OK"
+
+    # 1. Resolve Columns
+    col_ch_id = _find_column(df, bsr_cols.get("channel_id"))
+    col_est_aud = _find_column(df, bsr_cols.get("aud_estimates"))
+    col_met_aud = _find_column(df, bsr_cols.get("aud_metered"))
+    
+    # 2. Extract Metered IDs from the Master List
+    # Assuming 'metered_list_df' has a column named 'Channel ID'
+    metered_ids_master = set(metered_list_df.iloc[:, 0].astype(str).str.strip().unique())
+
+    if not col_ch_id or not col_est_aud:
+        df["Metered_Estimation_Check_OK"] = False
+        df["Metered_Estimation_Check_Remark"] = "Check skipped: Missing Channel ID or Estimates column"
+        return df
+
+    for idx, row in df.iterrows():
+        current_ch_id = str(row.get(col_ch_id, "")).strip()
+        
+        # Check if this channel is in our official metered master list
+        if current_ch_id in metered_ids_master:
+            est_val_present = _is_present(row.get(col_est_aud))
+            met_val_present = _is_present(row.get(col_met_aud)) if col_met_aud else False
+            
+            # Logic: If it's a metered channel, it should NOT have data in the Estimated column
+            # and SHOULD have data in the Metered column.
+            if est_val_present:
+                df.at[idx, "Metered_Estimation_Check_OK"] = False
+                df.at[idx, "Metered_Estimation_Check_Remark"] = (
+                    f"Violation: Channel {current_ch_id} is METERED but has ESTIMATED data."
+                )
+            elif not met_val_present:
+                df.at[idx, "Metered_Estimation_Check_OK"] = False
+                df.at[idx, "Metered_Estimation_Check_Remark"] = (
+                    f"Violation: Metered channel {current_ch_id} has no audience data."
+                )
+        else:
+            # Not a metered channel - standard check is not applicable
+            df.at[idx, "Metered_Estimation_Check_Remark"] = "Non-metered channel"
+
+    return df
+
+# -----------------------------------------------------------
 # ✅ Excel Coloring for True/False checks
 def color_excel(output_path, df):
     from openpyxl import load_workbook

@@ -494,10 +494,10 @@ with home_page_tab:
 # -----------------------------------------------------------
 with main_qc_tab:
     st.header("QC File Uploader")
-    st.markdown("Upload your **Rosco** and **BSR** files below. This will run the general QC checks.")
+    st.markdown("Upload your **Rosco** and **BSR** and **Metered Master List** files below. This will run the general QC checks.")
 
     # --- File uploaders (two columns) ---
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
         main_rosco_file = st.file_uploader(
             "📘 Upload Rosco File (.xlsx)", 
@@ -522,6 +522,14 @@ with main_qc_tab:
         # Empty space to maintain vertical alignment with the note in col1
         st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
 
+    with col3:
+        # NEW: Metered Master List Uploader
+        metered_master_file = st.file_uploader(
+            "📋 Upload Metered Master List (.xlsx)", 
+            type=["xlsx"], 
+            key="metered_master",
+            help="Official list of channels that must use Metered data instead of Estimated."
+        )
     st.write("---")
     # --time picker--
     # Create the top-level layout (2 main columns)
@@ -562,7 +570,7 @@ with main_qc_tab:
     if st.button("🚀 Run General QC Checks"):
         # Basic validations
         if not main_rosco_file or not main_bsr_file or not config:
-            st.error(" Please upload both Rosco and BSR files and ensure config.json is loaded.")
+            st.error(" Please upload both Rosco and BSR files and the Metered Master List to ensure config.json is loaded.")
         else:
             with st.spinner("Running General QC checks..."):
                 try:
@@ -580,11 +588,13 @@ with main_qc_tab:
                     # Save uploaded files to disk
                     rosco_path = os.path.join(UPLOAD_FOLDER, main_rosco_file.name)
                     bsr_path = os.path.join(UPLOAD_FOLDER, main_bsr_file.name)
+                    metered_path = os.path.join(UPLOAD_FOLDER, metered_master_file.name)
                     with open(rosco_path, "wb") as f:
                         f.write(main_rosco_file.getbuffer())
                     with open(bsr_path, "wb") as f:
                         f.write(main_bsr_file.getbuffer())
-
+                    with open(metered_path, "wb") as f:
+                        f.write(metered_master_file.getbuffer())
                     # --- RUN QC STEPS (wrapped with try/except for each major step) ---
                     # 0. Detect monitoring period
                     try:
@@ -595,8 +605,9 @@ with main_qc_tab:
                     # 1. Load BSR (detect header row inside function)
                     try:
                         df = qc_general.load_bsr(bsr_path)
+                        metered_list_df = pd.read_excel(metered_path)
                     except Exception as e:
-                        raise RuntimeError(f"Error loading BSR file: {e}")
+                        raise RuntimeError(f"Error loading BSR or Metered Master List file: {e}")
 
                     # ✅ AUTO SORT BSR DATA (CRITICAL)
                     df = qc_general.auto_sort_bsr(df, col_map.get("bsr", {}))
@@ -675,6 +686,12 @@ with main_qc_tab:
                         df = qc_general.multiple_live_match_check(df, col_map)
                     except Exception as e:
                         raise RuntimeError(f"Error during multiple_live_match_check: {e}")
+                    
+                    # 12. Metered Estimation Check
+                    try:
+                        df = qc_general.metered_channel_estimation_check(df, metered_list_df, col_map.get("bsr", {}))
+                    except Exception as e:
+                        st.warning(f"Metered Estimation Check failed: {e}")
 
                     # --- Write output Excel ---
                     output_file = f"General_QC_Result_{os.path.splitext(main_bsr_file.name)[0]}.xlsx"
@@ -858,6 +875,17 @@ with main_qc_tab:
                 <div class='qc-card'>
                     <h4>10️⃣ Multiple Live Match Consistency Check</h4>
                     <div class='qc-small'>Indentifies duplicate entries by flagging rows where the same Live match is recorded multiple times.</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    with r3c3:
+            st.markdown(
+                """
+                <div class='qc-card'>
+                    <h4>11️⃣ Metered Channel Estimation Check</h4>
+                    <div class='qc-small'>Flags channels that are on the Metered Master List but are being reported as 'Estimated' instead of 'Metered' in the BSR.</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
