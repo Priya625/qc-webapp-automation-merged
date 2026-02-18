@@ -1870,42 +1870,49 @@ def metered_channel_estimation_check(df, metered_list_df, bsr_cols):
     df["Metered_Estimation_Check_OK"] = True
     df["Metered_Estimation_Check_Remark"] = "OK"
 
-    # 1. Resolve Columns
+    # 1. Resolve Columns from BSR
+    col_ch_name = _find_column(df, bsr_cols.get("tv_channel")) # Use Name for better matching
     col_ch_id = _find_column(df, bsr_cols.get("channel_id"))
     col_est_aud = _find_column(df, bsr_cols.get("aud_estimates"))
     col_met_aud = _find_column(df, bsr_cols.get("aud_metered"))
     
-    # 2. Extract Metered IDs from the Master List
-    # Assuming 'metered_list_df' has a column named 'Channel ID'
-    metered_ids_master = set(metered_list_df.iloc[:, 0].astype(str).str.strip().unique())
+    # 2. Build a search set from ALL columns in the Master List (to catch IDs or Names)
+    # We convert everything to string, lowercase, and stripped of spaces
+    metered_reference_set = set()
+    for col in metered_list_df.columns:
+        metered_reference_set.update(
+            metered_list_df[col].astype(str).str.strip().str.lower().unique()
+        )
 
-    if not col_ch_id or not col_est_aud:
+    if not col_ch_name or not col_est_aud:
         df["Metered_Estimation_Check_OK"] = False
-        df["Metered_Estimation_Check_Remark"] = "Check skipped: Missing Channel ID or Estimates column"
+        df["Metered_Estimation_Check_Remark"] = "Check skipped: Missing Channel columns or Estimates column"
         return df
 
     for idx, row in df.iterrows():
-        current_ch_id = str(row.get(col_ch_id, "")).strip()
+        # Get BSR values in lowercase for comparison
+        name_val = str(row.get(col_ch_name, "")).strip().lower()
+        id_val = str(row.get(col_ch_id, "")).strip().lower() if col_ch_id else ""
         
-        # Check if this channel is in our official metered master list
-        if current_ch_id in metered_ids_master:
+        # Check if either the Name or the ID is found in the reference set
+        is_metered = (name_val in metered_reference_set) or (id_val in metered_reference_set)
+        
+        if is_metered:
             est_val_present = _is_present(row.get(col_est_aud))
             met_val_present = _is_present(row.get(col_met_aud)) if col_met_aud else False
             
-            # Logic: If it's a metered channel, it should NOT have data in the Estimated column
-            # and SHOULD have data in the Metered column.
             if est_val_present:
                 df.at[idx, "Metered_Estimation_Check_OK"] = False
                 df.at[idx, "Metered_Estimation_Check_Remark"] = (
-                    f"Violation: Channel {current_ch_id} is METERED but has ESTIMATED data."
+                    f"Violation: Channel '{row.get(col_ch_name)}' is METERED but has ESTIMATED data."
                 )
             elif not met_val_present:
+                # This flags cases where it's metered but the metered column is empty
                 df.at[idx, "Metered_Estimation_Check_OK"] = False
                 df.at[idx, "Metered_Estimation_Check_Remark"] = (
-                    f"Violation: Metered channel {current_ch_id} has no audience data."
+                    f"Violation: Metered channel '{row.get(col_ch_name)}' is missing audience data."
                 )
         else:
-            # Not a metered channel - standard check is not applicable
             df.at[idx, "Metered_Estimation_Check_Remark"] = "Non-metered channel"
 
     return df
