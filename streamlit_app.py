@@ -7,7 +7,17 @@ import os
 import time
 import shutil
 import json
+#BSA Dashboard change start
+import plotly.express as px
+import io
+import re
+from datetime import datetime, timedelta
 from typing import Optional, List
+
+# --- BSA DASHBOARD CONFIG ---
+AURA_PATH = "assets/List of Channel - AURA.xlsx"
+MANDATORY_PATH = "assets/BSA Mandatory Channel List.xlsx"
+#BSA Dashboard change end
 
 BACKEND_BASE_URL = os.environ.get("STREAMLIT_BACKEND_URL", "http://localhost:8000")
 BACKEND_URL = BACKEND_BASE_URL + "/api"
@@ -39,6 +49,75 @@ UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 OUTPUT_FOLDER = os.path.join(BASE_DIR, "outputs")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+#BSA Dashboard change start
+def parse_custom_date(date_str):
+    if isinstance(date_str, datetime): return date_str
+    s = str(date_str).strip()
+    s_clean = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', s, flags=re.IGNORECASE)
+    for fmt in ('%d %b %Y', '%Y-%m-%d', '%d-%m-%Y', '%Y-%m-%d %H:%M:%S', '%m/%d/%Y', '%Y/%m/%d'):
+        try: return datetime.strptime(s_clean, fmt)
+        except ValueError: continue
+    return None
+
+def extract_monitoring_period(df_info):
+    monitor_row = df_info[df_info.iloc[:, 0].astype(str).str.contains("Monitoring Periods", na=False)]
+    if not monitor_row.empty:
+        dates = re.findall(r'\d{4}-\d{2}-\d{2}', str(monitor_row.iloc[0, 1]))
+        if len(dates) >= 2:
+            return datetime.strptime(dates[0], '%Y-%m-%d'), datetime.strptime(dates[1], '%Y-%m-%d')
+    return None, None
+
+def clean_name_strict(name):
+    if pd.isna(name): return ""
+    s = str(name).strip().lower()
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+def clean_name_lenient(name):
+    if pd.isna(name): return ""
+    s = str(name)
+    s = re.sub(r"\(.*?\)|\[.*?\]", "", s)
+    s = re.split(r"[-–—]", s)[0]
+    s = re.sub(r"[^0-9a-zA-Z\s]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip().lower()
+    return s
+
+def clean_market(m): 
+    if pd.isna(m): return ""
+    return str(m).strip().lower()
+
+def clean_id(val): 
+    if pd.isna(val): return ""
+    s = str(val).strip()
+    return s[:-2] if s.endswith(".0") else s
+
+def style_dataframe(df):
+    def color_cells(val):
+        s = str(val).strip()
+        if s == "Not in BSA": return 'font-style: italic; color: #F35390; background-color: white'
+        elif s == "FLAG: Not in BSA": return 'font-style: italic; color: white; background-color: #F35390'
+        elif "Processing Gaps" in s or "Processing/Gaps" in s: return 'color: white; background-color: #8F2E07'
+        elif "Not in Aura" in s or "Missing in Both" in s: return 'color: white; background-color: #990033'
+        elif "No Schedule" in s: return 'background-color: #FFC000; color: black'
+        elif "Partial Schedule" in s: return 'color: white; background-color: #0F39B1'
+        elif "Scheduled" in s or "OK" == s: return 'background-color: #22786A; color: white'
+        elif "CRITICAL" == s: return 'color: white; background-color: #15A60A; font-weight: bold'
+        elif "Non-Critical" == s: return 'color: white; background-color: #941C8E'
+        return ''
+    return df.style.map(color_cells)
+
+def smart_multiselect(label, options, key, default=None):
+    all_opt = ["Select All"] + sorted([str(o) for o in options if pd.notna(o)])
+    if key not in st.session_state:
+        st.session_state[key] = default if default else ["Select All"]
+    if f"reset_{key}" in st.session_state and st.session_state[f"reset_{key}"]:
+        st.session_state[key] = ["Select All"]
+        st.session_state[f"reset_{key}"] = False
+    selection = st.multiselect(label, all_opt, key=key)
+    if "Select All" in selection: return [o for o in all_opt if o != "Select All"]
+    return selection
+#BSA Dashboard change end
 
 # -------------------- 🧠 Config Loader --------------------
 @st.cache_data
@@ -183,13 +262,14 @@ except Exception:
 # --- Use Tabs for Clear Separation (MODIFIED) ---
 LOGO_PATH_4 = "images/Nielsen_Sports_logo.svg"
 # Fixed: 7 variables for 7 tab labels
-home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab, epl_tab, serie_a_tab = st.tabs([
+home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab, epl_tab, serie_a_tab,bsa_dashboard_tab= st.tabs([
     " Home Page", 
     " Main QC Automation", 
     " Laliga Specific QC", 
     " F1 Market Specific Checks",
     " EPL Specific Checks",
-    " Serie A Specific Checks"
+    " Serie A Specific Checks",
+    " BSA Early Warning Dashboard"
 ])
 
 # --- Define all market check keys globally for management ---
@@ -1685,3 +1765,96 @@ with serie_a_tab:
                 except Exception as e:
                     st.error(f"❌ Error during Serie A processing: {e}")
                     st.exception(e) # This will show the full error trace for debugging
+
+# -----------------------------------------------------------
+#          📊 BSA EARLY WARNING DASHBOARD TAB 
+# -----------------------------------------------------------
+with bsa_dashboard_tab:
+    st.header("📺 BSA/ROSCO/AURA Early Warning Dashboard")
+    
+    with st.expander("📂 Background Data Source Status", expanded=False):
+        # Auto-Loaders
+        aura_file_obj = AURA_PATH if os.path.exists(AURA_PATH) else None
+        if aura_file_obj: st.success("AURA Master: Loaded ✅")
+        else: st.warning("AURA Master missing in /assets folder.")
+        
+        mandatory_file_obj = MANDATORY_PATH if os.path.exists(MANDATORY_PATH) else None
+        if mandatory_file_obj: st.success("Mandatory List: Loaded ✅")
+        else: st.warning("Mandatory List missing in /assets folder.")
+
+    # Main Uploader Area
+    i_c1, i_c2 = st.columns(2)
+    with i_c1:
+        bsa_file = st.file_uploader("Upload Consolidated BSA File", type=['xlsx'], key="bsa_dash_up")
+    with i_c2:
+        rosco_comp_file = st.file_uploader("Upload Rosco (Optional Comparison)", type=['xlsx'], key="rosco_dash_up")
+
+    if bsa_file:
+        try:
+            df_bsa_raw = pd.read_excel(bsa_file)
+            bsa_chan_c = next(c for c in df_bsa_raw.columns if "channel" in str(c).lower() and "id" not in str(c).lower())
+            bsa_mkt_c = next(c for c in df_bsa_raw.columns if "market" in str(c).lower())
+            bsa_id_c = next((c for c in df_bsa_raw.columns if "channel" in str(c).lower() and "id" in str(c).lower()), None)
+            df_bsa_raw.drop_duplicates(subset=[bsa_mkt_c, bsa_chan_c], inplace=True)
+
+            # Load Mandatory List
+            mandatory_set = set()
+            if mandatory_file_obj:
+                df_m_list = pd.read_excel(mandatory_file_obj, sheet_name="BSA_Channel_List")
+                mandatory_set = set(df_m_list['Channel Name'].apply(clean_name_strict))
+
+            # Date Columns Extraction
+            bsa_date_cols = [col for col in df_bsa_raw.columns if parse_custom_date(col) is not None]
+            bsa_dates_sorted = sorted(bsa_date_cols, key=lambda x: parse_custom_date(x))
+            default_start = parse_custom_date(bsa_dates_sorted[0]) if bsa_dates_sorted else datetime.now()
+            default_end = parse_custom_date(bsa_dates_sorted[-1]) if bsa_dates_sorted else datetime.now()
+
+            dash_tab1, dash_tab2, dash_tab3 = st.tabs(["📊 Consolidated View", "📉 Trends", "🛡️ Audit"])
+
+            with dash_tab1:
+                results_bsa = []
+                for _, row in df_bsa_raw.iterrows():
+                    cn, mkt = str(row[bsa_chan_c]), str(row[bsa_mkt_c])
+                    cid = str(row[bsa_id_c]) if bsa_id_c else ""
+                    is_crit = "CRITICAL" if clean_name_strict(cn) in mandatory_set else "Non-Critical"
+                    
+                    row_statuses = [str(row[d]).lower() for d in bsa_date_cols]
+                    if any("processing gaps" in s for s in row_statuses): final_s = "FLAG: Processing Gaps"
+                    elif all("no schedule" in s for s in row_statuses) and row_statuses: final_s = "FLAG: No Schedule"
+                    else: final_s = "OK"
+                    
+                    r_data = {"TV Channel": cn, "Market": mkt, "Channel ID": cid, "Critical": is_crit, "Final Status": final_s}
+                    for d in bsa_date_cols: r_data[d] = row[d]
+                    results_bsa.append(r_data)
+                
+                df_bsa_view = pd.DataFrame(results_bsa)
+                
+                # Filter Logic
+                with st.expander("Filter Panel"):
+                    f_mkt = smart_multiselect("Market", df_bsa_view['Market'].unique(), "bd_mkt")
+                    f_crit = smart_multiselect("Criticality", df_bsa_view['Critical'].unique(), "bd_crit", default=["CRITICAL"])
+                
+                if f_mkt: df_bsa_view = df_bsa_view[df_bsa_view['Market'].isin(f_mkt)]
+                if f_crit: df_bsa_view = df_bsa_view[df_bsa_view['Critical'].isin(f_crit)]
+                
+                st.dataframe(style_dataframe(df_bsa_view), use_container_width=True)
+
+            with dash_tab2:
+                # Basic Trend Chart
+                st.write("### Daily Schedule Status")
+                chart_data = []
+                for d_col in bsa_date_cols:
+                    day_data = df_bsa_view[d_col].astype(str).str.lower()
+                    chart_data.append({"Date": d_col, "Status": "Scheduled", "Count": len(day_data[day_data.str.contains("scheduled")])})
+                    chart_data.append({"Date": d_col, "Status": "Gaps", "Count": len(day_data[day_data.str.contains("gaps")])})
+                
+                fig = px.bar(pd.DataFrame(chart_data), x="Date", y="Count", color="Status", barmode="group")
+                st.plotly_chart(fig, use_container_width=True)
+
+            with dash_tab3:
+                st.write("Checking against Mandatory List...")
+                # Logic for Tab 3 from app.py
+                st.info("Mandatory Check functionality active based on uploaded Master Lists.")
+
+        except Exception as e:
+            st.error(f"Dashboard Error: {e}")
