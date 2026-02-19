@@ -522,14 +522,6 @@ with main_qc_tab:
         # Empty space to maintain vertical alignment with the note in col1
         st.markdown("<div style='margin-top: 5px;'></div>", unsafe_allow_html=True)
 
-    with col3:
-        # NEW: Metered Master List Uploader
-        metered_master_file = st.file_uploader(
-            "📋 Upload Metered Master List (.xlsx)", 
-            type=["xlsx"], 
-            key="metered_master",
-            help="Official list of channels that must use Metered data instead of Estimated."
-        )
     st.write("---")
     # --time picker--
     # Create the top-level layout (2 main columns)
