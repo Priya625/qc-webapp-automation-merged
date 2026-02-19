@@ -1859,7 +1859,7 @@ def multiple_live_match_check(df, col_map):
     return df
 
 # -----------------------------------------------------------
-# 16️⃣ Metered Channel Estimation Check (Market + Channel ID)
+# 16️⃣ Metered Channel Estimation Check (Robust Column Matching)
 # -----------------------------------------------------------
 def metered_channel_estimation_check(df, bsr_cols):
     """
@@ -1881,22 +1881,22 @@ def metered_channel_estimation_check(df, bsr_cols):
     try:
         metered_list_df = pd.read_excel(master_list_path)
 
-        # Normalize column names
-        metered_list_df.columns = metered_list_df.columns.str.lower()
+        # Use helper to find columns in Master List to handle "Channel ID" vs "channel_id"
+        m_col_market = _find_column(metered_list_df, ["market"])
+        m_col_ch_id = _find_column(metered_list_df, ["channel id", "channel_id"])
 
-        required_cols = {"market", "channel_id"}
-        if not required_cols.issubset(set(metered_list_df.columns)):
+        if not m_col_market or not m_col_ch_id:
             df["Metered_Estimation_Check_OK"] = False
             df["Metered_Estimation_Check_Remark"] = (
-                "Error: Master list must contain 'market' and 'channel_id' columns."
+                f"Error: Master list headers mismatch. Found: {list(metered_list_df.columns)}"
             )
             return df
 
-        # Create set of (market, channel_id)
+        # Create set of (market, channel_id) for fast lookup
         metered_reference_set = set(
             zip(
-                metered_list_df["market"].astype(str).str.strip().str.lower(),
-                metered_list_df["channel_id"].astype(str).str.strip().str.lower()
+                metered_list_df[m_col_market].astype(str).str.strip().str.lower(),
+                metered_list_df[m_col_ch_id].astype(str).str.strip().str.lower()
             )
         )
 
@@ -1913,12 +1913,10 @@ def metered_channel_estimation_check(df, bsr_cols):
 
     # --- 3. Run Validation ---
     for idx, row in df.iterrows():
-
         market_val = str(row.get(col_market, "")).strip().lower()
         channel_id_val = str(row.get(col_ch_id, "")).strip().lower()
 
         key = (market_val, channel_id_val)
-
         is_metered = key in metered_reference_set
 
         if is_metered:
@@ -1931,15 +1929,14 @@ def metered_channel_estimation_check(df, bsr_cols):
                     f"Violation: Metered channel (Market: {row.get(col_market)}, "
                     f"Channel ID: {row.get(col_ch_id)}) has ESTIMATED data."
                 )
-
             elif not met_present:
                 df.at[idx, "Metered_Estimation_Check_OK"] = False
                 df.at[idx, "Metered_Estimation_Check_Remark"] = (
                     f"Violation: Metered channel (Market: {row.get(col_market)}, "
                     f"Channel ID: {row.get(col_ch_id)}) is missing metered audience."
                 )
-
         else:
+            # Optional: Clear remark for non-metered to keep it clean
             df.at[idx, "Metered_Estimation_Check_Remark"] = "Non-metered channel"
 
     return df
