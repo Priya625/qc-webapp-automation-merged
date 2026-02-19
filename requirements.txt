@@ -10,3 +10,4 @@ fuzzywuzzy       # Needed for the Confidence Imputation check logic
 python-Levenshtein # Recommended for fuzzywuzzy performance
 pydantic
 uvicorn          # If you deploy the backend on the same service (less common)
+plotly

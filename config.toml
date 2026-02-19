@@ -1,0 +1,6 @@
+[theme]
+primaryColor = "#001229"          # Dark Nielsen Navy
+backgroundColor = "#F8F9FA"       # Light Grey Background
+secondaryBackgroundColor = "#FFFFFF" # White Sidebar/Cards
+textColor = "#020b1d"             # Dark Text
+font = "sans serif"               # Clean Font
