@@ -588,13 +588,11 @@ with main_qc_tab:
                     # Save uploaded files to disk
                     rosco_path = os.path.join(UPLOAD_FOLDER, main_rosco_file.name)
                     bsr_path = os.path.join(UPLOAD_FOLDER, main_bsr_file.name)
-                    metered_path = os.path.join(UPLOAD_FOLDER, metered_master_file.name)
                     with open(rosco_path, "wb") as f:
                         f.write(main_rosco_file.getbuffer())
                     with open(bsr_path, "wb") as f:
                         f.write(main_bsr_file.getbuffer())
-                    with open(metered_path, "wb") as f:
-                        f.write(metered_master_file.getbuffer())
+
                     # --- RUN QC STEPS (wrapped with try/except for each major step) ---
                     # 0. Detect monitoring period
                     try:
@@ -605,9 +603,8 @@ with main_qc_tab:
                     # 1. Load BSR (detect header row inside function)
                     try:
                         df = qc_general.load_bsr(bsr_path)
-                        metered_list_df = pd.read_excel(metered_path)
                     except Exception as e:
-                        raise RuntimeError(f"Error loading BSR or Metered Master List file: {e}")
+                        raise RuntimeError(f"Error loading BSR file: {e}")
 
                     # ✅ AUTO SORT BSR DATA (CRITICAL)
                     df = qc_general.auto_sort_bsr(df, col_map.get("bsr", {}))
@@ -687,9 +684,9 @@ with main_qc_tab:
                     except Exception as e:
                         raise RuntimeError(f"Error during multiple_live_match_check: {e}")
                     
-                    # 12. Metered Estimation Check
+                    # 12. NEW REQUIREMENT: Metered Estimation Check
                     try:
-                        df = qc_general.metered_channel_estimation_check(df, metered_list_df, col_map.get("bsr", {}))
+                        df = qc_general.metered_channel_estimation_check(df, col_map.get("bsr", {}))
                     except Exception as e:
                         st.warning(f"Metered Estimation Check failed: {e}")
 
