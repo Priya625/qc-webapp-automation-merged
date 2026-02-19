@@ -494,10 +494,10 @@ with home_page_tab:
 # -----------------------------------------------------------
 with main_qc_tab:
     st.header("QC File Uploader")
-    st.markdown("Upload your **Rosco** and **BSR** and **Metered Master List** files below. This will run the general QC checks.")
+    st.markdown("Upload your **Rosco** and **BSR** files below. This will run the general QC checks.")
 
     # --- File uploaders (two columns) ---
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
     with col1:
         main_rosco_file = st.file_uploader(
             "📘 Upload Rosco File (.xlsx)", 
