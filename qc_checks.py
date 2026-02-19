@@ -1859,61 +1859,86 @@ def multiple_live_match_check(df, col_map):
     return df
 
 # -----------------------------------------------------------
-# 16️⃣ Metered Channel Estimation Check 
+# 16️⃣ Metered Channel Estimation Check (Market + Channel ID)
 # -----------------------------------------------------------
 def metered_channel_estimation_check(df, bsr_cols):
     """
-    Flags channels based on a local master file (master_metered_list.xlsx).
+    Validates metered channels using Market + Channel ID combination.
     """
+
     df = df.copy()
     df["Metered_Estimation_Check_OK"] = True
     df["Metered_Estimation_Check_Remark"] = "OK"
 
     # --- 1. Load Local Master List ---
-    # Path assumes the file is in the same folder as your script
     master_list_path = "master_metered_list.xlsx"
-    
+
     if not os.path.exists(master_list_path):
         df["Metered_Estimation_Check_OK"] = False
-        df["Metered_Estimation_Check_Remark"] = "Error: Local master_metered_list.xlsx not found."
+        df["Metered_Estimation_Check_Remark"] = "Error: master_metered_list.xlsx not found."
         return df
 
     try:
         metered_list_df = pd.read_excel(master_list_path)
-        # Create a set of all values in the master list for lookup
-        metered_reference_set = set()
-        for col in metered_list_df.columns:
-            metered_reference_set.update(
-                metered_list_df[col].astype(str).str.strip().str.lower().unique()
+
+        # Normalize column names
+        metered_list_df.columns = metered_list_df.columns.str.lower()
+
+        required_cols = {"market", "channel_id"}
+        if not required_cols.issubset(set(metered_list_df.columns)):
+            df["Metered_Estimation_Check_OK"] = False
+            df["Metered_Estimation_Check_Remark"] = (
+                "Error: Master list must contain 'market' and 'channel_id' columns."
             )
+            return df
+
+        # Create set of (market, channel_id)
+        metered_reference_set = set(
+            zip(
+                metered_list_df["market"].astype(str).str.strip().str.lower(),
+                metered_list_df["channel_id"].astype(str).str.strip().str.lower()
+            )
+        )
+
     except Exception as e:
         df["Metered_Estimation_Check_OK"] = False
         df["Metered_Estimation_Check_Remark"] = f"Error reading Master List: {e}"
         return df
 
     # --- 2. Resolve BSR Columns ---
-    col_ch_name = _find_column(df, bsr_cols.get("tv_channel"))
+    col_market = _find_column(df, bsr_cols.get("market"))
     col_ch_id = _find_column(df, bsr_cols.get("channel_id"))
     col_est_aud = _find_column(df, bsr_cols.get("aud_estimates"))
     col_met_aud = _find_column(df, bsr_cols.get("aud_metered"))
 
     # --- 3. Run Validation ---
     for idx, row in df.iterrows():
-        name_val = str(row.get(col_ch_name, "")).strip().lower()
-        id_val = str(row.get(col_ch_id, "")).strip().lower() if col_ch_id else ""
-        
-        is_metered = (name_val in metered_reference_set) or (id_val in metered_reference_set)
-        
+
+        market_val = str(row.get(col_market, "")).strip().lower()
+        channel_id_val = str(row.get(col_ch_id, "")).strip().lower()
+
+        key = (market_val, channel_id_val)
+
+        is_metered = key in metered_reference_set
+
         if is_metered:
             est_present = _is_present(row.get(col_est_aud))
             met_present = _is_present(row.get(col_met_aud))
-            
+
             if est_present:
                 df.at[idx, "Metered_Estimation_Check_OK"] = False
-                df.at[idx, "Metered_Estimation_Check_Remark"] = f"Violation: Metered channel '{row.get(col_ch_name)}' has ESTIMATED data."
+                df.at[idx, "Metered_Estimation_Check_Remark"] = (
+                    f"Violation: Metered channel (Market: {row.get(col_market)}, "
+                    f"Channel ID: {row.get(col_ch_id)}) has ESTIMATED data."
+                )
+
             elif not met_present:
                 df.at[idx, "Metered_Estimation_Check_OK"] = False
-                df.at[idx, "Metered_Estimation_Check_Remark"] = f"Violation: Metered channel '{row.get(col_ch_name)}' is missing audience."
+                df.at[idx, "Metered_Estimation_Check_Remark"] = (
+                    f"Violation: Metered channel (Market: {row.get(col_market)}, "
+                    f"Channel ID: {row.get(col_ch_id)}) is missing metered audience."
+                )
+
         else:
             df.at[idx, "Metered_Estimation_Check_Remark"] = "Non-metered channel"
 
