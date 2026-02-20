@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 
 # --- BSA DASHBOARD CONFIG ---
+# This ensures we always look relative to the script location
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 AURA_PATH = os.path.join(BASE_DIR, "assets", "List of Channel - AURA.xlsx")
@@ -1778,6 +1779,8 @@ with bsa_dashboard_tab:
     # ==============================
     # SYSTEM MASTER FILE VALIDATION
     # ==============================
+    st.write(f"Looking for AURA at: {AURA_PATH}")
+    st.write(f"Does folder exist? {os.path.exists(os.path.join(BASE_DIR, 'assets'))}")
     if not os.path.exists(AURA_PATH):
         st.error("❌ AURA Master file missing in assets folder.")
         st.stop()
