@@ -15,8 +15,10 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 
 # --- BSA DASHBOARD CONFIG ---
-AURA_PATH = "assets/List of Channel - AURA.xlsx"
-MANDATORY_PATH = "assets/BSA Mandatory Channel List.xlsx"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+AURA_PATH = os.path.join(BASE_DIR, "assets", "List of Channel - AURA.xlsx")
+MANDATORY_PATH = os.path.join(BASE_DIR, "assets", "BSA Mandatory Channel List.xlsx")
 #BSA Dashboard change end
 
 BACKEND_BASE_URL = os.environ.get("STREAMLIT_BACKEND_URL", "http://localhost:8000")
@@ -1768,9 +1770,6 @@ with serie_a_tab:
 
 # -----------------------------------------------------------
 #          📊 BSA EARLY WARNING DASHBOARD TAB 
-# -----------------------------------------------------------
-# -----------------------------------------------------------
-#          📊 BSA EARLY WARNING DASHBOARD TAB
 # -----------------------------------------------------------
 with bsa_dashboard_tab:
 
