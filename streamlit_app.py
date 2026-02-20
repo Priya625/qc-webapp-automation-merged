@@ -1845,6 +1845,8 @@ with bsa_dashboard_tab:
             # =====================================================
             with tab1:
 
+                st.write("### Consolidated BSA Status")
+
                 results_bsa = []
 
                 for _, row in df_bsa_raw.iterrows():
@@ -1881,39 +1883,81 @@ with bsa_dashboard_tab:
 
                 df_bsa_view = pd.DataFrame(results_bsa)
 
-                # ==============================
+                # =============================
+                # RESET BUTTON (Same as app.py)
+                # =============================
+                if st.button("🔄 Reset BSA Filters"):
+                    for k in ["b_mkt", "b_chan", "b_crit", "b_stat"]:
+                        st.session_state[f"reset_{k}"] = True
+                    st.session_state["b_crit"] = ["CRITICAL"]
+                    st.rerun()
+
+                # =============================
                 # FILTER PANEL
-                # ==============================
+                # =============================
                 with st.expander("Filter Panel", expanded=True):
 
-                    f1, f2, f3, f4 = st.columns(4)
+                    b1, b2, b3, b4 = st.columns(4)
 
-                    with f1:
-                        f_mkt = smart_multiselect("Market", df_bsa_view["Market"].unique(), "b_mkt")
+                    with b1:
+                        f_mkt = smart_multiselect(
+                            "Market",
+                            df_bsa_view["Market"].unique(),
+                            "b_mkt"
+                        )
 
-                    with f2:
-                        f_chan = smart_multiselect("Channel", df_bsa_view["TV Channel"].unique(), "b_chan")
+                    with b2:
+                        f_chan = smart_multiselect(
+                            "Channel",
+                            df_bsa_view["TV Channel"].unique(),
+                            "b_chan"
+                        )
 
-                    with f3:
-                        f_crit = smart_multiselect("Critical?", df_bsa_view["Critical Channel"].unique(), "b_crit", default=["CRITICAL"])
+                    with b3:
+                        f_crit = smart_multiselect(
+                            "Critical?",
+                            df_bsa_view["Critical Channel"].unique(),
+                            "b_crit",
+                            default=["CRITICAL"]
+                        )
 
-                    with f4:
-                        f_stat = smart_multiselect("Status", df_bsa_view["Final Status"].unique(), "b_stat")
+                    with b4:
+                        f_stat = smart_multiselect(
+                            "Status",
+                            df_bsa_view["Final Status"].unique(),
+                            "b_stat"
+                        )
 
                     d1, d2 = st.columns(2)
-                    b_start = d1.date_input("Start Date", value=default_start)
-                    b_end = d2.date_input("End Date", value=default_end)
 
+                    b_start = d1.date_input(
+                        "Start Date",
+                        value=default_start,
+                        key="b_start"
+                    )
+
+                    b_end = d2.date_input(
+                        "End Date",
+                        value=default_end,
+                        key="b_end"
+                    )
+
+                # =============================
+                # APPLY FILTERS
+                # =============================
                 if f_mkt:
                     df_bsa_view = df_bsa_view[df_bsa_view["Market"].isin(f_mkt)]
+
                 if f_chan:
                     df_bsa_view = df_bsa_view[df_bsa_view["TV Channel"].isin(f_chan)]
+
                 if f_crit:
                     df_bsa_view = df_bsa_view[df_bsa_view["Critical Channel"].isin(f_crit)]
+
                 if f_stat:
                     df_bsa_view = df_bsa_view[df_bsa_view["Final Status"].isin(f_stat)]
 
-                active_dates = [
+                active_bsa_dates = [
                     d for d in bsa_date_cols
                     if b_start <= parse_custom_date(d).date() <= b_end
                 ]
@@ -1924,9 +1968,51 @@ with bsa_dashboard_tab:
                     "Channel ID",
                     "Critical Channel",
                     "Final Status"
-                ] + active_dates
+                ] + active_bsa_dates
 
-                st.dataframe(style_dataframe(df_bsa_view[cols_to_show]), use_container_width=True)
+                # =============================
+                # METRICS (IDENTICAL TO app.py)
+                # =============================
+                if not df_bsa_view.empty:
+
+                    df_bsa_view.index = range(1, len(df_bsa_view) + 1)
+
+                    st.divider()
+
+                    m1, m2, m3, m4 = st.columns(4)
+
+                    m1.metric(
+                        "TOTAL CHANNELS",
+                        len(df_bsa_view)
+                    )
+
+                    m2.metric(
+                        "PROCESSING GAPS",
+                        len(df_bsa_view[
+                            df_bsa_view["Final Status"].str.contains("Processing Gaps", na=False)
+                        ])
+                    )
+
+                    m3.metric(
+                        "NO SCHEDULE",
+                        len(df_bsa_view[
+                            df_bsa_view["Final Status"].str.contains("No Schedule", na=False)
+                        ])
+                    )
+
+                    m4.metric(
+                        "SCHEDULED (OK)",
+                        len(df_bsa_view[
+                            df_bsa_view["Final Status"] == "OK"
+                        ])
+                    )
+
+                    st.divider()
+
+                    st.dataframe(
+                        style_dataframe(df_bsa_view[cols_to_show]),
+                        use_container_width=True
+                    )
 
             # =====================================================
             # TAB 2 — TREND TRACKER
