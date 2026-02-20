@@ -1779,8 +1779,6 @@ with bsa_dashboard_tab:
     # ==============================
     # SYSTEM MASTER FILE VALIDATION
     # ==============================
-    st.write(f"Looking for AURA at: {AURA_PATH}")
-    st.write(f"Does folder exist? {os.path.exists(os.path.join(BASE_DIR, 'assets'))}")
     if not os.path.exists(AURA_PATH):
         st.error("❌ AURA Master file missing in assets folder.")
         st.stop()
