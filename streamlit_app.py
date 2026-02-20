@@ -1769,45 +1769,41 @@ with serie_a_tab:
 # -----------------------------------------------------------
 #          📊 BSA EARLY WARNING DASHBOARD TAB 
 # -----------------------------------------------------------
+# -----------------------------------------------------------
+#          📊 BSA EARLY WARNING DASHBOARD TAB
+# -----------------------------------------------------------
 with bsa_dashboard_tab:
 
-    st.header("📺 BSA/ROSCO/AURA Early Warning Dashboard")
+    st.header("📺 BSA / ROSCO / AURA Early Warning Dashboard")
 
-    # ---------------- SIDEBAR-LIKE DATA SOURCE STATUS ----------------
-    with st.expander("📂 Data Sources", expanded=False):
+    # ==============================
+    # SYSTEM MASTER FILE VALIDATION
+    # ==============================
+    if not os.path.exists(AURA_PATH):
+        st.error("❌ AURA Master file missing in assets folder.")
+        st.stop()
+    if not os.path.exists(MANDATORY_PATH):
+        st.error("❌ BSA Mandatory Channel List missing in assets folder.")
+        st.stop()
 
-        aura_file_obj = None
-        if os.path.exists(AURA_PATH):
-            st.success("AURA Master: Loaded from Repo ✅")
-            aura_file_obj = AURA_PATH
-        else:
-            st.warning("⚠️ AURA Master not found in assets.")
-            aura_file_obj = st.file_uploader("Upload AURA Master", type=['xlsx'], key="aura_up")
+    aura_file_obj = AURA_PATH
+    mandatory_file_obj = MANDATORY_PATH
 
-        mandatory_file_obj = None
-        if os.path.exists(MANDATORY_PATH):
-            st.success("Mandatory List: Loaded from Repo ✅")
-            mandatory_file_obj = MANDATORY_PATH
-        else:
-            st.warning("⚠️ Mandatory List not found in assets.")
-            mandatory_file_obj = st.file_uploader("Upload Mandatory List", type=['xlsx'], key="mand_up")
-
+    st.success("System Master Files Loaded Successfully ✅")
     st.divider()
 
-    # ---------------- MAIN UPLOAD AREA ----------------
+    # ==============================
+    # USER UPLOADS
+    # ==============================
     col1, col2 = st.columns(2)
     with col1:
-        bsa_file = st.file_uploader("Upload Consolidated BSA File", type=['xlsx'], key="bsa_up")
+        bsa_file = st.file_uploader("Upload Consolidated BSA File", type=["xlsx"], key="bsa_upload")
     with col2:
-        rosco_file = st.file_uploader("Upload Rosco File (Optional)", type=['xlsx'], key="rosco_up")
+        rosco_file = st.file_uploader("Upload Rosco File (Optional)", type=["xlsx"], key="rosco_upload")
 
     st.divider()
 
     if bsa_file:
-
-        if not aura_file_obj:
-            st.error("AURA Master is required.")
-            st.stop()
 
         try:
             df_bsa_raw = pd.read_excel(bsa_file)
@@ -1818,18 +1814,25 @@ with bsa_dashboard_tab:
 
             df_bsa_raw.drop_duplicates(subset=[bsa_mkt_c, bsa_chan_c], inplace=True)
 
-            # Mandatory List
-            mandatory_set = set()
-            if mandatory_file_obj:
-                df_m_list = pd.read_excel(mandatory_file_obj, sheet_name="BSA_Channel_List")
-                mandatory_set = set(df_m_list['Channel Name'].apply(clean_name_strict))
+            # ==============================
+            # LOAD MASTER FILES
+            # ==============================
+            df_aura_raw = pd.read_excel(aura_file_obj)
+            df_m_list = pd.read_excel(mandatory_file_obj, sheet_name="BSA_Channel_List")
+            mandatory_set = set(df_m_list["Channel Name"].apply(clean_name_strict))
 
-            # Date Columns
+            # ==============================
+            # DATE COLUMNS
+            # ==============================
             bsa_date_cols = [col for col in df_bsa_raw.columns if parse_custom_date(col) is not None]
             bsa_dates_sorted = sorted(bsa_date_cols, key=lambda x: parse_custom_date(x))
+
             default_start = parse_custom_date(bsa_dates_sorted[0])
             default_end = parse_custom_date(bsa_dates_sorted[-1])
 
+            # ==============================
+            # TABS
+            # ==============================
             tab1, tab2, tab3, tab4 = st.tabs([
                 "📊 BSA Consolidated View",
                 "📉 Trend Tracker",
@@ -1838,7 +1841,7 @@ with bsa_dashboard_tab:
             ])
 
             # =====================================================
-            # TAB 1: CONSOLIDATED VIEW
+            # TAB 1 — CONSOLIDATED VIEW
             # =====================================================
             with tab1:
 
@@ -1878,38 +1881,37 @@ with bsa_dashboard_tab:
 
                 df_bsa_view = pd.DataFrame(results_bsa)
 
-                # Filters
+                # ==============================
+                # FILTER PANEL
+                # ==============================
                 with st.expander("Filter Panel", expanded=True):
 
                     f1, f2, f3, f4 = st.columns(4)
 
                     with f1:
-                        f_mkt = smart_multiselect("Market", df_bsa_view['Market'].unique(), "b_mkt")
+                        f_mkt = smart_multiselect("Market", df_bsa_view["Market"].unique(), "b_mkt")
 
                     with f2:
-                        f_chan = smart_multiselect("Channel", df_bsa_view['TV Channel'].unique(), "b_chan")
+                        f_chan = smart_multiselect("Channel", df_bsa_view["TV Channel"].unique(), "b_chan")
 
                     with f3:
-                        f_crit = smart_multiselect("Critical?", df_bsa_view['Critical Channel'].unique(), "b_crit", default=["CRITICAL"])
+                        f_crit = smart_multiselect("Critical?", df_bsa_view["Critical Channel"].unique(), "b_crit", default=["CRITICAL"])
 
                     with f4:
-                        f_stat = smart_multiselect("Status", df_bsa_view['Final Status'].unique(), "b_stat")
+                        f_stat = smart_multiselect("Status", df_bsa_view["Final Status"].unique(), "b_stat")
 
                     d1, d2 = st.columns(2)
                     b_start = d1.date_input("Start Date", value=default_start)
                     b_end = d2.date_input("End Date", value=default_end)
 
                 if f_mkt:
-                    df_bsa_view = df_bsa_view[df_bsa_view['Market'].isin(f_mkt)]
-
+                    df_bsa_view = df_bsa_view[df_bsa_view["Market"].isin(f_mkt)]
                 if f_chan:
-                    df_bsa_view = df_bsa_view[df_bsa_view['TV Channel'].isin(f_chan)]
-
+                    df_bsa_view = df_bsa_view[df_bsa_view["TV Channel"].isin(f_chan)]
                 if f_crit:
-                    df_bsa_view = df_bsa_view[df_bsa_view['Critical Channel'].isin(f_crit)]
-
+                    df_bsa_view = df_bsa_view[df_bsa_view["Critical Channel"].isin(f_crit)]
                 if f_stat:
-                    df_bsa_view = df_bsa_view[df_bsa_view['Final Status'].isin(f_stat)]
+                    df_bsa_view = df_bsa_view[df_bsa_view["Final Status"].isin(f_stat)]
 
                 active_dates = [
                     d for d in bsa_date_cols
@@ -1927,14 +1929,14 @@ with bsa_dashboard_tab:
                 st.dataframe(style_dataframe(df_bsa_view[cols_to_show]), use_container_width=True)
 
             # =====================================================
-            # TAB 2: TREND TRACKER
+            # TAB 2 — TREND TRACKER
             # =====================================================
             with tab2:
 
                 chart_records = []
 
                 for d_col in active_dates:
-                    ds = parse_custom_date(d_col).strftime('%d %b')
+                    ds = parse_custom_date(d_col).strftime("%d %b")
                     day_data = df_bsa_view[d_col].astype(str).str.lower()
 
                     counts = {
@@ -1957,44 +1959,40 @@ with bsa_dashboard_tab:
                     fig = px.bar(df_chart, x="Date", y="Count", color="Status", barmode="group")
                     st.plotly_chart(fig, use_container_width=True)
                 else:
-                    st.info("No data available.")
+                    st.info("No data available for selected range.")
 
             # =====================================================
-            # TAB 3: MANDATORY AUDIT
+            # TAB 3 — MANDATORY AUDIT
             # =====================================================
             with tab3:
 
-                df_bsa_raw['SearchKey'] = df_bsa_raw[bsa_chan_c].astype(str).apply(clean_name_strict)
-                bsa_lookup = set(df_bsa_raw['SearchKey'])
+                df_bsa_raw["SearchKey"] = df_bsa_raw[bsa_chan_c].astype(str).apply(clean_name_strict)
+                bsa_lookup = set(df_bsa_raw["SearchKey"])
 
-                if mandatory_file_obj:
-                    df_m_list = pd.read_excel(mandatory_file_obj, sheet_name="BSA_Channel_List")
-                    res_m = []
+                res_m = []
 
-                    for _, row in df_m_list.iterrows():
-                        cn = str(row['Channel Name'])
-                        is_found = clean_name_strict(cn) in bsa_lookup
+                for _, row in df_m_list.iterrows():
+                    cn = str(row["Channel Name"])
+                    is_found = clean_name_strict(cn) in bsa_lookup
 
-                        res_m.append({
-                            "Channel": cn,
-                            "Found in BSA?": is_found,
-                            "Status": "OK" if is_found else "MISSING"
-                        })
+                    res_m.append({
+                        "Channel": cn,
+                        "Found in BSA?": is_found,
+                        "Status": "OK" if is_found else "MISSING"
+                    })
 
-                    df_m_view = pd.DataFrame(res_m)
-                    st.dataframe(style_dataframe(df_m_view), use_container_width=True)
+                df_m_view = pd.DataFrame(res_m)
+                st.dataframe(style_dataframe(df_m_view), use_container_width=True)
 
             # =====================================================
-            # TAB 4: ROSCO COMPARISON VIEW
+            # TAB 4 — ROSCO COMPARISON
             # =====================================================
             with tab4:
 
                 if rosco_file:
-                    st.success("Rosco comparison active.")
-                    # (Full Rosco logic can remain identical to colleague version)
-
+                    st.success("Rosco file uploaded. Add full Rosco comparison logic here if required.")
                 else:
-                    st.warning("Upload Rosco file to enable comparison.")
+                    st.warning("Upload Rosco file to enable comparison view.")
 
         except Exception as e:
             st.error(f"Dashboard Error: {e}")
