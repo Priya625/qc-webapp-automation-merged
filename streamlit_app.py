@@ -2019,9 +2019,12 @@ with bsa_dashboard_tab:
             # =====================================================
             with tab2:
 
+                st.write("### Daily Status Trends (BSA Data)")
+
                 chart_records = []
 
-                for d_col in active_dates:
+                for d_col in active_bsa_dates:
+
                     ds = parse_custom_date(d_col).strftime("%d %b")
                     day_data = df_bsa_view[d_col].astype(str).str.lower()
 
@@ -2042,15 +2045,33 @@ with bsa_dashboard_tab:
                 df_chart = pd.DataFrame(chart_records)
 
                 if not df_chart.empty:
-                    fig = px.bar(df_chart, x="Date", y="Count", color="Status", barmode="group")
+
+                    c_map = {
+                        "Scheduled": "#22786A",
+                        "Processing Gaps": "#8F2E07",
+                        "No Schedule": "#FFC000"
+                    }
+
+                    fig = px.bar(
+                        df_chart,
+                        x="Date",
+                        y="Count",
+                        color="Status",
+                        color_discrete_map=c_map,
+                        barmode="group"
+                    )
+
                     st.plotly_chart(fig, use_container_width=True)
+
                 else:
-                    st.info("No data available for selected range.")
+                    st.info("No data available for the selected range.")
 
             # =====================================================
             # TAB 3 — MANDATORY AUDIT
             # =====================================================
             with tab3:
+
+                st.write("### Mandatory Channel Check")
 
                 df_bsa_raw["SearchKey"] = df_bsa_raw[bsa_chan_c].astype(str).apply(clean_name_strict)
                 bsa_lookup = set(df_bsa_raw["SearchKey"])
@@ -2058,6 +2079,7 @@ with bsa_dashboard_tab:
                 res_m = []
 
                 for _, row in df_m_list.iterrows():
+
                     cn = str(row["Channel Name"])
                     is_found = clean_name_strict(cn) in bsa_lookup
 
@@ -2068,7 +2090,14 @@ with bsa_dashboard_tab:
                     })
 
                 df_m_view = pd.DataFrame(res_m)
-                st.dataframe(style_dataframe(df_m_view), use_container_width=True)
+
+                if not df_m_view.empty:
+                    df_m_view.index = range(1, len(df_m_view) + 1)
+
+                st.dataframe(
+                    style_dataframe(df_m_view),
+                    use_container_width=True
+                )
 
             # =====================================================
             # TAB 4 — ROSCO COMPARISON
@@ -2076,9 +2105,260 @@ with bsa_dashboard_tab:
             with tab4:
 
                 if rosco_file:
-                    st.success("Rosco file uploaded. Add full Rosco comparison logic here if required.")
+
+                    xls_rosco = pd.ExcelFile(rosco_file)
+
+                    df_info = pd.read_excel(
+                        xls_rosco,
+                        sheet_name=next(s for s in xls_rosco.sheet_names if "Info" in s)
+                    )
+
+                    start_scope, end_scope = extract_monitoring_period(df_info)
+
+                    df_rosco_sheet = pd.read_excel(
+                        xls_rosco,
+                        sheet_name=next(s for s in xls_rosco.sheet_names if "Monitoring" in s)
+                    )
+
+                    # =============================
+                    # AURA LOOKUP
+                    # =============================
+                    aura_mkt_col = next(c for c in df_aura_raw.columns if "market" in str(c).lower())
+                    aura_name_col = next(c for c in df_aura_raw.columns if "channel" in str(c).lower() and "id" not in str(c).lower())
+                    aura_id_col = next(c for c in df_aura_raw.columns if "channel" in str(c).lower() and "id" in str(c).lower())
+
+                    aura_set = set()
+                    aura_id_map = {}
+
+                    for _, r in df_aura_raw.iterrows():
+                        k = (clean_market(r[aura_mkt_col]), clean_name_lenient(r[aura_name_col]))
+                        aura_set.add(k)
+                        aura_id_map[k] = clean_id(r.get(aura_id_col, ""))
+
+                    # =============================
+                    # BSA LOOKUPS
+                    # =============================
+                    df_bsa_raw["MarketNameKey"] = (
+                        df_bsa_raw[bsa_mkt_c].astype(str).apply(clean_market)
+                        + "|"
+                        + df_bsa_raw[bsa_chan_c].astype(str).apply(clean_name_lenient)
+                    )
+
+                    bsa_region_lookup = (
+                        df_bsa_raw.drop_duplicates(subset=["MarketNameKey"])
+                        .set_index("MarketNameKey")
+                        .to_dict("index")
+                    )
+
+                    bsa_id_lookup = {}
+
+                    if bsa_id_c:
+                        temp_id = (
+                            df_bsa_raw.dropna(subset=[bsa_id_c])
+                            .drop_duplicates(subset=[bsa_id_c])
+                        )
+                        bsa_id_lookup = (
+                            temp_id.set_index(temp_id[bsa_id_c].apply(clean_id))
+                            .to_dict("index")
+                        )
+
+                    matching_dates = [
+                        c for c in bsa_date_cols
+                        if start_scope <= parse_custom_date(c) <= end_scope
+                    ]
+
+                    # =============================
+                    # BUILD ROSCO RESULTS
+                    # =============================
+                    results_rosco = []
+
+                    for _, row in df_rosco_sheet.iterrows():
+
+                        cn = str(row["ChannelName"])
+                        ct = str(row["ChannelCountry"])
+
+                        cl = clean_name_lenient(cn)
+                        ml = clean_market(ct)
+
+                        aid = aura_id_map.get((ml, cl), "")
+                        in_aura = (ml, cl) in aura_set
+
+                        fnd = False
+                        brow = None
+
+                        if aid and aid in bsa_id_lookup:
+                            fnd = True
+                            brow = bsa_id_lookup[aid]
+                        elif f"{ml}|{cl}" in bsa_region_lookup:
+                            fnd = True
+                            brow = bsa_region_lookup[f"{ml}|{cl}"]
+
+                        r_r = {
+                            "Channel": cn,
+                            "Market": ct,
+                            "IN AURA": in_aura,
+                            "IN BSA": fnd
+                        }
+
+                        for d in matching_dates:
+                            r_r[d] = (
+                                str(brow.get(d, "Not in BSA")).strip()
+                                if fnd else "Not in BSA"
+                            )
+
+                        if not fnd:
+                            final_s = "CRITICAL: Missing in Both" if not in_aura else "FLAG: Not in BSA"
+                        else:
+                            statuses = [str(r_r[d]).lower() for d in matching_dates]
+
+                            if statuses.count("no schedule") == len(matching_dates):
+                                final_s = "FLAG: Found (No Schedules)"
+                            elif any("processing gaps" in s for s in statuses):
+                                final_s = "FLAG: Processing Gaps"
+                            elif not in_aura:
+                                final_s = "CRITICAL: Not in Aura"
+                            else:
+                                final_s = "OK"
+
+                        r_r["Final Status"] = final_s
+                        results_rosco.append(r_r)
+
+                    df_rosco_final = pd.DataFrame(results_rosco)
+
+                    st.write("### Rosco Comparison & Trends")
+
+                    # =============================
+                    # RESET BUTTON
+                    # =============================
+                    if st.button("🔄 Reset Rosco Filters"):
+                        for k in ["r_mkt", "r_chan"]:
+                            st.session_state[f"reset_{k}"] = True
+                        st.rerun()
+
+                    # =============================
+                    # FILTER PANEL
+                    # =============================
+                    with st.expander("Rosco Filters", expanded=True):
+
+                        rf1, rf2 = st.columns(2)
+
+                        with rf1:
+                            r_mkt = smart_multiselect(
+                                "Market",
+                                df_rosco_final["Market"].unique(),
+                                "r_mkt"
+                            )
+
+                        with rf2:
+                            r_chan = smart_multiselect(
+                                "Channel",
+                                df_rosco_final["Channel"].unique(),
+                                "r_chan"
+                            )
+
+                        rd1, rd2 = st.columns(2)
+
+                        r_start = rd1.date_input(
+                            "Start",
+                            value=start_scope.date(),
+                            key="r_start"
+                        )
+
+                        r_end = rd2.date_input(
+                            "End",
+                            value=end_scope.date(),
+                            key="r_end"
+                        )
+
+                    df_r_view = df_rosco_final.copy()
+
+                    if r_mkt:
+                        df_r_view = df_r_view[df_r_view["Market"].isin(r_mkt)]
+
+                    if r_chan:
+                        df_r_view = df_r_view[df_r_view["Channel"].isin(r_chan)]
+
+                    active_r_dates = [
+                        c for c in matching_dates
+                        if r_start <= parse_custom_date(c).date() <= r_end
+                    ]
+
+                    if not df_r_view.empty:
+
+                        df_r_view.index = range(1, len(df_r_view) + 1)
+
+                        st.divider()
+
+                        rm1, rm2, rm3, rm4 = st.columns(4)
+
+                        rm1.metric("ROSCO CHANNELS", len(df_r_view))
+                        rm2.metric(
+                            "NOT IN BOTH",
+                            len(df_r_view[df_r_view["Final Status"].str.contains("Missing in Both")])
+                        )
+                        rm3.metric(
+                            "IN BSA",
+                            len(df_r_view[df_r_view["IN BSA"] == True])
+                        )
+                        rm4.metric(
+                            "IN AURA",
+                            len(df_r_view[df_r_view["IN AURA"] == True])
+                        )
+
+                        st.divider()
+
+                        st.dataframe(
+                            style_dataframe(
+                                df_r_view[
+                                    ["Channel", "Market", "IN AURA", "IN BSA"]
+                                    + active_r_dates
+                                    + ["Final Status"]
+                                ]
+                            ),
+                            use_container_width=True
+                        )
+
+                        # =============================
+                        # DAILY TREND CHART
+                        # =============================
+                        st.write("#### Daily Trends")
+
+                        chart_records = []
+
+                        for d_col in active_r_dates:
+
+                            ds = parse_custom_date(d_col).strftime("%d %b")
+                            day_data = df_r_view[d_col].str.lower()
+
+                            counts = {
+                                "Scheduled": len(day_data[~day_data.str.contains("no schedule|processing gaps|not in bsa", na=False)]),
+                                "Processing Gaps": len(day_data[day_data.str.contains("processing gaps", na=False)]),
+                                "No Schedule": len(day_data[day_data.str.contains("no schedule", na=False)]),
+                                "Not in BSA": len(day_data[day_data.str.contains("not in bsa", na=False)])
+                            }
+
+                            for stat, val in counts.items():
+                                if val > 0:
+                                    chart_records.append({
+                                        "Date": ds,
+                                        "Status": stat,
+                                        "Count": val
+                                    })
+
+                        df_chart = pd.DataFrame(chart_records)
+
+                        if not df_chart.empty:
+                            fig = px.bar(
+                                df_chart,
+                                x="Date",
+                                y="Count",
+                                color="Status",
+                                barmode="group"
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+
                 else:
-                    st.warning("Upload Rosco file to enable comparison view.")
+                    st.warning("⚠️ Upload a Rosco file to enable this comparison view.")
 
         except Exception as e:
             st.error(f"Dashboard Error: {e}")
