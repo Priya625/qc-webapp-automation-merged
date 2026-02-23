@@ -1864,6 +1864,7 @@ def multiple_live_match_check(df, col_map):
 def metered_channel_estimation_check(df, bsr_cols):
     """
     Validates metered channels using Market + Channel ID combination.
+    Skips channels where Source in master list = 'Broadcaster Data'
     """
 
     df = df.copy()
@@ -1881,9 +1882,10 @@ def metered_channel_estimation_check(df, bsr_cols):
     try:
         metered_list_df = pd.read_excel(master_list_path)
 
-        # Use helper to find columns in Master List to handle "Channel ID" vs "channel_id"
+        # Detect columns
         m_col_market = _find_column(metered_list_df, ["market"])
         m_col_ch_id = _find_column(metered_list_df, ["channel id", "channel_id"])
+        m_col_source = _find_column(metered_list_df, ["source"])
 
         if not m_col_market or not m_col_ch_id:
             df["Metered_Estimation_Check_OK"] = False
@@ -1892,13 +1894,21 @@ def metered_channel_estimation_check(df, bsr_cols):
             )
             return df
 
-        # Create set of (market, channel_id) for fast lookup
-        metered_reference_set = set(
-            zip(
-                metered_list_df[m_col_market].astype(str).str.strip().str.lower(),
-                metered_list_df[m_col_ch_id].astype(str).str.strip().str.lower()
-            )
-        )
+        # --- Create reference sets ---
+        metered_reference_set = set()
+        broadcaster_skip_set = set()
+
+        for _, row in metered_list_df.iterrows():
+            market_val = str(row.get(m_col_market, "")).strip().lower()
+            channel_id_val = str(row.get(m_col_ch_id, "")).strip().lower()
+            key = (market_val, channel_id_val)
+
+            source_val = str(row.get(m_col_source, "")).strip().lower() if m_col_source else ""
+
+            if source_val == "broadcaster data":
+                broadcaster_skip_set.add(key)
+            else:
+                metered_reference_set.add(key)
 
     except Exception as e:
         df["Metered_Estimation_Check_OK"] = False
@@ -1917,6 +1927,15 @@ def metered_channel_estimation_check(df, bsr_cols):
         channel_id_val = str(row.get(col_ch_id, "")).strip().lower()
 
         key = (market_val, channel_id_val)
+
+        # 🚫 Skip Broadcaster Data channels
+        if key in broadcaster_skip_set:
+            df.at[idx, "Metered_Estimation_Check_OK"] = True
+            df.at[idx, "Metered_Estimation_Check_Remark"] = (
+                "Skipped: Source is Broadcaster Data"
+            )
+            continue
+
         is_metered = key in metered_reference_set
 
         if is_metered:
@@ -1936,7 +1955,6 @@ def metered_channel_estimation_check(df, bsr_cols):
                     f"Channel ID: {row.get(col_ch_id)}) is missing metered audience."
                 )
         else:
-            # Optional: Clear remark for non-metered to keep it clean
             df.at[idx, "Metered_Estimation_Check_Remark"] = "Non-metered channel"
 
     return df
