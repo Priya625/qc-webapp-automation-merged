@@ -80,55 +80,63 @@ class EPLValidator:
     
 
     def auto_sort_bsr_epl(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        EPL-specific sorting:
-        Market → TV-Channel → Local Date → Local Start Time
+            """
+            EPL-specific sorting:
+            Market → TV-Channel → Local Date → Local Start Time
 
-        Uses LOCAL time for correct overlap validation.
-        """
+            This DOES NOT modify original Date column format.
+            It only creates temporary columns for sorting.
+            """
 
-        df = df.copy()
+            df = df.copy()
 
-        required_cols = [
-            self.COUNTRY_COLUMN,
-            self.CHANNEL_COLUMN,
-            self.DATE_COLUMN,
-            "Start"
-        ]
+            # Required columns
+            required_cols = [
+                self.COUNTRY_COLUMN,   # 'Market'
+                self.CHANNEL_COLUMN,   # 'TV-Channel'
+                self.DATE_COLUMN,      # 'Date'
+                "Start"
+            ]
 
-        missing_cols = [col for col in required_cols if col not in df.columns]
-        if missing_cols:
-            print(f"EPL sorting skipped. Missing columns: {missing_cols}")
+            missing = [col for col in required_cols if col not in df.columns]
+            if missing:
+                print(f"EPL sorting skipped. Missing columns: {missing}")
+                return df
+
+            # Create canonical channel key (for stable sorting)
+            df["_channel_key"] = (
+                df[self.CHANNEL_COLUMN]
+                .astype(str)
+                .str.upper()
+                .str.replace(r'[^A-Z0-9]', '', regex=True)
+                .str.strip()
+            )
+
+            # Create temporary local datetime column
+            # IMPORTANT: This does NOT change original Date column
+            df["_local_dt"] = pd.to_datetime(
+                df[self.DATE_COLUMN].astype(str).str.strip() + " " +
+                df["Start"].astype(str).str.strip(),
+                errors="coerce"
+            )
+
+            # Sort
+            df = df.sort_values(
+                by=[
+                    self.COUNTRY_COLUMN,
+                    "_channel_key",
+                    "_local_dt"
+                ],
+                ascending=True,
+                na_position="last"
+            ).reset_index(drop=True)
+
+            # Remove temporary columns
+            df.drop(columns=["_channel_key", "_local_dt"], inplace=True, errors="ignore")
+
+            print("✅ EPL BSR sorted by Market → Channel → Local DateTime")
+
             return df
-
-        # Create canonical channel key (important for stable sorting)
-        df["_channel_key"] = self._create_canonical_channel_key(
-            df[self.CHANNEL_COLUMN]
-        )
-
-        # Build Local datetime
-        df["_local_dt"] = pd.to_datetime(
-            df[self.DATE_COLUMN].astype(str) + " " + df["Start"].astype(str),
-            errors="coerce"
-        )
-
-        # Sort
-        df = df.sort_values(
-            by=[
-                self.COUNTRY_COLUMN,
-                "_channel_key",
-                "_local_dt"
-            ],
-            ascending=True,
-            na_position="last"
-        ).reset_index(drop=True)
-
-        # Cleanup
-        df.drop(columns=["_channel_key", "_local_dt"], inplace=True, errors="ignore")
-
-        print("✅ EPL BSR sorted by Market → Channel → Local datetime")
-
-        return df
 
     def __init__(self, df: pd.DataFrame, bsr_path: str, obligation_path: str = None, overnight_path: str = None, macro_path: str = None, check_configs: Dict[str, Any] = None):
     # def __init__(self, bsr_path: str, obligation_path: str = None, overnight_path: str = None, macro_path: str = None):
