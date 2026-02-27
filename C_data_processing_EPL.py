@@ -3741,6 +3741,10 @@ class EPLValidator:
             summary_data.append([col, total, passed, total - passed])
 
         summary_df = pd.DataFrame(summary_data, columns=["Check", "Total", "Passed", "Failed"])
+
+        if "Day" in df.columns:
+            df["Day"] = df["Day"].astype(str)
+
         for r in dataframe_to_rows(summary_df, index=False, header=True):
             ws.append(r)
         wb.save(output_path)
