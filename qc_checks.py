@@ -1053,14 +1053,14 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                 try:
                     fx_start = pd.to_datetime(
                         str(fx.get("Date")).strip() + " " + str(fx.get("Start Time")).strip(),
-                        dayfirst=True,
-                        errors="coerce"
+                        errors="coerce",
+                        infer_datetime_format=True
                     )
 
                     fx_end = pd.to_datetime(
                         str(fx.get("Date")).strip() + " " + str(fx.get("End Time")).strip(),
-                        dayfirst=True,
-                        errors="coerce"
+                        errors="coerce",
+                        infer_datetime_format=True
                     )
 
                     if pd.isna(fx_start) or pd.isna(fx_end):
