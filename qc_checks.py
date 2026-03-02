@@ -1037,7 +1037,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                     df.at[idx, "program_category_check_remark"] = "Valid Live program (Simulcast)"
                     continue
 
-            if fixtures_df is None or not bsr_start:
+            if fixtures_df is None or pd.isna(row["_bsr_start_utc"]):
                 df.at[idx, "program_category_check_result"] = "False"
                 df.at[idx, "program_category_check_remark"] = "Invalid Live timing or fixtures missing"
                 continue
