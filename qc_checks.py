@@ -829,6 +829,14 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         if isinstance(val, (datetime, pd.Timestamp)):
             return val.date()
         return pd.to_datetime(val, dayfirst=True, errors="coerce").date()
+    
+    def normalize_team(name):
+        if pd.isna(name):
+            return ""
+        name = str(name).lower()
+        name = re.sub(r"\(.*?\)", "", name)  # remove (w)
+        name = re.sub(r"[^a-z0-9]", "", name)  # remove spaces, dots, hyphens
+        return name.strip()
 
     def parse_time(val):
         if pd.isna(val):
@@ -1080,9 +1088,15 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                 if fx_end <= fx_start:
                     fx_end += timedelta(days=1)
 
+                home_clean = normalize_team(home)
+                away_clean = normalize_team(away)
+
+                fx_home_clean = normalize_team(fx.get("Home Team", ""))
+                fx_away_clean = normalize_team(fx.get("Away Team", ""))
+
                 if (
-                    home == str(fx.get("Home Team", "")).strip().lower()
-                    and away == str(fx.get("Away Team", "")).strip().lower()
+                    home_clean == fx_home_clean
+                    and away_clean == fx_away_clean
                     and (
                         fx_start - live_tolerance
                         <= bsr_start
