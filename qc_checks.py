@@ -1059,26 +1059,30 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             matched = False
             for _, fx in fixtures_df.iterrows():
                 try:
-                    fx_date_raw = fx.get("Date")
+                    fx_date_raw = str(fx.get("Date")).strip()
 
-                    # Let pandas auto-parse safely
-                    fx_date = pd.to_datetime(fx_date_raw, errors="coerce")
+                    # Try ISO format first (YYYY-MM-DD)
+                    try:
+                        fx_date = datetime.strptime(fx_date_raw, "%Y-%m-%d")
+                    except:
+                        try:
+                            # Try DD-MM-YYYY
+                            fx_date = datetime.strptime(fx_date_raw, "%d-%m-%Y")
+                        except:
+                            try:
+                                # Try DD/MM/YYYY
+                                fx_date = datetime.strptime(fx_date_raw, "%d/%m/%Y")
+                            except:
+                                continue
 
-                    if pd.isna(fx_date):
+                    fx_start_time = pd.to_datetime(str(fx.get("Start Time")).strip(), errors="coerce")
+                    fx_end_time = pd.to_datetime(str(fx.get("End Time")).strip(), errors="coerce")
+
+                    if pd.isna(fx_start_time) or pd.isna(fx_end_time):
                         continue
 
-                    fx_start = pd.to_datetime(
-                        str(fx_date.date()) + " " + str(fx.get("Start Time")).strip(),
-                        errors="coerce"
-                    )
-
-                    fx_end = pd.to_datetime(
-                        str(fx_date.date()) + " " + str(fx.get("End Time")).strip(),
-                        errors="coerce"
-                    )
-
-                    if pd.isna(fx_start) or pd.isna(fx_end):
-                        continue
+                    fx_start = datetime.combine(fx_date.date(), fx_start_time.time())
+                    fx_end = datetime.combine(fx_date.date(), fx_end_time.time())
 
                     if fx_end <= fx_start:
                         fx_end += timedelta(days=1)
