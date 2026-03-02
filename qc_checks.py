@@ -901,15 +901,18 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     highlight_tolerance_min = int(highlight_tol_min) if highlight_tol_min not in [None, "", 0] else None
 
     # -------------------------
-    # Load Fixtures
+    # Load Fixtures (Fixed for "Fixtures list")
     # -------------------------
     fixtures_df = None
+
     try:
         xl = pd.ExcelFile(bsr_path)
+
         for s in xl.sheet_names:
-            if "fixture" in s.lower():
+            if "fixtures" in s.strip().lower():
                 fixtures_df = xl.parse(s)
                 break
+
     except Exception:
         fixtures_df = None
 
