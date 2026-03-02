@@ -834,8 +834,12 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         if pd.isna(name):
             return ""
         name = str(name).lower()
-        name = re.sub(r"\(.*?\)", "", name)  # remove (w)
-        name = re.sub(r"[^a-z0-9]", "", name)  # remove spaces, dots, hyphens
+        # Remove everything in parentheses including the parentheses
+        name = re.sub(r"\(.*?\)", "", name)
+        # Remove common suffixes that cause mismatches
+        name = name.replace("fsf", "").replace("fs", "").replace("at.", "atletico")
+        # Keep only alphanumeric
+        name = re.sub(r"[^a-z0-9]", "", name)
         return name.strip()
 
     def parse_time(val):
@@ -1042,81 +1046,71 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             # --- STRICT SIMULCAST OVERRIDE (PHASE COLUMN ONLY) ---
             if col_phase is not None:
                 phase_val = str(row[col_phase]).strip().lower()
-
                 if "simulcast" in phase_val:
                     df.at[idx, "program_category_check_result"] = "True"
                     df.at[idx, "program_category_check_remark"] = "Valid Live program (Simulcast)"
                     continue
 
-            if fixtures_df is None or pd.isna(row["_bsr_start_utc"]):
+            # Check if bsr_start exists
+            bsr_start = row.get("_bsr_start_utc")
+            if fixtures_df is None or pd.isna(bsr_start):
                 df.at[idx, "program_category_check_result"] = "False"
                 df.at[idx, "program_category_check_remark"] = "Invalid Live timing or fixtures missing"
                 continue
 
-            home = str(row[col_home]).strip().lower()
-            away = str(row[col_away]).strip().lower()
+            # Ensure bsr_start is naive (no timezone) for comparison
+            if hasattr(bsr_start, 'tzinfo') and bsr_start.tzinfo is not None:
+                bsr_start = bsr_start.replace(tzinfo=None)
+
+            home = str(row[col_home]).strip().lower() if col_home else ""
+            away = str(row[col_away]).strip().lower() if col_away else ""
 
             matched = False
             for _, fx in fixtures_df.iterrows():
                 try:
-                    # ✅ Use Date + Time UTC directly (SAFE & CORRECT)
-
-                    fx_start = pd.to_datetime(fx.get("Date + Time UTC"), errors="coerce")
-
+                    # 1. Parse Fixture Start
+                    fx_raw_start = fx.get("Date + Time UTC")
+                    fx_start = pd.to_datetime(fx_raw_start, errors="coerce")
                     if pd.isna(fx_start):
                         continue
+                    
+                    if hasattr(fx_start, 'tzinfo') and fx_start.tzinfo is not None:
+                        fx_start = fx_start.replace(tzinfo=None)
 
-                    # Duration based end time
-                    fx_duration = fx.get("Duration")
+                    # 2. Parse Duration and Calculate End
+                    raw_fx_dur = fx.get("Duration")
+                    try:
+                        if isinstance(raw_fx_dur, (time, datetime)):
+                            dur_delta = timedelta(hours=raw_fx_dur.hour, minutes=raw_fx_dur.minute, seconds=raw_fx_dur.second)
+                        else:
+                            # Handles "02:00:00" or similar strings
+                            dur_delta = pd.to_timedelta(str(raw_fx_dur))
+                        
+                        fx_end = fx_start + dur_delta
+                    except:
+                        fx_end = fx_start + timedelta(hours=3) # Fallback to 3h for Live
 
-                    if pd.notna(fx_duration):
-                        try:
-                            dur_time = pd.to_datetime(str(fx_duration)).time()
-                            fx_end = fx_start + timedelta(
-                                hours=dur_time.hour,
-                                minutes=dur_time.minute,
-                                seconds=dur_time.second
-                            )
-                        except:
-                            continue
-                    else:
-                        continue
+                    # 3. Team Matching (Normalized)
+                    h_match = normalize_team(home) == normalize_team(fx.get("Home Team", ""))
+                    a_match = normalize_team(away) == normalize_team(fx.get("Away Team", ""))
 
-                    if pd.isna(fx_start) or pd.isna(fx_end):
-                        continue
+                    # 4. Time Window Check
+                    # We check if BSR start falls within Fixture Start - Tolerance AND Fixture End + Tolerance
+                    time_match = (fx_start - live_tolerance <= bsr_start <= fx_end + live_tolerance)
 
-                    if fx_end <= fx_start:
-                        fx_end += timedelta(days=1)
-
-                except Exception:
+                    if h_match and a_match and time_match:
+                        matched = True
+                        break
+                except Exception as e:
+                    # Log the specific error if needed: print(f"Error at index {idx}: {e}")
                     continue
-                if fx_end <= fx_start:
-                    fx_end += timedelta(days=1)
-
-                home_clean = normalize_team(home)
-                away_clean = normalize_team(away)
-
-                fx_home_clean = normalize_team(fx.get("Home Team", ""))
-                fx_away_clean = normalize_team(fx.get("Away Team", ""))
-
-                if (
-                    home_clean == fx_home_clean
-                    and away_clean == fx_away_clean
-                    and (
-                        fx_start - live_tolerance
-                        <= bsr_start
-                        <= fx_end + live_tolerance
-                    )
-                ):
-                    matched = True
-                    break
 
             if matched:
                 df.at[idx, "program_category_check_result"] = "True"
                 df.at[idx, "program_category_check_remark"] = "Valid Live program"
             else:
                 df.at[idx, "program_category_check_result"] = "False"
-                df.at[idx, "program_category_check_remark"] = "Live program outside tolerance"
+                df.at[idx, "program_category_check_remark"] = "Live program outside tolerance or team mismatch"
         
         # =====================================================
         # DELAYED
