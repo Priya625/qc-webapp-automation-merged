@@ -1051,16 +1051,28 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             matched = False
             for _, fx in fixtures_df.iterrows():
                 try:
+                    fx_date_raw = fx.get("Date")
+                    fx_st_raw = fx.get("Start Time")
+                    fx_et_raw = fx.get("End Time")
+
+                    # If Date column is already datetime
+                    if isinstance(fx_date_raw, (pd.Timestamp, datetime)):
+                        fx_date = fx_date_raw.date()
+                    else:
+                        fx_date = pd.to_datetime(
+                            str(fx_date_raw).strip(),
+                            format="%d-%m-%Y",
+                            errors="coerce"
+                        ).date()
+
                     fx_start = pd.to_datetime(
-                        str(fx.get("Date")).strip() + " " + str(fx.get("Start Time")).strip(),
-                        errors="coerce",
-                        infer_datetime_format=True
+                        f"{fx_date} {str(fx_st_raw).strip()}",
+                        errors="coerce"
                     )
 
                     fx_end = pd.to_datetime(
-                        str(fx.get("Date")).strip() + " " + str(fx.get("End Time")).strip(),
-                        errors="coerce",
-                        infer_datetime_format=True
+                        f"{fx_date} {str(fx_et_raw).strip()}",
+                        errors="coerce"
                     )
 
                     if pd.isna(fx_start) or pd.isna(fx_end):
