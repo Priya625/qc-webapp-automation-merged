@@ -1109,7 +1109,19 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                 ):
                     matched = True
                     break
-
+            print("------------------------------------------------")
+            print("BSR START:", bsr_start)
+            print("FX DATE RAW:", fx.get("Date"))
+            print("FX START RAW:", fx.get("Start Time"))
+            print("FX START PARSED:", fx_start)
+            print("FX END PARSED:", fx_end)
+            print("WINDOW START:", fx_start - live_tolerance)
+            print("WINDOW END:", fx_end + live_tolerance)
+            print("HOME BSR:", home)
+            print("HOME FX :", fx.get("Home Team"))
+            print("AWAY BSR:", away)
+            print("AWAY FX :", fx.get("Away Team"))
+            print("------------------------------------------------")
             if matched:
                 df.at[idx, "program_category_check_result"] = "True"
                 df.at[idx, "program_category_check_remark"] = "Valid Live program"
