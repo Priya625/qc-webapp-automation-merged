@@ -1059,23 +1059,28 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             matched = False
             for _, fx in fixtures_df.iterrows():
                 try:
-                    fx_date_raw = fx.get("Date")
+                    # ✅ Use Date + Time UTC directly (SAFE & CORRECT)
 
-                    # Let pandas auto-parse safely
-                    fx_date = pd.to_datetime(fx_date_raw, errors="coerce")
+                    fx_start = pd.to_datetime(fx.get("Date + Time UTC"), errors="coerce")
 
-                    if pd.isna(fx_date):
+                    if pd.isna(fx_start):
                         continue
 
-                    fx_start = pd.to_datetime(
-                        str(fx_date.date()) + " " + str(fx.get("Start Time")).strip(),
-                        errors="coerce"
-                    )
+                    # Duration based end time
+                    fx_duration = fx.get("Duration")
 
-                    fx_end = pd.to_datetime(
-                        str(fx_date.date()) + " " + str(fx.get("End Time")).strip(),
-                        errors="coerce"
-                    )
+                    if pd.notna(fx_duration):
+                        try:
+                            dur_time = pd.to_datetime(str(fx_duration)).time()
+                            fx_end = fx_start + timedelta(
+                                hours=dur_time.hour,
+                                minutes=dur_time.minute,
+                                seconds=dur_time.second
+                            )
+                        except:
+                            continue
+                    else:
+                        continue
 
                     if pd.isna(fx_start) or pd.isna(fx_end):
                         continue
