@@ -1051,15 +1051,21 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             matched = False
             for _, fx in fixtures_df.iterrows():
                 try:
+                    fx_date_raw = fx.get("Date")
+
+                    # Let pandas auto-parse safely
+                    fx_date = pd.to_datetime(fx_date_raw, errors="coerce")
+
+                    if pd.isna(fx_date):
+                        continue
+
                     fx_start = pd.to_datetime(
-                        str(fx.get("Date")).strip() + " " + str(fx.get("Start Time")).strip(),
-                        dayfirst=True,
+                        str(fx_date.date()) + " " + str(fx.get("Start Time")).strip(),
                         errors="coerce"
                     )
 
                     fx_end = pd.to_datetime(
-                        str(fx.get("Date")).strip() + " " + str(fx.get("End Time")).strip(),
-                        dayfirst=True,
+                        str(fx_date.date()) + " " + str(fx.get("End Time")).strip(),
                         errors="coerce"
                     )
 
@@ -1077,7 +1083,11 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                 if (
                     home == str(fx.get("Home Team", "")).strip().lower()
                     and away == str(fx.get("Away Team", "")).strip().lower()
-                    and abs(bsr_start - fx_start) <= live_tolerance
+                    and (
+                        fx_start - live_tolerance
+                        <= bsr_start
+                        <= fx_end + live_tolerance
+                    )
                 ):
                     matched = True
                     break
