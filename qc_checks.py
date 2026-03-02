@@ -1050,14 +1050,27 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 
             matched = False
             for _, fx in fixtures_df.iterrows():
-                fx_date = parse_date(fx.get("Date"))
-                fx_st = parse_time(fx.get("Start Time"))
-                fx_et = parse_time(fx.get("End Time"))
-                if not fx_date or not fx_st or not fx_et:
-                    continue
+                try:
+                    fx_start = pd.to_datetime(
+                        str(fx.get("Date")).strip() + " " + str(fx.get("Start Time")).strip(),
+                        dayfirst=True,
+                        errors="coerce"
+                    )
 
-                fx_start = datetime.combine(fx_date, fx_st)
-                fx_end = datetime.combine(fx_date, fx_et)
+                    fx_end = pd.to_datetime(
+                        str(fx.get("Date")).strip() + " " + str(fx.get("End Time")).strip(),
+                        dayfirst=True,
+                        errors="coerce"
+                    )
+
+                    if pd.isna(fx_start) or pd.isna(fx_end):
+                        continue
+
+                    if fx_end <= fx_start:
+                        fx_end += timedelta(days=1)
+
+                except Exception:
+                    continue
                 if fx_end <= fx_start:
                     fx_end += timedelta(days=1)
 
