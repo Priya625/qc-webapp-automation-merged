@@ -847,8 +847,14 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     col_program_type = find_col(["program type", "type of program"])
     col_desc = find_col(["combined (translated)", "program description", "description"])
     col_duration = find_col(["duration", "duration (mins)"])
-    col_date_utc = find_col(["date(utc)"])
-    col_start_utc = find_col(["start(utc)"])
+    # ---- Robust UTC column detection ----
+    col_datetime_utc = find_col(["date + time utc", "datetime utc", "date time utc"])
+    if col_datetime_utc:
+        col_date_utc = col_datetime_utc
+        col_start_utc = col_datetime_utc
+    else:
+        col_date_utc = find_col(["date"])
+        col_start_utc = find_col(["start"])
     col_home = find_col(["home team"])
     col_away = find_col(["away team"])
     col_phase = find_col(["phase", "fixture", "episode"])
@@ -913,10 +919,24 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
     df["_bsr_start_utc"] = None
 
     for i, r in df.iterrows():
-        d = parse_date(r.get(col_date_utc))
-        t = parse_time(r.get(col_start_utc))
-        if d and t:
-            df.at[i, "_bsr_start_utc"] = datetime.combine(d, t)
+
+        # Case 1: Combined UTC datetime column exists
+        if col_date_utc == col_start_utc:
+            raw_val = r.get(col_date_utc)
+
+            if pd.notna(raw_val):
+                try:
+                    df.at[i, "_bsr_start_utc"] = pd.to_datetime(raw_val, errors="coerce")
+                except:
+                    df.at[i, "_bsr_start_utc"] = None
+
+        # Case 2: Separate date and time columns
+        else:
+            d = parse_date(r.get(col_date_utc))
+            t = parse_time(r.get(col_start_utc))
+
+            if d and t:
+                df.at[i, "_bsr_start_utc"] = datetime.combine(d, t)
 
     # -------------------------
     # First broadcast map (Monitoring Period Only)
