@@ -1059,30 +1059,26 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             matched = False
             for _, fx in fixtures_df.iterrows():
                 try:
-                    fx_date_raw = str(fx.get("Date")).strip()
+                    fx_date_raw = fx.get("Date")
 
-                    # Try ISO format first (YYYY-MM-DD)
-                    try:
-                        fx_date = datetime.strptime(fx_date_raw, "%Y-%m-%d")
-                    except:
-                        try:
-                            # Try DD-MM-YYYY
-                            fx_date = datetime.strptime(fx_date_raw, "%d-%m-%Y")
-                        except:
-                            try:
-                                # Try DD/MM/YYYY
-                                fx_date = datetime.strptime(fx_date_raw, "%d/%m/%Y")
-                            except:
-                                continue
+                    # Let pandas auto-parse safely
+                    fx_date = pd.to_datetime(fx_date_raw, errors="coerce")
 
-                    fx_start_time = pd.to_datetime(str(fx.get("Start Time")).strip(), errors="coerce")
-                    fx_end_time = pd.to_datetime(str(fx.get("End Time")).strip(), errors="coerce")
-
-                    if pd.isna(fx_start_time) or pd.isna(fx_end_time):
+                    if pd.isna(fx_date):
                         continue
 
-                    fx_start = datetime.combine(fx_date.date(), fx_start_time.time())
-                    fx_end = datetime.combine(fx_date.date(), fx_end_time.time())
+                    fx_start = pd.to_datetime(
+                        str(fx_date.date()) + " " + str(fx.get("Start Time")).strip(),
+                        errors="coerce"
+                    )
+
+                    fx_end = pd.to_datetime(
+                        str(fx_date.date()) + " " + str(fx.get("End Time")).strip(),
+                        errors="coerce"
+                    )
+
+                    if pd.isna(fx_start) or pd.isna(fx_end):
+                        continue
 
                     if fx_end <= fx_start:
                         fx_end += timedelta(days=1)
@@ -1098,19 +1094,6 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                 fx_home_clean = normalize_team(fx.get("Home Team", ""))
                 fx_away_clean = normalize_team(fx.get("Away Team", ""))
 
-                print("------------------------------------------------")
-                print("BSR START:", bsr_start)
-                print("FX DATE RAW:", fx.get("Date"))
-                print("FX START RAW:", fx.get("Start Time"))
-                print("FX START PARSED:", fx_start)
-                print("FX END PARSED:", fx_end)
-                print("WINDOW START:", fx_start - live_tolerance)
-                print("WINDOW END:", fx_end + live_tolerance)
-                print("HOME BSR:", home)
-                print("HOME FX :", fx.get("Home Team"))
-                print("AWAY BSR:", away)
-                print("AWAY FX :", fx.get("Away Team"))
-                print("------------------------------------------------")
                 if (
                     home_clean == fx_home_clean
                     and away_clean == fx_away_clean
@@ -1122,6 +1105,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                 ):
                     matched = True
                     break
+
             if matched:
                 df.at[idx, "program_category_check_result"] = "True"
                 df.at[idx, "program_category_check_remark"] = "Valid Live program"
