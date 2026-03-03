@@ -834,19 +834,12 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
         if pd.isna(name):
             return ""
         name = str(name).lower()
-        
-        # 1. Remove everything in parentheses (like "(w)")
+        # Remove everything in parentheses including the parentheses
         name = re.sub(r"\(.*?\)", "", name)
-        
-        # 2. Handle specific Spanish naming variations
-        # Replace common abbreviations with a standard term
-        name = name.replace("at.madrid", "atletico")
-        name = name.replace("at.", "atletico")
-        name = name.replace("futsal", "").replace("fsf", "").replace("fs", "").replace("cd", "")
-        
-        # 3. Remove all non-alphanumeric characters and extra spaces
+        # Remove common suffixes that cause mismatches
+        name = name.replace("fsf", "").replace("fs", "").replace("at.", "atletico")
+        # Keep only alphanumeric
         name = re.sub(r"[^a-z0-9]", "", name)
-        
         return name.strip()
 
     def parse_time(val):
@@ -1098,20 +1091,14 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
                         fx_end = fx_start + timedelta(hours=3) # Fallback to 3h for Live
 
                     # 3. Team Matching (Normalized)
-                    h_norm = normalize_team(home)
-                    a_norm = normalize_team(away)
-                    fx_h_norm = normalize_team(fx.get("Home Team", ""))
-                    fx_a_norm = normalize_team(fx.get("Away Team", ""))
+                    h_match = normalize_team(home) == normalize_team(fx.get("Home Team", ""))
+                    a_match = normalize_team(away) == normalize_team(fx.get("Away Team", ""))
 
                     # 4. Time Window Check
                     # We check if BSR start falls within Fixture Start - Tolerance AND Fixture End + Tolerance
-                    # Matches if (Home==Home AND Away==Away) OR (Home==Away AND Away==Home)
-                    team_match = (h_norm == fx_h_norm and a_norm == fx_a_norm) or \
-                                (h_norm == fx_a_norm and a_norm == fx_h_norm)
-
                     time_match = (fx_start - live_tolerance <= bsr_start <= fx_end + live_tolerance)
 
-                    if team_match and time_match:
+                    if h_match and a_match and time_match:
                         matched = True
                         break
                 except Exception as e:
