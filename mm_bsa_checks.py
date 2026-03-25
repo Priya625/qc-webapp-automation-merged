@@ -1016,7 +1016,7 @@ def mm_bsr_consistency_check(mm_df, bsr_input):
 
 def audience_spot_range_clean_view(df):
 
-    print("🔍 Starting Audience Range Check")
+    print("🔍 NEW Audience Range Logic Running")
 
     df.columns = df.columns.str.strip()
 
@@ -1031,7 +1031,7 @@ def audience_spot_range_clean_view(df):
 
     for (category, channel), group in grouped:
 
-        print(f"\n📊 Processing: {category} | {channel}")
+        print(f"Processing: {category} | {channel}")
 
         group = group.copy()
 
@@ -1041,10 +1041,8 @@ def audience_spot_range_clean_view(df):
         median_val = group[audience_col].median()
 
         if pd.isna(median_val) or median_val == 0:
-            print("⚠️ Skipping due to invalid median")
             continue
 
-        # ✅ Define range (±50%)
         lower = median_val * 0.5
         upper = median_val * 1.5
 
@@ -1057,12 +1055,16 @@ def audience_spot_range_clean_view(df):
 
             if pd.notna(val):
 
-                # ✅ Convert to viewers
+                # ✅ convert to viewers
                 audience_viewers = int(val * 1_000_000)
 
-                if val > upper or val < lower:
+                if val > upper:
                     flag = False
-                    remark = "Audience out of expected range for this channel"
+                    remark = "Audience > 50% above expected range"
+
+                elif val < lower:
+                    flag = False
+                    remark = "Audience > 50% below expected range"
 
             else:
                 audience_viewers = None
@@ -1078,7 +1080,7 @@ def audience_spot_range_clean_view(df):
                 "Remark": remark
             })
 
-    print("✅ Completed")
+    print("✅ NEW LOGIC APPLIED")
 
     return pd.DataFrame(output)
 
