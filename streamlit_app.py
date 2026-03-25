@@ -40,6 +40,24 @@ try:
     from C_data_processing_EPL import EPLValidator
     from C_data_processing_SerieA import SerieAValidator
     from C_data_processing_BSA import BSAValidator
+    from mm_bsa_checks import (
+    duplicate_aid_final,
+    audience_spotprice_check,
+    program_category_check,
+    channel_country_mapping_check,
+    apt_bt_check,
+    season_monitoring_check,
+    fixture_validation_check,
+    stadium_consistency_check,
+    event_quality_check,
+    home_market_check,
+    ps_market_channel_check,
+    ps_content_check,
+    mm_bsr_consistency_check,
+    audience_spot_range_clean_view,
+    ea_creation_check,
+    previous_delivery_check 
+)
 
 except ImportError as e:
     st.error(f"Failed to import your QC file (qc_checks.py) or validators: {e}")
@@ -264,15 +282,16 @@ except Exception:
 
 # --- Use Tabs for Clear Separation (MODIFIED) ---
 LOGO_PATH_4 = "images/Nielsen_Sports_logo.svg"
-# Fixed: 7 variables for 7 tab labels
-home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab, epl_tab, serie_a_tab,bsa_dashboard_tab= st.tabs([
+# Fixed: 8 variables for 8 tab labels
+home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab, epl_tab, serie_a_tab,bsa_dashboard_tab,mm_bsa_tab= st.tabs([
     " Home Page", 
     " Main QC Automation", 
     " Laliga Specific QC", 
     " F1 Market Specific Checks",
     " EPL Specific Checks",
     " Serie A Specific Checks",
-    " BSA Early Warning Dashboard"
+    " BSA Early Warning Dashboard",
+    " MM-BSA QC Checks"
 ])
 
 # --- Define all market check keys globally for management ---
@@ -2362,3 +2381,151 @@ with bsa_dashboard_tab:
 
         except Exception as e:
             st.error(f"Dashboard Error: {e}")
+
+import io
+import tempfile
+
+def save_file(uploaded_file):
+    temp = tempfile.NamedTemporaryFile(delete=False)
+    temp.write(uploaded_file.read())
+    temp.close()
+    return temp.name
+
+
+if st.button("🚀 Run MM-BSA Checks"):
+    adapt_file = st.file_uploader("Upload Adapt File (.xlsx)", type=["xlsx"], key="adapt_file")
+    rosco_file = st.file_uploader("Upload ROSCO File (Optional, .xlsx)", type=["xlsx"], key="rosco_file")
+    fixture_file = st.file_uploader("Upload Fixture File (Optional, .xlsx)", type=["xlsx"], key="fixture_file")
+    prev_file = st.file_uploader("Upload Previous Delivery File (Optional, .xlsx)", type=["xlsx"], key="prev_file")
+    bsr_file = st.file_uploader("Upload BSR File (Optional, .xlsx)", type=["xlsx"], key="bsr_file")
+
+    selected_checks = st.multiselect(
+        "Select checks",
+        options=[
+            "duplicate_aid_final",
+            "audience_spotprice_check",
+            "ps_market_channel_check",
+            "ps_content_check",
+            "mm_bsr_consistency_check",
+            "audience_spot_range_clean_view",
+            "previous_delivery_check",
+            "program_category_check",
+            "channel_country_mapping_check",
+            "apt_bt_check",
+            "season_monitoring_check",
+            "fixture_validation_check",
+            "stadium_consistency_check",
+            "event_quality_check",
+            "home_market_check",
+            "ea_creation_check"
+        ],
+        default=[],
+        key="selected_checks",
+    )
+
+    if not adapt_file:
+        st.error("Upload Adapt file")
+        st.stop()
+
+    with st.spinner("Running checks..."):
+
+        # ---------------- LOAD MAIN FILE ----------------
+        df = pd.read_excel(adapt_file, sheet_name="mm - detailed")
+        df.columns = df.columns.str.strip()
+
+        # ---------------- OPTIONAL FILES ----------------
+        rosco_path = save_file(rosco_file) if rosco_file else None
+        fixture_df = pd.read_excel(fixture_file) if fixture_file else None
+        prev_df = pd.read_excel(prev_file) if prev_file else None
+        bsr_path = save_file(bsr_file) if bsr_file else None
+
+        # ---------------- APPLY CHECKS ----------------
+
+        if "duplicate_aid_final" in selected_checks:
+            df = duplicate_aid_final(df)
+
+        if "audience_spotprice_check" in selected_checks:
+            df = audience_spotprice_check(df)
+
+        if "program_category_check" in selected_checks:
+            df = program_category_check(df)
+
+        if "channel_country_mapping_check" in selected_checks:
+            if not rosco_path:
+                st.error("ROSCO file required")
+                st.stop()
+            df = channel_country_mapping_check(df, rosco_path)
+
+        if "apt_bt_check" in selected_checks:
+            df = apt_bt_check(df, bt_threshold)
+
+        if "season_monitoring_check" in selected_checks:
+            df = season_monitoring_check(df, start_date, end_date)
+
+        if "fixture_validation_check" in selected_checks:
+            if fixture_df is None:
+                st.error("Fixture file required")
+                st.stop()
+            df = fixture_validation_check(df, fixture_df)
+
+        if "stadium_consistency_check" in selected_checks:
+            df = stadium_consistency_check(df)
+
+        if "event_quality_check" in selected_checks:
+            df = event_quality_check(df)
+
+        if "home_market_check" in selected_checks:
+            df = home_market_check(df)
+
+        if "ps_market_channel_check" in selected_checks or "ps_content_check" in selected_checks:
+            if not rosco_path:
+                st.error("ROSCO required")
+                st.stop()
+
+            rosco_excel = pd.ExcelFile(rosco_path)
+            monitoring_df = pd.read_excel(rosco_excel, sheet_name="Monitoring List")
+
+            if "ps_market_channel_check" in selected_checks:
+                df = ps_market_channel_check(df, monitoring_df)
+
+            if "ps_content_check" in selected_checks:
+                df = ps_content_check(df, monitoring_df)
+
+        if "mm_bsr_consistency_check" in selected_checks:
+            if not bsr_path:
+                st.error("BSR file required")
+                st.stop()
+            df = mm_bsr_consistency_check(df, bsr_path)
+
+        if "ea_creation_check" in selected_checks:
+            df = ea_creation_check(df)
+
+        # Separate outputs
+        if "audience_spot_range_clean_view" in selected_checks:
+            range_df = audience_spot_range_clean_view(df)
+
+        if "previous_delivery_check" in selected_checks:
+            if prev_df is None:
+                st.error("Previous Delivery file required")
+                st.stop()
+            prev_range_df = previous_delivery_check(df, prev_df)
+
+        # ---------------- OUTPUT ----------------
+        output = io.BytesIO()
+
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            df.to_excel(writer, sheet_name="MM_QC_Output", index=False)
+
+            if "audience_spot_range_clean_view" in selected_checks:
+                range_df.to_excel(writer, sheet_name="Audience_Range", index=False)
+
+            if "previous_delivery_check" in selected_checks:
+                prev_range_df.to_excel(writer, sheet_name="Previous_Delivery", index=False)
+
+        st.success("✅ QC Completed")
+
+        st.download_button(
+            "📥 Download Output",
+            data=output.getvalue(),
+            file_name="MM_BSA_QC_Output.xlsx"
+        )
