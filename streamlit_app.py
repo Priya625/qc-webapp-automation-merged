@@ -2392,7 +2392,7 @@ def save_file(uploaded_file):
     return temp.name
 
 
-st.title("📊 MM-BSA QC Checks")
+st.subheader("📊 MM-BSA QC Checks")
 
 # ---------------- FILE UPLOAD (ROW LIKE REACT) ----------------
 col1, col2, col3, col4, col5 = st.columns(5)
@@ -2436,7 +2436,7 @@ QC_CHECKS = [
 st.subheader("⚙️ Validation Rules")
 
 # SELECT ALL
-select_all = st.checkbox("✅ Select All Checks")
+select_all = st.checkbox(" Select All Checks")
 
 selected_checks = []
 
@@ -2444,7 +2444,6 @@ for key, label in QC_CHECKS:
     checked = st.checkbox(label, value=select_all)
     if checked:
         selected_checks.append(key)
-
 
 # ---------------- MONITORING + BT ----------------
 st.subheader("📅 Monitoring Period")
