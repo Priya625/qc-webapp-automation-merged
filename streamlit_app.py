@@ -2391,37 +2391,39 @@ def save_file(uploaded_file):
     temp.close()
     return temp.name
 
+# ---------------- INPUT UI (ALWAYS VISIBLE) ----------------
+
+adapt_file = st.file_uploader("Upload Adapt File (.xlsx)", type=["xlsx"])
+rosco_file = st.file_uploader("Upload ROSCO File (Optional)", type=["xlsx"])
+fixture_file = st.file_uploader("Upload Fixture File (Optional)", type=["xlsx"])
+prev_file = st.file_uploader("Upload Previous Delivery File (Optional)", type=["xlsx"])
+bsr_file = st.file_uploader("Upload BSR File (Optional)", type=["xlsx"])
+
+selected_checks = st.multiselect(
+    "Select checks",
+    options=[
+        "duplicate_aid_final",
+        "audience_spotprice_check",
+        "ps_market_channel_check",
+        "ps_content_check",
+        "mm_bsr_consistency_check",
+        "audience_spot_range_clean_view",
+        "previous_delivery_check",
+        "program_category_check",
+        "channel_country_mapping_check",
+        "apt_bt_check",
+        "season_monitoring_check",
+        "fixture_validation_check",
+        "stadium_consistency_check",
+        "event_quality_check",
+        "home_market_check",
+        "ea_creation_check"
+    ]
+)
+
+# ---------------- BUTTON (ONLY EXECUTES) ----------------
 
 if st.button("🚀 Run MM-BSA Checks"):
-    adapt_file = st.file_uploader("Upload Adapt File (.xlsx)", type=["xlsx"], key="adapt_file")
-    rosco_file = st.file_uploader("Upload ROSCO File (Optional, .xlsx)", type=["xlsx"], key="rosco_file")
-    fixture_file = st.file_uploader("Upload Fixture File (Optional, .xlsx)", type=["xlsx"], key="fixture_file")
-    prev_file = st.file_uploader("Upload Previous Delivery File (Optional, .xlsx)", type=["xlsx"], key="prev_file")
-    bsr_file = st.file_uploader("Upload BSR File (Optional, .xlsx)", type=["xlsx"], key="bsr_file")
-
-    selected_checks = st.multiselect(
-        "Select checks",
-        options=[
-            "duplicate_aid_final",
-            "audience_spotprice_check",
-            "ps_market_channel_check",
-            "ps_content_check",
-            "mm_bsr_consistency_check",
-            "audience_spot_range_clean_view",
-            "previous_delivery_check",
-            "program_category_check",
-            "channel_country_mapping_check",
-            "apt_bt_check",
-            "season_monitoring_check",
-            "fixture_validation_check",
-            "stadium_consistency_check",
-            "event_quality_check",
-            "home_market_check",
-            "ea_creation_check"
-        ],
-        default=[],
-        key="selected_checks",
-    )
 
     if not adapt_file:
         st.error("Upload Adapt file")
@@ -2429,18 +2431,15 @@ if st.button("🚀 Run MM-BSA Checks"):
 
     with st.spinner("Running checks..."):
 
-        # ---------------- LOAD MAIN FILE ----------------
         df = pd.read_excel(adapt_file, sheet_name="mm - detailed")
         df.columns = df.columns.str.strip()
 
-        # ---------------- OPTIONAL FILES ----------------
         rosco_path = save_file(rosco_file) if rosco_file else None
         fixture_df = pd.read_excel(fixture_file) if fixture_file else None
         prev_df = pd.read_excel(prev_file) if prev_file else None
         bsr_path = save_file(bsr_file) if bsr_file else None
 
-        # ---------------- APPLY CHECKS ----------------
-
+        # --- same checks logic (no change) ---
         if "duplicate_aid_final" in selected_checks:
             df = duplicate_aid_final(df)
 
@@ -2452,7 +2451,7 @@ if st.button("🚀 Run MM-BSA Checks"):
 
         if "channel_country_mapping_check" in selected_checks:
             if not rosco_path:
-                st.error("ROSCO file required")
+                st.error("ROSCO required")
                 st.stop()
             df = channel_country_mapping_check(df, rosco_path)
 
@@ -2464,7 +2463,7 @@ if st.button("🚀 Run MM-BSA Checks"):
 
         if "fixture_validation_check" in selected_checks:
             if fixture_df is None:
-                st.error("Fixture file required")
+                st.error("Fixture required")
                 st.stop()
             df = fixture_validation_check(df, fixture_df)
 
@@ -2493,24 +2492,23 @@ if st.button("🚀 Run MM-BSA Checks"):
 
         if "mm_bsr_consistency_check" in selected_checks:
             if not bsr_path:
-                st.error("BSR file required")
+                st.error("BSR required")
                 st.stop()
             df = mm_bsr_consistency_check(df, bsr_path)
 
         if "ea_creation_check" in selected_checks:
             df = ea_creation_check(df)
 
-        # Separate outputs
+        # Outputs
         if "audience_spot_range_clean_view" in selected_checks:
             range_df = audience_spot_range_clean_view(df)
 
         if "previous_delivery_check" in selected_checks:
             if prev_df is None:
-                st.error("Previous Delivery file required")
+                st.error("Previous Delivery required")
                 st.stop()
             prev_range_df = previous_delivery_check(df, prev_df)
 
-        # ---------------- OUTPUT ----------------
         output = io.BytesIO()
 
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
