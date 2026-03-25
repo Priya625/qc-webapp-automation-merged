@@ -2433,7 +2433,7 @@ QC_CHECKS = [
     ("previous_delivery_check", "Previous Delivery Check"),
 ]
 
-st.subheader("⚙️ Validation Rules")
+st.markdown("⚙️ Validation Rules")
 
 # SELECT ALL
 select_all = st.checkbox(" Select All Checks")
@@ -2446,7 +2446,7 @@ for key, label in QC_CHECKS:
         selected_checks.append(key)
 
 # ---------------- MONITORING + BT ----------------
-st.subheader("📅 Monitoring Period")
+st.markdown("📅 Monitoring Period")
 
 col1, col2 = st.columns(2)
 
@@ -2456,7 +2456,7 @@ with col1:
 with col2:
     end_date = st.date_input("End Date")
 
-st.subheader("⏱️ Highest BT Threshold")
+st.markdown("⏱️ Highest BT Threshold")
 bt_threshold = st.number_input("Enter BT Threshold", min_value=0.0, step=0.1)
 
 
