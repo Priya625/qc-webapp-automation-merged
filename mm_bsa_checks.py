@@ -1016,6 +1016,8 @@ def mm_bsr_consistency_check(mm_df, bsr_input):
 
 def audience_spot_range_clean_view(df):
 
+    print("🔍 Starting Audience Range Check")
+
     df.columns = df.columns.str.strip()
 
     category_col = "programme category"
@@ -1029,19 +1031,22 @@ def audience_spot_range_clean_view(df):
 
     for (category, channel), group in grouped:
 
+        print(f"\n📊 Processing: {category} | {channel}")
+
         group = group.copy()
 
         group[audience_col] = pd.to_numeric(group[audience_col], errors="coerce")
         group[spot_col] = pd.to_numeric(group[spot_col], errors="coerce")
 
-        group = group.sort_values(by=audience_col)
-
         median_val = group[audience_col].median()
 
-        # Business-friendly range
-        upper = median_val * 3
+        if pd.isna(median_val) or median_val == 0:
+            print("⚠️ Skipping due to invalid median")
+            continue
 
-        first_row = True
+        # ✅ Define range (±50%)
+        lower = median_val * 0.5
+        upper = median_val * 1.5
 
         for _, row in group.iterrows():
 
@@ -1051,20 +1056,29 @@ def audience_spot_range_clean_view(df):
             remark = ""
 
             if pd.notna(val):
-                if val > upper:
+
+                # ✅ Convert to viewers
+                audience_viewers = int(val * 1_000_000)
+
+                if val > upper or val < lower:
                     flag = False
-                    remark = "Higher than typical audience for this channel"
+                    remark = "Audience out of expected range for this channel"
+
+            else:
+                audience_viewers = None
+                flag = False
+                remark = "Audience missing"
 
             output.append({
-                "Programme Category": category if first_row else "",
-                "Channel": channel if first_row else "",
-                "Audience (in mio)": val,
+                "Programme Category": category,
+                "Channel": channel,
+                "Audience (viewers)": audience_viewers,
                 "Spot Price": row[spot_col],
                 "Flag": flag,
                 "Remark": remark
             })
 
-            first_row = False
+    print("✅ Completed")
 
     return pd.DataFrame(output)
 
