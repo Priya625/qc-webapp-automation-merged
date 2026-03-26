@@ -818,23 +818,21 @@ def channel_country_mapping_check(df, rosco_path):
 
 def mm_bsr_consistency_check(mm_df, bsr_input):
 
-    print("🔍 MM vs BSR check started")
+    print("🔥 FINAL MM BSR FUNCTION RUNNING")
 
     try:
-        # ---------------- LOAD BSR ----------------
+        # LOAD BSR
         if isinstance(bsr_input, str):
-            excel = pd.ExcelFile(bsr_input)
-            sheet = excel.sheet_names[0]
-            bsr_df = pd.read_excel(bsr_input, sheet_name=sheet)
+            bsr_df = pd.read_excel(bsr_input)
         else:
             bsr_df = bsr_input.copy()
 
-        # ---------------- CLEAN ----------------
+        # CLEAN
         mm_df = mm_df.copy()
         mm_df.columns = mm_df.columns.str.strip().str.lower()
         bsr_df.columns = bsr_df.columns.str.strip().str.lower()
 
-        # ---------------- CREATE MATCH ----------------
+        # CREATE MATCH
         if "home team" in bsr_df.columns and "away team" in bsr_df.columns:
             bsr_df["match"] = (
                 bsr_df["home team"].astype(str).str.strip()
@@ -842,7 +840,7 @@ def mm_bsr_consistency_check(mm_df, bsr_input):
                 bsr_df["away team"].astype(str).str.strip()
             )
 
-        # ---------------- CLEAN TEXT ----------------
+        # CLEAN TEXT
         def clean(col):
             return col.astype(str).str.lower().str.strip()
 
@@ -850,22 +848,20 @@ def mm_bsr_consistency_check(mm_df, bsr_input):
             mm_df[col] = clean(mm_df[col])
             bsr_df[col] = clean(bsr_df[col])
 
-        # ---------------- CREATE KEY ----------------
+        # CREATE KEY
         mm_df["_key"] = mm_df["event"] + "|" + mm_df["matchday"] + "|" + mm_df["match"]
         bsr_df["_key"] = bsr_df["event"] + "|" + bsr_df["matchday"] + "|" + bsr_df["match"]
 
-        # ---------------- INIT ----------------
+        # MAP
+        bsr_map = bsr_df.set_index("_key")
+
         flags = []
         remarks = []
 
-        bsr_map = bsr_df.set_index("_key")
-
-        # ---------------- CHECK LOOP ----------------
         for _, row in mm_df.iterrows():
 
             key = row["_key"]
 
-            # ❌ Missing match
             if key not in bsr_map.index:
                 flags.append(False)
                 remarks.append("Missing in BSR")
@@ -873,33 +869,29 @@ def mm_bsr_consistency_check(mm_df, bsr_input):
 
             bsr_row = bsr_map.loc[key]
 
-            # ❌ Competition mismatch
             if row["competition"] != bsr_row["competition"]:
                 flags.append(False)
                 remarks.append("Competition mismatch with BSR")
                 continue
 
-            # ✅ OK
             flags.append(True)
             remarks.append("")
 
-        # ---------------- FINAL OUTPUT ----------------
+        # FINAL OUTPUT
         mm_df["MM_BSR_Flag"] = flags
         mm_df["MM_BSR_Remark"] = remarks
 
-        # ❌ REMOVE INTERNAL COLUMN
-        mm_df.drop(columns=["_key"], inplace=True)
-
-        print("✅ MM vs BSR completed")
+        # REMOVE INTERNAL COLUMNS
+        for col in ["_key", "key"]:
+            if col in mm_df.columns:
+                mm_df.drop(columns=[col], inplace=True)
 
         return mm_df
 
     except Exception as e:
-        print("❌ Error in MM vs BSR:", str(e))
-
+        print("❌ ERROR:", str(e))
         mm_df["MM_BSR_Flag"] = False
         mm_df["MM_BSR_Remark"] = str(e)
-
         return mm_df
 
 def audience_spot_range_clean_view(df):
