@@ -2424,16 +2424,28 @@ with mm_bsa_tab:
         ("previous_delivery_check", "Previous Delivery Check"),
     ]
 
+    def sync_all_checks():
+        for key, _ in QC_CHECKS:
+            st.session_state[f"mm_chk_{key}"] = st.session_state["mm_master_select"]
+
     st.markdown("⚙️ **Validation Rules**")
-    mm_select_all = st.checkbox("Select All Checks", key="mm_master_select")
+    
+    # The Master Checkbox
+    st.checkbox("Select All Checks", key="mm_master_select", on_change=sync_all_checks)
     
     mm_selected = []
-    # Display checks in 4 columns
     mm_cols = st.columns(4)
     for index, (key, label) in enumerate(QC_CHECKS):
+        # Initialize state if not present to avoid KeyErrors
+        if f"mm_chk_{key}" not in st.session_state:
+            st.session_state[f"mm_chk_{key}"] = False
+            
         with mm_cols[index % 4]:
-            if st.checkbox(label, value=mm_select_all, key=f"mm_chk_{key}"):
+            # Each checkbox is now controlled by session_state
+            if st.checkbox(label, key=f"mm_chk_{key}"):
                 mm_selected.append(key)
+
+    st.divider()
 
     st.markdown("📅 **Monitoring Period**")
     mm_c1, mm_c2, mm_c3 = st.columns(3)
