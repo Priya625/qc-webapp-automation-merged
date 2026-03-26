@@ -821,195 +821,83 @@ def mm_bsr_consistency_check(mm_df, bsr_input):
     print("🔍 MM vs BSR check started")
 
     try:
-        # -----------------------------------
-        # HELPER: FIND BEST SHEET
-        # -----------------------------------
-        def pick_best_sheet(excel):
-            priority_keywords = ["worksheet", "database", "workfile", "data"]
-
-            for sheet in excel.sheet_names:
-                if any(k in sheet.lower() for k in priority_keywords):
-                    return sheet
-
-            return excel.sheet_names[0]
-
-        # -----------------------------------
-        # HELPER: DETECT HEADER ROW
-        # -----------------------------------
-        def detect_header_row(file_path, sheet_name):
-            preview = pd.read_excel(file_path, sheet_name=sheet_name, header=None, nrows=30)
-
-            keywords = ["event", "match", "home", "away", "competition"]
-            best_row = 0
-            best_score = 0
-
-            for i, row in preview.iterrows():
-                row_values = [str(x).lower() for x in row.values]
-
-                score = sum(any(k in val for val in row_values) for k in keywords)
-
-                if score > best_score:
-                    best_score = score
-                    best_row = i
-
-            print(f" Header detected at row {best_row} (score={best_score})")
-            return best_row
-
-        # -----------------------------------
-        # LOAD BSR FILE
-        # -----------------------------------
+        # ---------------- LOAD BSR ----------------
         if isinstance(bsr_input, str):
-
-            print("Loading BSR file:", bsr_input)
-
             excel = pd.ExcelFile(bsr_input)
-            print(" Sheets found:", excel.sheet_names)
-
-            sheet = pick_best_sheet(excel)
-            print(" Using sheet:", sheet)
-
-            header_row = detect_header_row(bsr_input, sheet)
-
-            bsr_df = pd.read_excel(bsr_input, sheet_name=sheet, header=header_row)
-
+            sheet = excel.sheet_names[0]
+            bsr_df = pd.read_excel(bsr_input, sheet_name=sheet)
         else:
-            print("📂 Using provided BSR dataframe")
             bsr_df = bsr_input.copy()
 
-        # -----------------------------------
-        # CLEAN COLUMN NAMES
-        # -----------------------------------
+        # ---------------- CLEAN ----------------
         mm_df = mm_df.copy()
         mm_df.columns = mm_df.columns.str.strip().str.lower()
-        bsr_df.columns = bsr_df.columns.astype(str).str.strip()
+        bsr_df.columns = bsr_df.columns.str.strip().str.lower()
 
-        print("📊 BSR columns:", list(bsr_df.columns))
+        # ---------------- CREATE MATCH ----------------
+        if "home team" in bsr_df.columns and "away team" in bsr_df.columns:
+            bsr_df["match"] = (
+                bsr_df["home team"].astype(str).str.strip()
+                + " vs " +
+                bsr_df["away team"].astype(str).str.strip()
+            )
 
-        # -----------------------------------
-        # FLEXIBLE COLUMN FINDER
-        # -----------------------------------
-        def find_column(df, keywords):
-            for col in df.columns:
-                for k in keywords:
-                    if k in col.lower():
-                        return col
-            return None
-
-        # Detect columns
-        event_col = find_column(bsr_df, ["event"])
-        matchday_col = find_column(bsr_df, ["matchday"])
-        competition_col = find_column(bsr_df, ["competition"])
-        home_col = find_column(bsr_df, ["home"])
-        away_col = find_column(bsr_df, ["away"])
-
-        print("🔍 Column mapping:")
-        print("Event:", event_col)
-        print("Matchday:", matchday_col)
-        print("Competition:", competition_col)
-        print("Home:", home_col)
-        print("Away:", away_col)
-
-        # -----------------------------------
-        # SAFE FALLBACKS (NO CRASH)
-        # -----------------------------------
-        if not home_col or not away_col:
-            print("Home/Away not found → skipping BSR check")
-            mm_df["MM_BSR_Flag"] = "Skipped - Invalid BSR"
-            mm_df["MM_BSR_Remark"] = "Home/Away columns not found"
-            return mm_df
-
-        if not event_col:
-            print(" Event column missing")
-            bsr_df["event"] = ""
-        else:
-            bsr_df["event"] = bsr_df[event_col]
-
-        if not matchday_col:
-            print(" Matchday missing")
-            bsr_df["matchday"] = ""
-        else:
-            bsr_df["matchday"] = bsr_df[matchday_col]
-
-        if not competition_col:
-            print(" Competition missing")
-            bsr_df["competition"] = ""
-        else:
-            bsr_df["competition"] = bsr_df[competition_col]
-
-        # -----------------------------------
-        # CREATE MATCH COLUMN
-        # -----------------------------------
-        bsr_df["match"] = (
-            bsr_df[home_col].astype(str).str.strip()
-            + " vs " +
-            bsr_df[away_col].astype(str).str.strip()
-        )
-
-        # -----------------------------------
-        # CLEAN FUNCTION
-        # -----------------------------------
+        # ---------------- CLEAN TEXT ----------------
         def clean(col):
             return col.astype(str).str.lower().str.strip()
 
-        # Clean MM
-        mm_df["event"] = clean(mm_df["event"])
-        mm_df["matchday"] = clean(mm_df["matchday"])
-        mm_df["competition"] = clean(mm_df["competition"])
-        mm_df["match"] = clean(mm_df["match"])
+        for col in ["event", "matchday", "competition", "match"]:
+            mm_df[col] = clean(mm_df[col])
+            bsr_df[col] = clean(bsr_df[col])
 
-        # Clean BSR
-        bsr_df["event"] = clean(bsr_df["event"])
-        bsr_df["matchday"] = clean(bsr_df["matchday"])
-        bsr_df["competition"] = clean(bsr_df["competition"])
-        bsr_df["match"] = clean(bsr_df["match"])
+        # ---------------- CREATE KEY ----------------
+        mm_df["_key"] = mm_df["event"] + "|" + mm_df["matchday"] + "|" + mm_df["match"]
+        bsr_df["_key"] = bsr_df["event"] + "|" + bsr_df["matchday"] + "|" + bsr_df["match"]
 
-        # -----------------------------------
-        # CREATE KEYS
-        # -----------------------------------
-        mm_df["key"] = mm_df["event"] + "|" + mm_df["matchday"] + "|" + mm_df["match"]
-        bsr_df["key"] = bsr_df["event"] + "|" + bsr_df["matchday"] + "|" + bsr_df["match"]
+        # ---------------- INIT ----------------
+        flags = []
+        remarks = []
 
-        # -----------------------------------
-        # INIT FLAG
-        # -----------------------------------
-        mm_df["MM_BSR_Flag"] = "OK"
+        bsr_map = bsr_df.set_index("_key")
 
-        # -----------------------------------
-        # CHECKS
-        # -----------------------------------
-        missing_mask = ~mm_df["key"].isin(bsr_df["key"])
-        mm_df.loc[missing_mask, "MM_BSR_Flag"] = "Missing in BSR"
+        # ---------------- CHECK LOOP ----------------
+        for _, row in mm_df.iterrows():
 
-        merged = mm_df.merge(
-            bsr_df[["key", "competition"]],
-            on="key",
-            how="left",
-            suffixes=("", "_bsr")
-        )
+            key = row["_key"]
 
-        mismatch_mask = (
-            (merged["competition"] != merged["competition_bsr"]) &
-            (~merged["competition_bsr"].isna())
-        )
+            # ❌ Missing match
+            if key not in bsr_map.index:
+                flags.append(False)
+                remarks.append("Missing in BSR")
+                continue
 
-        mm_df.loc[mismatch_mask, "MM_BSR_Flag"] = "Mismatch with BSR"
+            bsr_row = bsr_map.loc[key]
 
-        # -----------------------------------
-        # FINAL
-        # -----------------------------------
-        mm_df["MM_BSR_Remark"] = mm_df["MM_BSR_Flag"]
+            # ❌ Competition mismatch
+            if row["competition"] != bsr_row["competition"]:
+                flags.append(False)
+                remarks.append("Competition mismatch with BSR")
+                continue
 
-        print(" MM vs BSR completed successfully")
+            # ✅ OK
+            flags.append(True)
+            remarks.append("")
+
+        # ---------------- FINAL OUTPUT ----------------
+        mm_df["MM_BSR_Flag"] = flags
+        mm_df["MM_BSR_Remark"] = remarks
+
+        # ❌ REMOVE INTERNAL COLUMN
+        mm_df.drop(columns=["_key"], inplace=True)
+
+        print("✅ MM vs BSR completed")
 
         return mm_df
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        print("❌ Error in MM vs BSR:", str(e))
 
-        print("❌ MM BSR check failed, returning safe output")
-
-        mm_df["MM_BSR_Flag"] = "Error"
+        mm_df["MM_BSR_Flag"] = False
         mm_df["MM_BSR_Remark"] = str(e)
 
         return mm_df
