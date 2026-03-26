@@ -984,7 +984,7 @@ with main_qc_tab:
             )
 
 # -----------------------------------------------------------
-#       ⚽ LALIGA QC TAB (YOUR 11 CHECKS)
+#        ⚽ LALIGA QC TAB (WITH SELECT ALL FUNCTIONALITY)
 # -----------------------------------------------------------
 
 with laliga_qc_tab:
@@ -1004,9 +1004,9 @@ with laliga_qc_tab:
             unsafe_allow_html=True
         )
         
-    # The rest of your content remains below the columns
-    st.markdown("Upload your **Rosco**, **BSR**, and **Macro Duplicator** files. This will run all Laliga QC checks.")
+    st.markdown("Upload your **Rosco**, **BSR**, and **Macro Duplicator** files. Select the checks you wish to perform below.")
 
+    # --- 1. File Uploaders ---
     col1, col2, col3 = st.columns(3)
     with col1:
         laliga_rosco_file = st.file_uploader("📥 Upload Rosco File (.xlsx)", type=["xlsx"], key="laliga_rosco")
@@ -1017,9 +1017,48 @@ with laliga_qc_tab:
     
     st.write("---")
 
-    if st.button("⚙️ Run Laliga QC Checks"):
+    # --- 2. Define LaLiga Checks ---
+    # These represent the steps executed in your logic below
+    LALIGA_CHECKS = [
+        ("period_check", "Period Check (Rosco Dates)"),
+        ("completeness_check", "Completeness Check (Required Fields)"),
+        ("overlap_duplicate_check", "Overlap & Duplicate Check"),
+        ("program_category_check", "Program Category (Live/Repeat/Highlights)"),
+        ("event_matchday_check", "Event & Matchday Consistency"),
+        ("market_channel_consistency", "Market-Channel Mapping (Rosco)"),
+        ("rates_ratings_check", "Rates & Ratings Check"),
+        ("country_channel_id_check", "Country-Channel ID Check"),
+        ("domestic_market_check", "Domestic Market Specific Check"),
+        ("duplicated_market_check", "Duplicated Market (Macro) Check")
+    ]
+
+    # --- 3. Select All Logic ---
+    def sync_laliga_checks():
+        for key, _ in LALIGA_CHECKS:
+            st.session_state[f"la_chk_{key}"] = st.session_state["la_master_select"]
+
+    st.markdown("### ⚙️ Select Validation Rules")
+    st.checkbox("Select All Laliga Checks", key="la_master_select", on_change=sync_laliga_checks)
+
+    selected_la_checks = []
+    la_cols = st.columns(3)
+    for index, (key, label) in enumerate(LALIGA_CHECKS):
+        # Initialize session state for each checkbox
+        if f"la_chk_{key}" not in st.session_state:
+            st.session_state[f"la_chk_{key}"] = False
+            
+        with la_cols[index % 3]:
+            if st.checkbox(label, key=f"la_chk_{key}"):
+                selected_la_checks.append(key)
+
+    st.write("---")
+
+    # --- 4. Execution Logic ---
+    if st.button("⚙️ Run Selected Laliga QC Checks"):
         if not laliga_rosco_file or not laliga_bsr_file or not laliga_macro_file or not config:
             st.error("⚠️ Please upload all three files (and ensure config.json is loaded).")
+        elif not selected_la_checks:
+            st.warning("⚠️ Please select at least one check to perform.")
         else:
             with st.spinner("Running Laliga QC checks..."):
                 try:
@@ -1037,36 +1076,44 @@ with laliga_qc_tab:
                     with open(bsr_path, "wb") as f: f.write(laliga_bsr_file.getbuffer())
                     with open(macro_path, "wb") as f: f.write(laliga_macro_file.getbuffer())
                     
-                    # --- FIX: Load Fixtures Dataframe for LaLiga ---
-                    bsr_xl = pd.ExcelFile(bsr_path)
-                    fixture_keywords = ["fixture", "fixtures", "fixture list", "fixtures list"]
-                    fixture_sheet_name = next((s for s in bsr_xl.sheet_names 
-                                               if any(k in s.lower() for k in fixture_keywords)), None)
-                    
-                    df_fixtures = None
-                    if fixture_sheet_name:
-                        df_fixtures = bsr_xl.parse(fixture_sheet_name)
-                    else:
-                        st.warning("⚠️ No 'Fixtures' sheet found in BSR. Event validation may be skipped.")
-
-                    # --- Run General QC Steps ---
+                    # --- Load Data ---
                     start_date, end_date = qc_general.detect_period_from_rosco(rosco_path)
                     df = qc_general.load_bsr(bsr_path)
-                    df = qc_general.period_check(df, start_date, end_date)
-                    df = qc_general.completeness_check(df, col_map["bsr"], rules["program_category"]) 
-                    df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules["overlap_check"]) 
-                    df = qc_general.program_category_check(bsr_path, df, col_map, rules["program_category"], file_rules)
+
+                    # --- CONDITIONAL EXECUTION BASED ON UI SELECTION ---
+                    if "period_check" in selected_la_checks:
+                        df = qc_general.period_check(df, start_date, end_date)
                     
-                    # Pass the newly loaded df_fixtures here
-                    df = qc_general.check_event_matchday_competition(df, df_fixtures)
+                    if "completeness_check" in selected_la_checks:
+                        df = qc_general.completeness_check(df, col_map["bsr"], rules["program_category"]) 
                     
-                    df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
-                    df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
-                    df = qc_general.country_channel_id_check(df, col_map["bsr"])
+                    if "overlap_duplicate_check" in selected_la_checks:
+                        df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules["overlap_check"]) 
                     
-                    # Run LaLiga Specifics
-                    df = qc_general.domestic_market_check(df, col_map["bsr"], project.get("monitoring_start_date"), debug=True)
-                    df = qc_general.duplicated_market_check(df, macro_path, project, col_map, file_rules, debug=True)
+                    if "program_category_check" in selected_la_checks:
+                        df = qc_general.program_category_check(bsr_path, df, col_map, rules["program_category"], file_rules)
+                    
+                    if "event_matchday_check" in selected_la_checks:
+                        bsr_xl = pd.ExcelFile(bsr_path)
+                        fixture_keywords = ["fixture", "fixtures", "fixture list", "fixtures list"]
+                        fixture_sheet_name = next((s for s in bsr_xl.sheet_names if any(k in s.lower() for k in fixture_keywords)), None)
+                        df_fixtures = bsr_xl.parse(fixture_sheet_name) if fixture_sheet_name else None
+                        df = qc_general.check_event_matchday_competition(df, df_fixtures)
+                    
+                    if "market_channel_consistency" in selected_la_checks:
+                        df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
+                    
+                    if "rates_ratings_check" in selected_la_checks:
+                        df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
+                    
+                    if "country_channel_id_check" in selected_la_checks:
+                        df = qc_general.country_channel_id_check(df, col_map["bsr"])
+                    
+                    if "domestic_market_check" in selected_la_checks:
+                        df = qc_general.domestic_market_check(df, col_map["bsr"], project.get("monitoring_start_date"), debug=True)
+                    
+                    if "duplicated_market_check" in selected_la_checks:
+                        df = qc_general.duplicated_market_check(df, macro_path, project, col_map, file_rules, debug=True)
 
                     # --- Generate Output File ---
                     output_file = f"Laliga_QC_Result_{os.path.splitext(laliga_bsr_file.name)[0]}.xlsx"
