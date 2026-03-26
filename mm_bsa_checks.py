@@ -1000,23 +1000,31 @@ def ea_creation_check(df):
 
 def previous_delivery_check(current_df, prev_df):
 
+    # -----------------------------------
+    # CLEAN COLUMN NAMES
+    # -----------------------------------
     current_df.columns = current_df.columns.str.strip().str.lower()
     prev_df.columns = prev_df.columns.str.strip().str.lower()
 
-    cols = ["programme category", "channel", "audience (in mio)", "spot price"]
+    required_cols = ["programme category", "channel", "audience (in mio)", "spot price"]
 
-    for col in cols:
+    for col in required_cols:
         if col not in current_df.columns or col not in prev_df.columns:
             raise ValueError(f"Missing column: {col}")
 
-    # ✅ Convert to numeric
+    # -----------------------------------
+    # CONVERT NUMERIC + FIX UNITS
+    # -----------------------------------
     for df in [current_df, prev_df]:
         df["audience (in mio)"] = pd.to_numeric(df["audience (in mio)"], errors="coerce")
         df["spot price"] = pd.to_numeric(df["spot price"], errors="coerce")
 
-        # ✅ Convert MIO → actual numbers
+        # Convert to actual numbers
         df["audience"] = df["audience (in mio)"] * 1_000_000
 
+    # -----------------------------------
+    # GROUP DATA
+    # -----------------------------------
     curr_grp = current_df.groupby(["programme category", "channel"])
     prev_grp = prev_df.groupby(["programme category", "channel"])
 
@@ -1026,64 +1034,86 @@ def previous_delivery_check(current_df, prev_df):
 
         category, channel = key
 
-        # -------- CURRENT RANGE --------
-        curr_med_aud = curr_group["audience"].median()
-        curr_min_aud = curr_group["audience"].min()
-        curr_max_aud = curr_group["audience"].max()
+        # ---------------- CURRENT VALUES ----------------
+        curr_aud = curr_group["audience"]
+        curr_sp = curr_group["spot price"]
 
-        curr_med_sp = curr_group["spot price"].median()
+        curr_med_aud = curr_aud.median()
+        curr_med_sp = curr_sp.median()
 
-        # -------- PREVIOUS RANGE --------
+        # ---------------- PREVIOUS VALUES ----------------
         if key in prev_grp.groups:
+
             prev_group = prev_grp.get_group(key)
 
-            prev_med_aud = prev_group["audience (in mio)"].median() * 1_000_000
-            prev_min_aud = prev_group["audience (in mio)"].min() * 1_000_000
-            prev_max_aud = prev_group["audience (in mio)"].max() * 1_000_000
+            prev_aud = prev_group["audience"]
+            prev_sp = prev_group["spot price"]
 
-            prev_med_sp = prev_group["spot price"].median()
+            prev_min_aud = prev_aud.min()
+            prev_max_aud = prev_aud.max()
+            prev_med_aud = prev_aud.median()
+
+            prev_min_sp = prev_sp.min()
+            prev_max_sp = prev_sp.max()
+            prev_med_sp = prev_sp.median()
+
         else:
-            prev_med_aud = prev_min_aud = prev_max_aud = None
-            prev_med_sp = None
+            prev_min_aud = prev_max_aud = prev_med_aud = None
+            prev_min_sp = prev_max_sp = prev_med_sp = None
 
+        # -----------------------------------
+        # DEFINE RANGE (CORRECT LOGIC)
+        # -----------------------------------
+        def get_range(min_val, max_val):
+            if pd.isna(min_val) or pd.isna(max_val):
+                return None, None
+            return min_val * 0.5, max_val * 1.5
+
+        aud_lower, aud_upper = get_range(prev_min_aud, prev_max_aud)
+        sp_lower, sp_upper = get_range(prev_min_sp, prev_max_sp)
+
+        # -----------------------------------
+        # CHECK LOGIC
+        # -----------------------------------
         flag = True
-        remark = ""
+        remarks = []
 
-        # -------- RANGE CHECK --------
-        if prev_med_aud:
-
-            lower = prev_med_aud * 0.5
-            upper = prev_med_aud * 1.5
-
-            if curr_med_aud < lower or curr_med_aud > upper:
+        # Audience check
+        if aud_lower is not None and aud_upper is not None:
+            if not (aud_lower <= curr_med_aud <= aud_upper):
                 flag = False
-                remark = (
-                    f"Audience out of expected range "
-                    f"(Current: {int(curr_med_aud)}, Expected: {int(lower)}–{int(upper)})"
+                remarks.append(
+                    f"Audience out of range (Current: {curr_med_aud:.0f}, Expected: {aud_lower:.0f}-{aud_upper:.0f})"
                 )
 
-        # -------- SPOT PRICE CHECK --------
-        if prev_med_sp:
-
-            lower_sp = prev_med_sp * 0.5
-            upper_sp = prev_med_sp * 1.5
-
-            if curr_med_sp < lower_sp or curr_med_sp > upper_sp:
+        # Spot price check
+        if sp_lower is not None and sp_upper is not None:
+            if not (sp_lower <= curr_med_sp <= sp_upper):
                 flag = False
-                remark += (
-                    f" | Spot price out of range "
-                    f"(Current: {curr_med_sp}, Expected: {lower_sp}–{upper_sp})"
+                remarks.append(
+                    f"Spot Price out of range (Current: {curr_med_sp:.0f}, Expected: {sp_lower:.0f}-{sp_upper:.0f})"
                 )
 
+        remark = " | ".join(remarks) if remarks else ""
+
+        # -----------------------------------
+        # OUTPUT
+        # -----------------------------------
         output.append({
             "Programme Category": category,
             "Channel": channel,
-            "Current Audience Median": int(curr_med_aud) if pd.notna(curr_med_aud) else "",
-            "Previous Audience Median": int(prev_med_aud) if prev_med_aud else "",
-            "Current Spot Price Median": curr_med_sp,
-            "Previous Spot Price Median": prev_med_sp,
+
+            "Current Audience Median": round(curr_med_aud, 0) if pd.notna(curr_med_aud) else None,
+            "Previous Audience Median": round(prev_med_aud, 0) if prev_med_aud else None,
+
+            "Current Spot Price Median": round(curr_med_sp, 0) if pd.notna(curr_med_sp) else None,
+            "Previous Spot Price Median": round(prev_med_sp, 0) if prev_med_sp else None,
+
+            "Audience Range": f"{round(aud_lower,0)} - {round(aud_upper,0)}" if aud_lower else "",
+            "Spot Price Range": f"{round(sp_lower,0)} - {round(sp_upper,0)}" if sp_lower else "",
+
             "Flag": flag,
-            "Remark": remark.strip(" |")
+            "Remark": remark
         })
 
     return pd.DataFrame(output)
