@@ -862,18 +862,26 @@ def mm_bsr_consistency_check(mm_df, bsr_input):
 
             key = row["_key"]
 
+            # ❌ Case 1: Missing match
             if key not in bsr_map.index:
                 flags.append(False)
-                remarks.append("Missing in BSR")
+                remarks.append("Match not found in BSR file")
                 continue
 
             bsr_row = bsr_map.loc[key]
 
-            if row["competition"] != bsr_row["competition"]:
+            # ❌ Case 2: Competition mismatch
+            mm_comp = str(row.get("competition", "")).strip()
+            bsr_comp = str(bsr_row.get("competition", "")).strip()
+
+            if mm_comp != bsr_comp:
                 flags.append(False)
-                remarks.append("Competition mismatch with BSR")
+                remarks.append(
+                    f"Competition mismatch (MM: '{mm_comp}' vs BSR: '{bsr_comp}')"
+                )
                 continue
 
+            # ✅ Case 3: All good
             flags.append(True)
             remarks.append("")
 
