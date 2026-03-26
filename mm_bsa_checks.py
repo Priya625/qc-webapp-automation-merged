@@ -1003,19 +1003,20 @@ def previous_delivery_check(current_df, prev_df):
     current_df.columns = current_df.columns.str.strip().str.lower()
     prev_df.columns = prev_df.columns.str.strip().str.lower()
 
-    # Required columns
     cols = ["programme category", "channel", "audience (in mio)", "spot price"]
 
     for col in cols:
         if col not in current_df.columns or col not in prev_df.columns:
             raise ValueError(f"Missing column: {col}")
 
-    # Clean numeric
+    # ✅ Convert to numeric
     for df in [current_df, prev_df]:
         df["audience (in mio)"] = pd.to_numeric(df["audience (in mio)"], errors="coerce")
         df["spot price"] = pd.to_numeric(df["spot price"], errors="coerce")
 
-    # Group
+        # ✅ Convert MIO → actual numbers
+        df["audience"] = df["audience (in mio)"] * 1_000_000
+
     curr_grp = current_df.groupby(["programme category", "channel"])
     prev_grp = prev_df.groupby(["programme category", "channel"])
 
@@ -1025,65 +1026,64 @@ def previous_delivery_check(current_df, prev_df):
 
         category, channel = key
 
-        curr_median_aud = curr_group["audience (in mio)"].median()
-        curr_median_sp = curr_group["spot price"].median()
+        # -------- CURRENT RANGE --------
+        curr_med_aud = curr_group["audience"].median()
+        curr_min_aud = curr_group["audience"].min()
+        curr_max_aud = curr_group["audience"].max()
 
+        curr_med_sp = curr_group["spot price"].median()
+
+        # -------- PREVIOUS RANGE --------
         if key in prev_grp.groups:
             prev_group = prev_grp.get_group(key)
 
-            prev_median_aud = prev_group["audience (in mio)"].median()
-            prev_median_sp = prev_group["spot price"].median()
+            prev_med_aud = prev_group["audience (in mio)"].median() * 1_000_000
+            prev_min_aud = prev_group["audience (in mio)"].min() * 1_000_000
+            prev_max_aud = prev_group["audience (in mio)"].max() * 1_000_000
+
+            prev_med_sp = prev_group["spot price"].median()
         else:
-            prev_median_aud = None
-            prev_median_sp = None
-
-        # --------- DEVIATION ---------
-        def calc_dev(curr, prev):
-            if pd.isna(curr) or pd.isna(prev) or prev == 0:
-                return None
-            return (curr - prev) / prev
-
-        aud_dev = calc_dev(curr_median_aud, prev_median_aud)
-        sp_dev = calc_dev(curr_median_sp, prev_median_sp)
+            prev_med_aud = prev_min_aud = prev_max_aud = None
+            prev_med_sp = None
 
         flag = True
         remark = ""
 
-        # ---------- RULES ----------
-        def check_dev(dev, label):
-            if dev is None:
-                return None
+        # -------- RANGE CHECK --------
+        if prev_med_aud:
 
-            if abs(dev) > 1:
-                return f"{label} deviation >100%"
-            elif abs(dev) > 0.5:
-                return f"{label} deviation >50%"
-            return None
+            lower = prev_med_aud * 0.5
+            upper = prev_med_aud * 1.5
 
-        issues = []
+            if curr_med_aud < lower or curr_med_aud > upper:
+                flag = False
+                remark = (
+                    f"Audience out of expected range "
+                    f"(Current: {int(curr_med_aud)}, Expected: {int(lower)}–{int(upper)})"
+                )
 
-        aud_issue = check_dev(aud_dev, "Audience")
-        sp_issue = check_dev(sp_dev, "Spot Price")
+        # -------- SPOT PRICE CHECK --------
+        if prev_med_sp:
 
-        if aud_issue:
-            issues.append(aud_issue)
+            lower_sp = prev_med_sp * 0.5
+            upper_sp = prev_med_sp * 1.5
 
-        if sp_issue:
-            issues.append(sp_issue)
-
-        if issues:
-            flag = False
-            remark = " | ".join(issues)
+            if curr_med_sp < lower_sp or curr_med_sp > upper_sp:
+                flag = False
+                remark += (
+                    f" | Spot price out of range "
+                    f"(Current: {curr_med_sp}, Expected: {lower_sp}–{upper_sp})"
+                )
 
         output.append({
             "Programme Category": category,
             "Channel": channel,
-            "Current Audience Median": curr_median_aud,
-            "Previous Audience Median": prev_median_aud,
-            "Current Spot Price Median": curr_median_sp,
-            "Previous Spot Price Median": prev_median_sp,
+            "Current Audience Median": int(curr_med_aud) if pd.notna(curr_med_aud) else "",
+            "Previous Audience Median": int(prev_med_aud) if prev_med_aud else "",
+            "Current Spot Price Median": curr_med_sp,
+            "Previous Spot Price Median": prev_med_sp,
             "Flag": flag,
-            "Remark": remark
+            "Remark": remark.strip(" |")
         })
 
     return pd.DataFrame(output)
