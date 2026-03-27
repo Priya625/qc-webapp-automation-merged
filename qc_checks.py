@@ -704,16 +704,15 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
         prev_match = get_match_signature(row)
         prev_key = key
 
-    # --------------------------------------------------
-    # ✅ Strict Same-Match Daybreak Logic
-    # --------------------------------------------------
-    gap_tolerance = rules.get("daybreak_gap_tolerance_min", 5)
+    gap_tolerance = rules.get("daybreak_gap_tolerance_min", 15)
 
     for i in range(1, n):
         prev = df.iloc[i - 1]
         curr = df.iloc[i]
 
-        # Must be same channel + market
+        # --------------------------------------------------
+        # 1️⃣ Same channel + market
+        # --------------------------------------------------
         if not (
             str(prev[compare_channel]) == str(curr[compare_channel]) and
             str(prev[col_market]) == str(curr[col_market])
@@ -722,66 +721,72 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 
         if pd.isna(prev["_end_dt"]) or pd.isna(curr["_start_dt"]):
             daybreak_ok[i] = pd.NA
-            daybreak_r[i] = "Not Applicable – missing timestamps"
+            daybreak_r[i] = "Missing timestamps"
             continue
 
         prev_end = prev["_end_dt"]
         curr_start = curr["_start_dt"]
 
         # --------------------------------------------------
-        # 1️⃣ Must be LIVE on both rows
+        # 2️⃣ Must be LIVE
         # --------------------------------------------------
         if not (
             prev["_prog_type_norm"] == "live" and
             curr["_prog_type_norm"] == "live"
         ):
             daybreak_ok[i] = pd.NA
-            daybreak_r[i] = "Not live continuation"
+            daybreak_r[i] = "Not live"
             continue
 
         # --------------------------------------------------
-        # 2️⃣ Must be same match
+        # 3️⃣ Must cross midnight (consecutive days)
         # --------------------------------------------------
-        prev_match = get_match_signature(prev)
-        curr_match = get_match_signature(curr)
+        if not (
+            curr_start.date() == prev_end.date() + pd.Timedelta(days=1)
+        ):
+            daybreak_ok[i] = pd.NA
+            daybreak_r[i] = "No daybreak"
+            continue
 
-        if not (prev_match and curr_match and prev_match == curr_match):
+        # --------------------------------------------------
+        # 4️⃣ Same match (PRIMARY = Combined)
+        # --------------------------------------------------
+        prev_combined = str(prev[col_combined]).strip().lower() if col_combined else ""
+        curr_combined = str(curr[col_combined]).strip().lower() if col_combined else ""
+
+        same_match = False
+
+        if prev_combined and curr_combined:
+            if prev_combined == curr_combined:
+                same_match = True
+
+        # fallback → team comparison (if available)
+        if not same_match:
+            home_prev = str(prev.get("Home Team", "")).lower()
+            away_prev = str(prev.get("Away Team", "")).lower()
+            home_curr = str(curr.get("Home Team", "")).lower()
+            away_curr = str(curr.get("Away Team", "")).lower()
+
+            if home_prev and away_prev and home_curr and away_curr:
+                if home_prev == home_curr and away_prev == away_curr:
+                    same_match = True
+
+        if not same_match:
             daybreak_ok[i] = pd.NA
             daybreak_r[i] = "Different match"
             continue
 
         # --------------------------------------------------
-        # 3️⃣ Must cross midnight
-        # --------------------------------------------------
-        if curr_start.date() <= prev_end.date():
-            daybreak_ok[i] = pd.NA
-            daybreak_r[i] = "No date rollover"
-            continue
-
-        # --------------------------------------------------
-        # 4️⃣ Strict midnight window
-        # Previous must end after 23:30
-        # Current must start before 00:30
-        # --------------------------------------------------
-        if not (
-            prev_end.time() >= pd.to_datetime("23:30:00").time() and
-            curr_start.time() <= pd.to_datetime("00:30:00").time()
-        ):
-            daybreak_ok[i] = pd.NA
-            daybreak_r[i] = "Outside midnight window"
-            continue
-
-        # --------------------------------------------------
-        # 5️⃣ Check gap
+        # 5️⃣ Gap check
         # --------------------------------------------------
         gap = (curr_start - prev_end).total_seconds() / 60
 
         if 0 <= gap <= gap_tolerance:
             daybreak_ok[i] = True
-            daybreak_r[i] = "Valid same-match midnight continuation"
+            daybreak_r[i] = "Valid daybreak (same match across midnight)"
         else:
             daybreak_ok[i] = False
-            daybreak_r[i] = f"Invalid continuation gap ({gap:.1f} min)"
+            daybreak_r[i] = f"Invalid gap ({gap:.1f} min)"
 
     # --------------------------------------------------
     # Final assignment
