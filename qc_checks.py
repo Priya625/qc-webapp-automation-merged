@@ -482,16 +482,20 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
             if pd.isna(date_part):
                 return pd.NaT
 
-            ts = pd.to_datetime(
-                f"{date_part.date()} {t}",
-                errors="coerce"
-            )
+            # HANDLE EXCEL TIME FORMATS
+            if isinstance(t, (float, int)):
+                # Excel numeric time
+                time_part = pd.to_timedelta(t, unit="D")
+            else:
+                time_part = pd.to_timedelta(str(t))
 
-            # FORCE tz-naive
+            ts = date_part + time_part
+
             if isinstance(ts, pd.Timestamp) and ts.tzinfo is not None:
                 ts = ts.tz_localize(None)
 
             return ts
+
         except Exception:
             return pd.NaT
 
