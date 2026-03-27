@@ -1117,3 +1117,60 @@ def previous_delivery_check(current_df, prev_df):
         })
 
     return pd.DataFrame(output)
+
+def live_delayed_check(df):
+
+    df = df.copy()
+    df.columns = df.columns.str.strip().str.lower()
+
+    required_cols = ["programme category", "match", "bt"]
+
+    for col in required_cols:
+        if col not in df.columns:
+            raise ValueError(f"Missing column: {col}")
+
+    flags = []
+    remarks = []
+
+    for _, row in df.iterrows():
+
+        category = str(row.get("programme category", "")).lower()
+        match = str(row.get("match", "")).strip()
+        bt = row.get("bt")
+
+        # Only apply for live / delayed
+        if not ("live" in category or "delayed" in category):
+            flags.append(True)
+            remarks.append("")
+            continue
+
+        issues = []
+
+        # Missing match
+        if match == "" or match.lower() == "nan":
+            issues.append("Match missing for live/delayed entry")
+
+        # Invalid category
+        if not any(x in category for x in ["live", "delayed"]):
+            issues.append(f"Invalid category for live/delayed: {category}")
+
+        # BT check (basic threshold 90 mins)
+        try:
+            bt_val = float(bt)
+            if bt_val < 90:
+                issues.append("BT too low for live/delayed (expected ≥ 90 mins)")
+        except:
+            issues.append("Invalid BT value")
+
+        # Final decision
+        if issues:
+            flags.append(False)
+            remarks.append(" | ".join(issues))
+        else:
+            flags.append(True)
+            remarks.append("")
+
+    df["Live_Delayed_Check_Flag"] = flags
+    df["Live_Delayed_Check_Remark"] = remarks
+
+    return df
