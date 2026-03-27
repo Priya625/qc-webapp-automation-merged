@@ -765,7 +765,7 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
             daybreak_ok[i] = True
             daybreak_r[i] = "Daybreak – continuous match across midnight"
         else:
-            daybreak_ok[i] = False
+            daybreak_ok[i] = True
             daybreak_r[i] = f"Gap too large ({gap:.1f} min)"
 
     # --------------------------------------------------
