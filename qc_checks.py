@@ -1229,63 +1229,72 @@ def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None,
         matchday = norm(r.get(ws_matchday_col))
         home = norm(r.get(ws_home_col))
         away = norm(r.get(ws_away_col))
-        program_type = norm(r.get(ws_program_type_col))
         phase_val = norm(r.get(ws_phase_col))
 
         # --------------------------------------------------
-        # 🔹 1️⃣ SIMULCAST RULE (Live / Repeat / Delayed Only)
+        # 1️⃣ SIMULCAST → skip
         # --------------------------------------------------
-        if (
-            program_type in ["live", "repeat", "delayed"]
-            and ws_phase_col is not None
-            and "simulcast" in phase_val
-        ):
+        if ws_phase_col is not None and "simulcast" in phase_val:
             df.at[idx, "Event_Matchday_Competition_OK"] = True
             df.at[idx, "Event_Matchday_Competition_Remark"] = "NA – Simulcast"
             continue
 
         # --------------------------------------------------
-        # 🔹 2️⃣ MAGAZINE & SUPPORT RULE
+        # 2️⃣ Missing mandatory fields
         # --------------------------------------------------
-        if program_type == "magazine & support":
-            df.at[idx, "Event_Matchday_Competition_OK"] = True
-            df.at[idx, "Event_Matchday_Competition_Remark"] = "Magazine & Support – Home and away not required, checking Event+Matchday only"
+        if not matchday:
+            df.at[idx, "Event_Matchday_Competition_OK"] = False
+            df.at[idx, "Event_Matchday_Competition_Remark"] = "Missing Matchday"
             continue
 
         # --------------------------------------------------
-        # 🔹 3️⃣ HIGHLIGHTS LOGIC
+        # 3️⃣ TEAM MATCH CHECK (ignore event first)
         # --------------------------------------------------
-        if program_type == "highlights":
-            df.at[idx, "Event_Matchday_Competition_OK"] = True
-            df.at[idx, "Event_Matchday_Competition_Remark"] = "Highlights – Home and away not required, checking Event+Matchday only"
-            continue
+        team_match_found = False
+        correct_event = False
 
-        # --------------------------------------------------
-        # 🔹 4️⃣ LIVE LOGIC (Match Home + Away Only)
-        # --------------------------------------------------
-        if program_type == "live":
+        for _, fx in df_fixtures.iterrows():
+            fx_home = norm(fx.get(fx_home_col))
+            fx_away = norm(fx.get(fx_away_col))
+            fx_event = norm(fx.get(fx_event_col)) or norm(fx.get(fx_comp_col))
+            fx_md = norm(fx.get(fx_matchday_col))
 
-            match_found = False
+            if home == fx_home and away == fx_away and matchday == fx_md:
+                team_match_found = True
 
-            for _, fx in df_fixtures.iterrows():
-                fx_home = norm(fx.get(fx_home_col))
-                fx_away = norm(fx.get(fx_away_col))
-
-                if home and away and home == fx_home and away == fx_away:
-                    match_found = True
+                if event_val == fx_event:
+                    correct_event = True
                     break
 
-            if match_found:
+        # --------------------------------------------------
+        # 4️⃣ DECISION LOGIC
+        # --------------------------------------------------
+        if team_match_found and correct_event:
+            df.at[idx, "Event_Matchday_Competition_OK"] = True
+            df.at[idx, "Event_Matchday_Competition_Remark"] = "Exact match found"
+
+        elif team_match_found and not correct_event:
+            df.at[idx, "Event_Matchday_Competition_OK"] = False
+            df.at[idx, "Event_Matchday_Competition_Remark"] = "Event mismatch (teams correct, competition wrong)"
+
+        else:
+            # fallback → event + matchday only
+            event_md_key = (event_val, matchday)
+
+            if event_md_key in fixture_event_md_keys:
                 df.at[idx, "Event_Matchday_Competition_OK"] = True
-                df.at[idx, "Event_Matchday_Competition_Remark"] = "Event match found"
+                df.at[idx, "Event_Matchday_Competition_Remark"] = "Event+Matchday matched"
+
             else:
-                df.at[idx, "Event_Matchday_Competition_Remark"] = "Home/Away not found in fixture"
+                df.at[idx, "Event_Matchday_Competition_OK"] = False
+                df.at[idx, "Event_Matchday_Competition_Remark"] = "No match in fixture"
 
             continue
 
         # --------------------------------------------------
         # 🔹 5️⃣ REPEAT / DELAYED LOGIC
         # --------------------------------------------------
+        program_type = r.get(ws_program_type_col) 
         if program_type in ["repeat", "delayed"]:
             df.at[idx, "Event_Matchday_Competition_OK"] = True
             df.at[idx, "Event_Matchday_Competition_Remark"] = "Event match found"
