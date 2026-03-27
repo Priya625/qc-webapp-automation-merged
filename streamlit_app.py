@@ -58,7 +58,7 @@ try:
     audience_spot_range_clean_view,
     ea_creation_check,
     previous_delivery_check,
-    live_delayed_check,
+    live_delayed_check
 )
 
 except ImportError as e:

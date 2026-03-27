@@ -589,10 +589,8 @@ def event_quality_check(df):
 
 def home_market_check(df):
 
-    # ----------------------------
-    # CLEAN COLUMN NAMES
-    # ----------------------------
-    df.columns = df.columns.str.strip()
+    df = df.copy()
+    df.columns = df.columns.str.strip().str.lower()
 
     required_cols = [
         "match",
@@ -616,12 +614,17 @@ def home_market_check(df):
     df["channel country"] = df["channel country"].astype(str).str.strip().str.lower()
 
     # ----------------------------
-    # FILTER LIVE + DELAYED DATA
+    # FILTER LIVE + DELAYED
     # ----------------------------
     live_df = df[df["programme category"].str.contains("live|delayed", na=False)].copy()
 
     # ----------------------------
-    # BUILD MATCH → CHANNEL COUNTRIES MAP
+    # ALL MARKETS COVERED IN MM
+    # ----------------------------
+    all_markets_in_mm = set(df["channel country"].dropna().unique())
+
+    # ----------------------------
+    # MATCH → AVAILABLE MARKETS
     # ----------------------------
     match_market_map = (
         live_df.groupby("match")["channel country"]
@@ -630,54 +633,64 @@ def home_market_check(df):
     )
 
     # ----------------------------
-    # BUILD MATCH → HOME COUNTRY MAP
+    # MATCH → HOME COUNTRY
     # ----------------------------
     home_country_map = {}
 
     for _, row in live_df.iterrows():
         if row["home/away"] == "home":
-            match = row["match"]
-            home_country_map[match] = row["country"]
+            home_country_map[row["match"]] = row["country"]
 
     # ----------------------------
-    # APPLY CHECK
+    # VALIDATION
     # ----------------------------
-    flag = []
-    remark = []
+    flags = []
+    remarks = []
 
     for _, row in df.iterrows():
 
         category = row["programme category"]
 
-        # Skip non live/delayed
+        # Skip non-live/delayed
         if not ("live" in category or "delayed" in category):
-            flag.append("TRUE")
-            remark.append("")
+            flags.append(True)
+            remarks.append("")
             continue
 
         match = row["match"]
 
-        # If no home info → skip safely
         if match not in home_country_map:
-            flag.append("TRUE")
-            remark.append("")
+            flags.append(True)
+            remarks.append("")
             continue
 
         home_country = home_country_map[match]
         available_markets = match_market_map.get(match, set())
 
-        if home_country not in available_markets:
-            flag.append("FALSE")
-            remark.append(f"Missing home market broadcast: {home_country}")
-        else:
-            flag.append("TRUE")
-            remark.append("")
+        # ----------------------------
+        # CASE 1: Home market present
+        # ----------------------------
+        if home_country in available_markets:
+            flags.append(True)
+            remarks.append("")
+            continue
 
-    # ----------------------------
-    # ADD OUTPUT
-    # ----------------------------
-    df["home_market_flag"] = flag
-    df["home_market_remark"] = remark
+        # ----------------------------
+        # CASE 2: Market NOT in MM → OK
+        # ----------------------------
+        if home_country not in all_markets_in_mm:
+            flags.append(True)
+            remarks.append(f"{home_country} not covered in MM (allowed)")
+            continue
+
+        # ----------------------------
+        # CASE 3: REAL ISSUE
+        # ----------------------------
+        flags.append(False)
+        remarks.append(f"Missing home market broadcast: {home_country}")
+
+    df["home_market_flag"] = flags
+    df["home_market_remark"] = remarks
 
     return df
 
