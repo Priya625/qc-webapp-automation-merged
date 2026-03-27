@@ -708,7 +708,10 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
         prev_match = get_match_signature(row)
         prev_key = key
 
-    gap_tolerance = rules.get("daybreak_gap_tolerance_min", 15)
+    # --------------------------------------------------
+       #Day Break Check
+    # --------------------------------------------------
+    gap_tolerance = rules.get("daybreak_gap_tolerance_min", 30)
 
     for i in range(1, n):
         prev = df.iloc[i - 1]
@@ -723,74 +726,47 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
         ):
             continue
 
+        # --------------------------------------------------
+        # 2️⃣ Valid timestamps required
+        # --------------------------------------------------
         if pd.isna(prev["_end_dt"]) or pd.isna(curr["_start_dt"]):
-            daybreak_ok[i] = pd.NA
-            daybreak_r[i] = "Missing timestamps"
+            daybreak_ok[i] = False
+            daybreak_r[i] = "Invalid timestamps"
             continue
 
         prev_end = prev["_end_dt"]
         curr_start = curr["_start_dt"]
 
         # --------------------------------------------------
-        # 2️⃣ Must be LIVE
+        # 3️⃣ Must be next day (daybreak condition)
         # --------------------------------------------------
-        if not (
-            prev["_prog_type_norm"] == "live" and
-            curr["_prog_type_norm"] == "live"
-        ):
-            daybreak_ok[i] = pd.NA
-            daybreak_r[i] = "Not live"
+        if curr_start.date() != (prev_end.date() + pd.Timedelta(days=1)):
+            daybreak_ok[i] = False
+            daybreak_r[i] = "Not a daybreak (same day or skipped day)"
             continue
 
         # --------------------------------------------------
-        # 3️⃣ Must cross midnight (consecutive days)
+        # 4️⃣ Same match (Combined column)
         # --------------------------------------------------
-        if not (
-            curr_start.date() == prev_end.date() + pd.Timedelta(days=1)
-        ):
-            daybreak_ok[i] = pd.NA
-            daybreak_r[i] = "No daybreak"
-            continue
+        prev_combined = str(prev.get(col_combined, "")).strip().lower()
+        curr_combined = str(curr.get(col_combined, "")).strip().lower()
 
-        # --------------------------------------------------
-        # 4️⃣ Same match (PRIMARY = Combined)
-        # --------------------------------------------------
-        prev_combined = str(prev[col_combined]).strip().lower() if col_combined else ""
-        curr_combined = str(curr[col_combined]).strip().lower() if col_combined else ""
-
-        same_match = False
-
-        if prev_combined and curr_combined:
-            if prev_combined == curr_combined:
-                same_match = True
-
-        # fallback → team comparison (if available)
-        if not same_match:
-            home_prev = str(prev.get("Home Team", "")).lower()
-            away_prev = str(prev.get("Away Team", "")).lower()
-            home_curr = str(curr.get("Home Team", "")).lower()
-            away_curr = str(curr.get("Away Team", "")).lower()
-
-            if home_prev and away_prev and home_curr and away_curr:
-                if home_prev == home_curr and away_prev == away_curr:
-                    same_match = True
-
-        if not same_match:
-            daybreak_ok[i] = pd.NA
+        if not prev_combined or not curr_combined or prev_combined != curr_combined:
+            daybreak_ok[i] = False
             daybreak_r[i] = "Different match"
             continue
 
         # --------------------------------------------------
-        # 5️⃣ Gap check
+        # 5️⃣ Gap check (continuity)
         # --------------------------------------------------
         gap = (curr_start - prev_end).total_seconds() / 60
 
         if 0 <= gap <= gap_tolerance:
             daybreak_ok[i] = True
-            daybreak_r[i] = "Valid daybreak (same match across midnight)"
+            daybreak_r[i] = "Daybreak – continuous match across midnight"
         else:
             daybreak_ok[i] = False
-            daybreak_r[i] = f"Invalid gap ({gap:.1f} min)"
+            daybreak_r[i] = f"Gap too large ({gap:.1f} min)"
 
     # --------------------------------------------------
     # Final assignment
