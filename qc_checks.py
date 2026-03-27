@@ -706,7 +706,7 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
         prev_key = key
 
     # --------------------------------------------------
-       #Day Break Check
+    # ✅ FINAL DAYBREAK LOGIC (FIXED)
     # --------------------------------------------------
     gap_tolerance = rules.get("daybreak_gap_tolerance_min", 30)
 
@@ -728,7 +728,7 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
             continue
 
         # --------------------------------------------------
-        # 2️⃣ Check timestamps
+        # 2️⃣ Valid timestamps
         # --------------------------------------------------
         if pd.isna(prev["_end_dt"]) or pd.isna(curr["_start_dt"]):
             daybreak_r[i] = "OK – missing timestamps"
@@ -748,7 +748,7 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
             continue
 
         # --------------------------------------------------
-        # 4️⃣ Must cross midnight (STRICT)
+        # 4️⃣ Must cross midnight (next day)
         # --------------------------------------------------
         if curr_start.date() != (prev_end.date() + pd.Timedelta(days=1)):
             daybreak_r[i] = "OK – not a daybreak"
@@ -760,7 +760,7 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
         gap = (curr_start - prev_end).total_seconds() / 60
 
         if 0 <= gap <= gap_tolerance:
-            # ❌ THIS IS DAYBREAK → FLAG FALSE
+            # ❌ Daybreak detected
             daybreak_ok[i] = False
             daybreak_r[i] = "Daybreak – same match continued across midnight"
         else:
