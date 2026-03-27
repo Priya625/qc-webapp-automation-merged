@@ -57,7 +57,8 @@ try:
     mm_bsr_consistency_check,
     audience_spot_range_clean_view,
     ea_creation_check,
-    previous_delivery_check 
+    previous_delivery_check,
+    live_delayed_check,
 )
 
 except ImportError as e:
@@ -2469,6 +2470,7 @@ with mm_bsa_tab:
         ("audience_spot_range_clean_view", "Audience Range Check"),
         ("ea_creation_check", "EA Creation Check"),
         ("previous_delivery_check", "Previous Delivery Check"),
+        ("live_delayed_check", "Live vs Delayed Check"),
     ]
 
     def sync_all_checks():
@@ -2546,6 +2548,7 @@ with mm_bsa_tab:
 
                         if "mm_bsr_consistency_check" in mm_selected: mm_df = mm_bsr_consistency_check(mm_df, m_bsr_path)
                         if "ea_creation_check" in mm_selected: mm_df = ea_creation_check(mm_df)
+                        if "live_delayed_check" in mm_selected: mm_df = live_delayed_check(mm_df)
 
                         # Output Generation
                         mm_output = io.BytesIO()
