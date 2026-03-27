@@ -482,19 +482,16 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
             if pd.isna(date_part):
                 return pd.NaT
 
-            # HANDLE EXCEL TIME FORMATS
-            if isinstance(t, (float, int)):
-                # Excel numeric time
+            # 🔥 HANDLE EXCEL TIME CORRECTLY
+            if isinstance(t, (int, float)):
                 time_part = pd.to_timedelta(t, unit="D")
             else:
-                time_part = pd.to_timedelta(str(t))
+                time_part = pd.to_timedelta(str(t), errors="coerce")
 
-            ts = date_part + time_part
+            if pd.isna(time_part):
+                return pd.NaT
 
-            if isinstance(ts, pd.Timestamp) and ts.tzinfo is not None:
-                ts = ts.tz_localize(None)
-
-            return ts
+            return date_part + time_part
 
         except Exception:
             return pd.NaT
@@ -717,6 +714,10 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
         prev = df.iloc[i - 1]
         curr = df.iloc[i]
 
+        # Default = OK
+        daybreak_ok[i] = True
+        daybreak_r[i] = "OK"
+
         # --------------------------------------------------
         # 1️⃣ Same channel + market
         # --------------------------------------------------
@@ -727,46 +728,43 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
             continue
 
         # --------------------------------------------------
-        # 2️⃣ Valid timestamps required
+        # 2️⃣ Check timestamps
         # --------------------------------------------------
         if pd.isna(prev["_end_dt"]) or pd.isna(curr["_start_dt"]):
-            daybreak_ok[i] = False
-            daybreak_r[i] = "Invalid timestamps"
+            daybreak_r[i] = "OK – missing timestamps"
             continue
 
         prev_end = prev["_end_dt"]
         curr_start = curr["_start_dt"]
 
         # --------------------------------------------------
-        # 3️⃣ Must be next day (daybreak condition)
-        # --------------------------------------------------
-        if curr_start.date() != (prev_end.date() + pd.Timedelta(days=1)):
-            daybreak_ok[i] = False
-            daybreak_r[i] = "Not a daybreak (same day or skipped day)"
-            continue
-
-        # --------------------------------------------------
-        # 4️⃣ Same match (Combined column)
+        # 3️⃣ Same match (Combined column)
         # --------------------------------------------------
         prev_combined = str(prev.get(col_combined, "")).strip().lower()
         curr_combined = str(curr.get(col_combined, "")).strip().lower()
 
         if not prev_combined or not curr_combined or prev_combined != curr_combined:
-            daybreak_ok[i] = False
-            daybreak_r[i] = "Different match"
+            daybreak_r[i] = "OK – different match"
             continue
 
         # --------------------------------------------------
-        # 5️⃣ Gap check (continuity)
+        # 4️⃣ Must cross midnight (STRICT)
+        # --------------------------------------------------
+        if curr_start.date() != (prev_end.date() + pd.Timedelta(days=1)):
+            daybreak_r[i] = "OK – not a daybreak"
+            continue
+
+        # --------------------------------------------------
+        # 5️⃣ Gap check
         # --------------------------------------------------
         gap = (curr_start - prev_end).total_seconds() / 60
 
         if 0 <= gap <= gap_tolerance:
-            daybreak_ok[i] = True
-            daybreak_r[i] = "Daybreak – continuous match across midnight"
+            # ❌ THIS IS DAYBREAK → FLAG FALSE
+            daybreak_ok[i] = False
+            daybreak_r[i] = "Daybreak – same match continued across midnight"
         else:
-            daybreak_ok[i] = True
-            daybreak_r[i] = f"Gap too large ({gap:.1f} min)"
+            daybreak_r[i] = f"OK – gap too large ({gap:.1f} min)"
 
     # --------------------------------------------------
     # Final assignment
