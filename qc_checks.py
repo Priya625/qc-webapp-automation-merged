@@ -482,14 +482,15 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
             if pd.isna(date_part):
                 return pd.NaT
 
-            # 🔥 HANDLE EXCEL TIME CORRECTLY
+            # 🔥 HANDLE EXCEL TIME (0 / 1 issue FIX)
             if isinstance(t, (int, float)):
-                time_part = pd.to_timedelta(t, unit="D")
+                time_part = pd.to_timedelta(float(t), unit="D")
             else:
-                time_part = pd.to_timedelta(str(t), errors="coerce")
-
-            if pd.isna(time_part):
-                return pd.NaT
+                # Handle HH:MM:SS
+                try:
+                    time_part = pd.to_timedelta(str(t))
+                except:
+                    return pd.NaT
 
             return date_part + time_part
 
@@ -714,22 +715,15 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
         prev = df.iloc[i - 1]
         curr = df.iloc[i]
 
-        # Default = OK
         daybreak_ok[i] = True
         daybreak_r[i] = "OK"
 
-        # --------------------------------------------------
-        # 1️⃣ Same channel + market
-        # --------------------------------------------------
         if not (
             str(prev[compare_channel]) == str(curr[compare_channel]) and
             str(prev[col_market]) == str(curr[col_market])
         ):
             continue
 
-        # --------------------------------------------------
-        # 2️⃣ Valid timestamps
-        # --------------------------------------------------
         if pd.isna(prev["_end_dt"]) or pd.isna(curr["_start_dt"]):
             daybreak_r[i] = "OK – missing timestamps"
             continue
@@ -737,9 +731,6 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
         prev_end = prev["_end_dt"]
         curr_start = curr["_start_dt"]
 
-        # --------------------------------------------------
-        # 3️⃣ Same match (Combined column)
-        # --------------------------------------------------
         prev_combined = str(prev.get(col_combined, "")).strip().lower()
         curr_combined = str(curr.get(col_combined, "")).strip().lower()
 
@@ -747,20 +738,19 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
             daybreak_r[i] = "OK – different match"
             continue
 
-        # --------------------------------------------------
-        # 4️⃣ Must cross midnight (next day)
-        # --------------------------------------------------
-        if curr_start.date() != (prev_end.date() + pd.Timedelta(days=1)):
+        # ✅ FIXED DATE LOGIC
+        same_or_next_day = (
+            curr_start.date() == prev_end.date() or
+            curr_start.date() == (prev_end.date() + pd.Timedelta(days=1))
+        )
+
+        if not same_or_next_day:
             daybreak_r[i] = "OK – not a daybreak"
             continue
 
-        # --------------------------------------------------
-        # 5️⃣ Gap check
-        # --------------------------------------------------
         gap = (curr_start - prev_end).total_seconds() / 60
 
         if 0 <= gap <= gap_tolerance:
-            # ❌ Daybreak detected
             daybreak_ok[i] = False
             daybreak_r[i] = "Daybreak – same match continued across midnight"
         else:
