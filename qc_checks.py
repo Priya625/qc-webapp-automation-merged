@@ -1162,144 +1162,149 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 # 8️⃣ Event / Matchday / Competition Check
 # -----------------------------------------------------------
 def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None, debug_rows=20):
-    """
-    Validate Worksheet rows against Fixture List using exact match.
 
-    Logic:
-    - Use Event column if present, else fallback to Competition
-    - Match on:
-        Event/Competition + Matchday + Home Team + Away Team
-    - If Program Type = Highlights:
-        Home/Away can be blank → match only on Event + Matchday
-    - If Phase contains 'Simulcast' → Skip fixture check
-    - If Program Type = Magazine & Support → Skip fixture check
-    """
-
-    # ---------- helpers ----------
     def norm(x):
         if pd.isna(x):
             return ""
         return str(x).strip().lower()
 
-    def get_col(df, possible_names):
+    def get_col(df, keywords):
         for c in df.columns:
             c_norm = str(c).strip().lower()
-            for name in possible_names:
-                if name in c_norm:
+            for kw in keywords:
+                if kw in c_norm:
                     return c
         return None
 
-    # ---------- resolve column names ----------
-    ws_event_col = get_col(df_worksheet, {"event"})
-    ws_comp_col = get_col(df_worksheet, {"competition"})
-    ws_matchday_col = get_col(df_worksheet, {"matchday", "match day"})
-    ws_home_col = get_col(df_worksheet, {"home team", "hometeam", "home"})
-    ws_away_col = get_col(df_worksheet, {"away team", "awayteam", "away"})
-    ws_program_type_col = get_col(df_worksheet, {"program type", "type of program", "programtype"})
-    ws_phase_col = get_col(df_worksheet, {"phase", "fixture", "episode", "phase/fixture/episode"})
+    # ---------- Worksheet columns ----------
+    ws_event_col    = get_col(df_worksheet, ["event"])          # ← competition name lives HERE
+    ws_matchday_col = get_col(df_worksheet, ["matchday", "match day"])
+    ws_home_col     = get_col(df_worksheet, ["home team", "hometeam", "home"])
+    ws_away_col     = get_col(df_worksheet, ["away team", "awayteam", "away"])
+    ws_prog_col     = get_col(df_worksheet, ["program type", "type of program", "programtype"])
+    ws_phase_col    = get_col(df_worksheet, ["phase", "fixture", "episode"])
 
-    fx_event_col = get_col(df_fixtures, {"event"})
-    fx_comp_col = get_col(df_fixtures, {"competition"})
-    fx_matchday_col = get_col(df_fixtures, {"matchday", "match day"})
-    fx_home_col = get_col(df_fixtures, {"home team", "hometeam", "home"})
-    fx_away_col = get_col(df_fixtures, {"away team", "awayteam", "away"})
+    # ---------- Fixture List columns ----------
+    fx_comp_col     = get_col(df_fixtures, ["competition"])     # ← competition name lives HERE
+    fx_matchday_col = get_col(df_fixtures, ["matchday", "match day"])
+    fx_home_col     = get_col(df_fixtures, ["home team", "hometeam", "home"])
+    fx_away_col     = get_col(df_fixtures, ["away team", "awayteam", "away"])
 
-    # ---------- build fixture lookup sets ----------
-    fixture_full_keys = set()
-    fixture_event_md_keys = set()
+    # ---------- build fixture lookups ----------
+    # (home, away) → set of competitions they belong to in fixture list
+    home_away_to_competitions = {}
+    fixture_full_keys     = set()   # (competition, matchday, home, away)
+    fixture_event_md_keys = set()   # (competition, matchday)
+    fixture_valid_events  = set()   # all valid competition names
 
     for _, r in df_fixtures.iterrows():
-        event_val = norm(r.get(fx_event_col)) or norm(r.get(fx_comp_col))
-        matchday_val = norm(r.get(fx_matchday_col))
-        home_val = norm(r.get(fx_home_col))
-        away_val = norm(r.get(fx_away_col))
+        comp = norm(r.get(fx_comp_col))     # use Competition column from fixture list
+        md   = norm(r.get(fx_matchday_col))
+        hm   = norm(r.get(fx_home_col))
+        aw   = norm(r.get(fx_away_col))
 
-        fixture_full_keys.add((event_val, matchday_val, home_val, away_val))
-        fixture_event_md_keys.add((event_val, matchday_val))
+        if comp:
+            fixture_valid_events.add(comp)
 
-    # ---------- prepare output ----------
+        fixture_full_keys.add((comp, md, hm, aw))
+        fixture_event_md_keys.add((comp, md))
+
+        pair_key = (hm, aw)
+        if pair_key not in home_away_to_competitions:
+            home_away_to_competitions[pair_key] = set()
+        if comp:
+            home_away_to_competitions[pair_key].add(comp)
+
+    # ---------- output columns ----------
     df = df_worksheet.copy()
-    df["Event_Matchday_Competition_OK"] = False
+    df["Event_Matchday_Competition_OK"]     = False
     df["Event_Matchday_Competition_Remark"] = ""
 
-    # ---------- row-wise validation ----------
+    # ---------- row-by-row ----------
     for idx, r in df.iterrows():
 
-        event_val = norm(r.get(ws_event_col)) or norm(r.get(ws_comp_col))
-        matchday = norm(r.get(ws_matchday_col))
-        home = norm(r.get(ws_home_col))
-        away = norm(r.get(ws_away_col))
-        program_type = norm(r.get(ws_program_type_col))
-        phase_val = norm(r.get(ws_phase_col))
+        event_val    = norm(r.get(ws_event_col))   # Event col = competition name in worksheet
+        matchday     = norm(r.get(ws_matchday_col))
+        home         = norm(r.get(ws_home_col))
+        away         = norm(r.get(ws_away_col))
+        program_type = norm(r.get(ws_prog_col))
+        phase_val    = norm(r.get(ws_phase_col)) if ws_phase_col else ""
 
-        # --------------------------------------------------
-        # 🔹 1️⃣ SIMULCAST RULE (Live / Repeat / Delayed Only)
-        # --------------------------------------------------
-        if (
-            program_type in ["live", "repeat", "delayed"]
-            and ws_phase_col is not None
-            and "simulcast" in phase_val
-        ):
-            df.at[idx, "Event_Matchday_Competition_OK"] = True
+        # ── 1. MAGAZINE & SUPPORT ───────────────────────────────────────────
+        if program_type == "magazine & support":
+            df.at[idx, "Event_Matchday_Competition_OK"]     = True
+            df.at[idx, "Event_Matchday_Competition_Remark"] = "Magazine & Support – fixture check skipped"
+            continue
+
+        # ── 2. SIMULCAST ────────────────────────────────────────────────────
+        if program_type in ["live", "repeat", "delayed"] and "simulcast" in phase_val:
+            df.at[idx, "Event_Matchday_Competition_OK"]     = True
             df.at[idx, "Event_Matchday_Competition_Remark"] = "NA – Simulcast"
             continue
 
-        # --------------------------------------------------
-        # 🔹 2️⃣ MAGAZINE & SUPPORT RULE
-        # --------------------------------------------------
-        if program_type == "magazine & support":
-            df.at[idx, "Event_Matchday_Competition_OK"] = True
-            df.at[idx, "Event_Matchday_Competition_Remark"] = "Magazine & Support – Home and away not required, checking Event+Matchday only"
-            continue
-
-        # --------------------------------------------------
-        # 🔹 3️⃣ HIGHLIGHTS LOGIC
-        # --------------------------------------------------
+        # ── 3. HIGHLIGHTS → Event + Matchday only ───────────────────────────
         if program_type == "highlights":
-            df.at[idx, "Event_Matchday_Competition_OK"] = True
-            df.at[idx, "Event_Matchday_Competition_Remark"] = "Highlights – Home and away not required, checking Event+Matchday only"
-            continue
-
-        # --------------------------------------------------
-        # 🔹 4️⃣ LIVE LOGIC (Match Home + Away Only)
-        # --------------------------------------------------
-        if program_type == "live":
-
-            match_found = False
-
-            for _, fx in df_fixtures.iterrows():
-                fx_home = norm(fx.get(fx_home_col))
-                fx_away = norm(fx.get(fx_away_col))
-
-                if home and away and home == fx_home and away == fx_away:
-                    match_found = True
-                    break
-
-            if match_found:
-                df.at[idx, "Event_Matchday_Competition_OK"] = True
-                df.at[idx, "Event_Matchday_Competition_Remark"] = "Event match found"
+            if event_val not in fixture_valid_events:
+                df.at[idx, "Event_Matchday_Competition_OK"]     = False
+                df.at[idx, "Event_Matchday_Competition_Remark"] = "FAIL – Competition mismatch"
+            elif (event_val, matchday) in fixture_event_md_keys:
+                df.at[idx, "Event_Matchday_Competition_OK"]     = True
+                df.at[idx, "Event_Matchday_Competition_Remark"] = "Highlights – Event + Matchday matched"
             else:
-                df.at[idx, "Event_Matchday_Competition_Remark"] = "Home/Away not found in fixture"
-
+                df.at[idx, "Event_Matchday_Competition_OK"]     = False
+                df.at[idx, "Event_Matchday_Competition_Remark"] = (
+                    f"FAIL – Highlights: Matchday '{matchday}' not found for '{event_val}'"
+                )
             continue
 
-        # --------------------------------------------------
-        # 🔹 5️⃣ REPEAT / DELAYED LOGIC
-        # --------------------------------------------------
-        if program_type in ["repeat", "delayed"]:
-            df.at[idx, "Event_Matchday_Competition_OK"] = True
-            df.at[idx, "Event_Matchday_Competition_Remark"] = "Event match found"
+        # ── 4. LIVE / REPEAT / DELAYED ──────────────────────────────────────
+        if program_type in ["live", "repeat", "delayed"]:
+
+            pair_key = (home, away)
+
+            # Step A: Does Home+Away exist in fixture list at all?
+            if pair_key not in home_away_to_competitions:
+                df.at[idx, "Event_Matchday_Competition_OK"]     = False
+                df.at[idx, "Event_Matchday_Competition_Remark"] = (
+                    f"FAIL – '{home} vs {away}' not found in fixture list"
+                )
+                continue
+
+            # Step B: Does Home+Away belong to the competition stated in worksheet Event col?
+            correct_competitions = home_away_to_competitions[pair_key]
+            if event_val not in correct_competitions:
+                df.at[idx, "Event_Matchday_Competition_OK"]     = False
+                df.at[idx, "Event_Matchday_Competition_Remark"] = "FAIL – Competition mismatch"
+                continue
+
+            # Step C: Full key — Competition + Matchday + Home + Away
+            if (event_val, matchday, home, away) in fixture_full_keys:
+                df.at[idx, "Event_Matchday_Competition_OK"]     = True
+                df.at[idx, "Event_Matchday_Competition_Remark"] = (
+                    f"{program_type.title()} – Event + Matchday + Home + Away matched"
+                )
+            else:
+                df.at[idx, "Event_Matchday_Competition_OK"]     = False
+                df.at[idx, "Event_Matchday_Competition_Remark"] = (
+                    f"FAIL – Matchday '{matchday}' not found for '{home} vs {away}' in '{event_val}'"
+                )
             continue
+
+        # ── 5. FALLBACK ─────────────────────────────────────────────────────
+        df.at[idx, "Event_Matchday_Competition_OK"]     = False
+        df.at[idx, "Event_Matchday_Competition_Remark"] = (
+            f"FAIL – Unknown program type '{program_type}'"
+        )
 
     # ---------- debug ----------
-    print("=== Exact Fixture Match QC (sample rows) ===")
+    print("=== Event / Matchday / Competition QC ===")
     for i in range(min(debug_rows, len(df))):
         r = df.iloc[i]
         print(
-            f"[Row {i}] Event/Comp='{norm(r.get(ws_event_col)) or norm(r.get(ws_comp_col))}' | "
+            f"[Row {i}] Event='{norm(r.get(ws_event_col))}' | "
             f"MD='{r.get(ws_matchday_col)}' | "
             f"Home='{r.get(ws_home_col)}' | Away='{r.get(ws_away_col)}' | "
-            f"ProgramType='{r.get(ws_program_type_col)}' | "
+            f"Type='{r.get(ws_prog_col)}' | "
             f"OK={r['Event_Matchday_Competition_OK']} | "
             f"Remark={r['Event_Matchday_Competition_Remark']}"
         )
