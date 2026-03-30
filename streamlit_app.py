@@ -1164,6 +1164,14 @@ with laliga_qc_tab:
                     with open(rosco_path, "wb") as f: f.write(laliga_rosco_file.getbuffer())
                     with open(bsr_path, "wb") as f: f.write(laliga_bsr_file.getbuffer())
                     with open(macro_path, "wb") as f: f.write(laliga_macro_file.getbuffer())
+
+                    # ✅ Validate files are readable Excel before proceeding
+                    for label, path in [("Rosco", rosco_path), ("BSR", bsr_path), ("Macro", macro_path)]:
+                        try:
+                            pd.read_excel(path, nrows=50)
+                        except Exception as e:
+                            st.error(f"❌ {label} file is not a valid Excel file: {e}. Please re-export it as .xlsx from Excel and re-upload.")
+                            st.stop()
                     
                     # --- Load Data ---
                     start_date, end_date = qc_general.detect_period_from_rosco(rosco_path)
