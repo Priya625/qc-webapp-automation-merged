@@ -137,21 +137,82 @@ def combine_parse(date_val, time_val):
     return pd.to_datetime(f"{d} {t}", errors="coerce")
 
 def _normalize_excel_columns(df):
-    """
-    Normalizes date and time columns after pd.read_excel():
-    - Date columns → 'YYYY-MM-DD' string
-    - Time columns (Start/End) → 'HH:MM:SS' string
-    - Never touches the 'Day' column (weekday names like Mon/Tue)
-    """
     WEEKDAY_NAMES = {
         "monday","tuesday","wednesday","thursday","friday","saturday","sunday",
         "mon","tue","wed","thu","fri","sat","sun"
     }
 
+    def excel_float_to_time(v):
+        """Convert Excel time fraction (including 0 and 1) to HH:MM:SS string."""
+        try:
+            f = float(v)
+            # f==1.0 means exactly 24:00 which is 00:00:00 next day — treat as 00:00:00
+            if f >= 1.0:
+                f = f - int(f)
+            total_seconds = round(f * 86400)
+            h = total_seconds // 3600
+            m = (total_seconds % 3600) // 60
+            s = total_seconds % 60
+            return f"{h:02d}:{m:02d}:{s:02d}"
+        except Exception:
+            return v
+
+    def convert_value(v, target):
+        if v is None:
+            return v
+        # Check for pandas/numpy NA carefully — avoid calling pd.isna on non-scalar
+        try:
+            if pd.isna(v):
+                return v
+        except Exception:
+            pass
+
+        # datetime.time → time string
+        if isinstance(v, datetime.time):
+            return v.strftime("%H:%M:%S") if target == "time" else v
+
+        # Full Timestamp or datetime → split by target
+        if isinstance(v, (pd.Timestamp, datetime.datetime)):
+            if target == "date":
+                return v.strftime("%Y-%m-%d")
+            elif target == "time":
+                return v.strftime("%H:%M:%S")
+
+        # date only (no time component)
+        if isinstance(v, datetime.date):
+            return v.strftime("%Y-%m-%d") if target == "date" else v
+
+        # ✅ Numeric — MUST handle 0 explicitly (midnight)
+        # Use explicit type check, not truthiness, so 0 is not skipped
+        if type(v) in (int, float) or (hasattr(np, 'integer') and isinstance(v, np.integer)) \
+                or (hasattr(np, 'floating') and isinstance(v, np.floating)):
+            numeric = float(v)
+            if target == "time":
+                return excel_float_to_time(numeric)
+            elif target == "date" and numeric > 2:
+                try:
+                    converted = pd.Timestamp("1899-12-30") + pd.to_timedelta(numeric, unit="D")
+                    return converted.strftime("%Y-%m-%d")
+                except Exception:
+                    return v
+
+        # String fallback
+        try:
+            s = str(v).strip()
+            parsed = pd.to_datetime(s, errors="coerce")
+            if pd.notna(parsed):
+                if target == "date":
+                    return parsed.strftime("%Y-%m-%d")
+                elif target == "time":
+                    return parsed.strftime("%H:%M:%S")
+        except Exception:
+            pass
+
+        return v
+
     for col in df.columns:
         col_lower = str(col).strip().lower()
 
-        # ✅ NEVER touch the Day column
         if col_lower == "day":
             continue
 
@@ -161,70 +222,15 @@ def _normalize_excel_columns(df):
         if not is_date_col and not is_time_col:
             continue
 
-        # Check sample for weekday names — skip if found
-        sample = df[col].dropna().head(20)
-        if sample.apply(lambda v: str(v).strip().lower() in WEEKDAY_NAMES).any():
+        # Skip if column contains weekday names
+        sample_vals = df[col].dropna().head(20)
+        if sample_vals.apply(
+            lambda v: str(v).strip().lower() in WEEKDAY_NAMES
+        ).any():
             continue
 
-        def convert_value(v, target):
-            if pd.isna(v):
-                return v
-
-            # Already a datetime.time object
-            if isinstance(v, datetime.time):
-                if target == "time":
-                    return v.strftime("%H:%M:%S")
-                return v  # don't touch if it's a time in a date column
-
-            # Pandas Timestamp (covers datetime, date, and datetime with time)
-            if isinstance(v, (pd.Timestamp, datetime.datetime)):
-                if target == "date":
-                    return v.strftime("%Y-%m-%d")
-                elif target == "time":
-                    return v.strftime("%H:%M:%S")
-
-            # datetime.date object
-            if isinstance(v, datetime.date):
-                if target == "date":
-                    return v.strftime("%Y-%m-%d")
-
-            # Float / int — Excel serial
-            if isinstance(v, (int, float)):
-                if target == "date" and float(v) > 2:
-                    # Excel date serial: days since 1899-12-30
-                    try:
-                        converted = pd.to_datetime("1899-12-30") + pd.to_timedelta(float(v), unit="D")
-                        return converted.strftime("%Y-%m-%d")
-                    except Exception:
-                        return v
-                elif target == "time":
-                    # Excel time fraction 0.0–1.0 OR integer 0/1
-                    try:
-                        total_seconds = round(float(v) * 24 * 3600)
-                        h = total_seconds // 3600
-                        m = (total_seconds % 3600) // 60
-                        s = total_seconds % 60
-                        return f"{h:02d}:{m:02d}:{s:02d}"
-                    except Exception:
-                        return v
-
-            # String — try to parse
-            try:
-                parsed = pd.to_datetime(str(v), errors="coerce")
-                if pd.notna(parsed):
-                    if target == "date":
-                        return parsed.strftime("%Y-%m-%d")
-                    elif target == "time":
-                        return parsed.strftime("%H:%M:%S")
-            except Exception:
-                pass
-
-            return v
-
-        if is_date_col:
-            df[col] = df[col].apply(lambda v: convert_value(v, "date"))
-        elif is_time_col:
-            df[col] = df[col].apply(lambda v: convert_value(v, "time"))
+        target = "date" if is_date_col else "time"
+        df[col] = df[col].apply(lambda v: convert_value(v, target))
 
     return df
 
@@ -354,7 +360,6 @@ def load_bsr(bsr_path):
     allowed_sheets = {"worksheet", "database"}
     target_sheet = None
 
-    #  Find ONLY worksheet / database
     for sheet in xl.sheet_names:
         if sheet.strip().lower() in allowed_sheets:
             target_sheet = sheet
@@ -365,18 +370,43 @@ def load_bsr(bsr_path):
             f"No valid sheet ('Worksheet' or 'Database') found in {os.path.basename(bsr_path)}"
         )
 
-    #  Header detection ONLY on the chosen sheet
     header_row = detect_header_row_in_sheet(bsr_path, target_sheet)
 
-    #  Load ONLY that sheet
+    # ── Step 1: peek at the header to find the Day column index ──
+    header_df = pd.read_excel(
+        bsr_path,
+        sheet_name=target_sheet,
+        header=header_row,
+        nrows=0          # just the header, no data rows
+    )
+    header_df.columns = [str(c).strip() for c in header_df.columns]
+
+    # Build dtype override: force every column whose name is exactly "Day" to str
+    dtype_overrides = {}
+    for col in header_df.columns:
+        if col.strip().lower() == "day":
+            dtype_overrides[col] = str
+
+    # ── Step 2: load with dtype overrides ──
     df = pd.read_excel(
         bsr_path,
         sheet_name=target_sheet,
-        header=header_row
+        header=header_row,
+        dtype=dtype_overrides   # only Day is forced to str; everything else is auto
     )
 
     df.columns = [str(c).strip() for c in df.columns]
+
+    # ── Step 3: clean up any "nan" strings that dtype=str introduces ──
+    for col in df.columns:
+        if col.strip().lower() == "day":
+            df[col] = df[col].apply(
+                lambda v: "" if str(v).strip().lower() in ("nan", "none", "") else str(v).strip()
+            )
+
+    # ── Step 4: normalize date/time columns ──
     df = _normalize_excel_columns(df)
+
     return df
 
 # ----------------------------- 3️⃣ Period Check -----------------------------
