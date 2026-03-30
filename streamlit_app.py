@@ -1,18 +1,16 @@
 # streamlit_app.py (corrected for simplified qc_checks.py signatures)
-from datetime import datetime
+from datetime import datetime, timedelta, date, time
 import tempfile
 import streamlit as st
 import pandas as pd
 import requests
 import os
-import time
 import shutil
 import json
 #BSA Dashboard change start
 import plotly.express as px
 import io
 import re
-from datetime import datetime, timedelta
 from typing import Optional, List
 
 # --- BSA DASHBOARD CONFIG ---
@@ -74,14 +72,37 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 #BSA Dashboard change start
-def parse_custom_date(date_str):
-    if isinstance(date_str, datetime): return date_str
-    s = str(date_str).strip()
-    s_clean = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', s, flags=re.IGNORECASE)
-    for fmt in ('%d %b %Y', '%Y-%m-%d', '%d-%m-%Y', '%Y-%m-%d %H:%M:%S', '%m/%d/%Y', '%Y/%m/%d'):
-        try: return datetime.strptime(s_clean, fmt)
-        except ValueError: continue
-    return None
+def parse_custom_date(date_val):
+    """
+    Robust date parser:
+    Handles string, pandas timestamp, Excel float, etc.
+    Always returns datetime or None.
+    """
+
+    if pd.isna(date_val):
+        return None
+
+    # Already datetime
+    if isinstance(date_val, (datetime, pd.Timestamp)):
+        return date_val.to_pydatetime()
+
+    # Excel float date
+    if isinstance(date_val, (int, float)):
+        try:
+            return (pd.Timestamp("1899-12-30") + pd.to_timedelta(float(date_val), unit="D")).to_pydatetime()
+        except:
+            return None
+
+    # String cleanup
+    s = str(date_val).strip()
+
+    # Remove ordinal suffix (1st, 2nd, etc.)
+    s = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', s, flags=re.IGNORECASE)
+
+    try:
+        return pd.to_datetime(s, errors="coerce").to_pydatetime()
+    except:
+        return None
 
 def extract_monitoring_period(df_info):
     monitor_row = df_info[df_info.iloc[:, 0].astype(str).str.contains("Monitoring Periods", na=False)]
@@ -144,12 +165,12 @@ def smart_multiselect(label, options, key, default=None):
 
 def stringify_datetime_columns(df):
     """
-    Force all date/time-like columns to clean strings before Excel export.
-    Prevents Excel from re-interpreting values as serials.
-    Preserves the Day column exactly as-is.
+    Convert ALL date/time columns to safe strings for Excel export.
+    Handles:
+    - Excel floats (0 = midnight FIXED)
+    - pandas timestamps
+    - datetime/date/time
     """
-    import datetime
-    import numpy as np
 
     DAY_NAMES = {
         "mon","tue","wed","thu","fri","sat","sun",
@@ -159,74 +180,75 @@ def stringify_datetime_columns(df):
     for col in df.columns:
         col_lower = str(col).strip().lower()
 
-        # ✅ Absolute skip for Day column
         if col_lower == "day":
             continue
 
         is_date = "date" in col_lower
-        is_time = any(k in col_lower for k in ["start", "end"])
+        is_time = any(k in col_lower for k in ["start", "end", "time"])
 
         if not is_date and not is_time:
             continue
 
-        def convert(v, mode):
-            # None / NaN
-            if v is None:
+        def convert(v):
+
+            if pd.isna(v):
                 return ""
-            try:
-                if pd.isna(v):
-                    return ""
-            except Exception:
-                pass
 
-            # datetime.time
-            if isinstance(v, datetime.time):
-                return v.strftime("%H:%M:%S")
+            # pandas timestamp
+            if isinstance(v, pd.Timestamp):
+                return v.strftime("%Y-%m-%d" if is_date else "%H:%M:%S")
 
-            # Full Timestamp or datetime
-            if isinstance(v, (pd.Timestamp, datetime.datetime)):
-                if mode == "date":
-                    return v.strftime("%Y-%m-%d")
-                else:
-                    return v.strftime("%H:%M:%S")
+            # datetime
+            if isinstance(v, datetime):
+                return v.strftime("%Y-%m-%d" if is_date else "%H:%M:%S")
 
             # date only
-            if isinstance(v, datetime.date):
-                return v.strftime("%Y-%m-%d") if mode == "date" else ""
+            if isinstance(v, date):
+                return v.strftime("%Y-%m-%d")
 
-            # ✅ Numeric — CRITICAL: check type explicitly, not truthiness
-            # This catches 0 (midnight) which evaluates as False
-            if type(v) in (int, float) or isinstance(v, (np.integer, np.floating)):
+            # time only
+            if isinstance(v, time):
+                return v.strftime("%H:%M:%S")
+
+            # Excel float (CRITICAL FIX)
+            if isinstance(v, (int, float, np.integer, np.floating)):
+
                 f = float(v)
-                if mode == "time":
-                    # Normalize: 1.0 = next midnight = 00:00:00
-                    f = f % 1.0
-                    total_sec = round(f * 86400)
+
+                if is_time:
+                    f = f % 1  # FIX midnight issue
+                    total_sec = int(round(f * 86400))
+
                     h = total_sec // 3600
                     m = (total_sec % 3600) // 60
                     s = total_sec % 60
+
                     return f"{h:02d}:{m:02d}:{s:02d}"
-                elif mode == "date" and f > 2:
-                    try:
-                        ts = pd.Timestamp("1899-12-30") + pd.to_timedelta(f, unit="D")
-                        return ts.strftime("%Y-%m-%d")
-                    except Exception:
-                        return str(v)
 
-            # String — clean up
+                if is_date and f > 1:
+                    dt = pd.Timestamp("1899-12-30") + pd.to_timedelta(f, unit="D")
+                    return dt.strftime("%Y-%m-%d")
+
+            # String fallback
             s = str(v).strip()
-            if s.lower() in ("nan", "none", "nat", ""):
-                return ""
 
-            # String that looks like a datetime with time component
-            if mode == "date" and " " in s:
-                # e.g. "2026-02-01 00:00:00" → "2026-02-01"
+            if " " in s and is_date:
                 return s.split(" ")[0]
 
             return s
 
-        mode = "date" if is_date else "time"
-        df[col] = df[col].apply(lambda v: convert(v, mode))
+        df[col] = df[col].apply(convert)
+
+    return df
+
+def normalize_datetime_columns(df):
+    """
+    Ensure all datetime columns are timezone-naive and consistent
+    """
+
+    for col in df.columns:
+        if df[col].dtype == "datetime64[ns]":
+            df[col] = df[col].dt.tz_localize(None)
 
     return df
 
@@ -878,8 +900,10 @@ with main_qc_tab:
                     output_file = f"General_QC_Result_{os.path.splitext(main_bsr_file.name)[0]}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_file)
                     try:
+                        df = normalize_datetime_columns(df)  # ✅ NORMALIZE BEFORE EXPORT
                         df_export = stringify_datetime_columns(df.copy())  # ✅ ADD THIS LINE
                         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+                            df_export = df_export.astype(str)  # Ensure all data is string for Excel export
                             df_export.to_excel(writer, index=False, sheet_name="QC Results")  # ✅ df_export not df
                     # 2. FEATURE: Export Fixtures sheet from original BSR
                             try:
@@ -1209,8 +1233,10 @@ with laliga_qc_tab:
                     output_file = f"Laliga_QC_Result_{os.path.splitext(laliga_bsr_file.name)[0]}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_file)
                     
-                    df_export = stringify_datetime_columns(df.copy())  # Ensure datetime columns are stringified for Excel export
+                    df_export = normalize_datetime_columns(df)  # Normalize datetime columns before export
+                    df_export = stringify_datetime_columns(df_export)  # Ensure datetime columns are stringified for Excel export
                     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+                        df_export = df_export.astype(str)
                         df_export.to_excel(writer, index=False, sheet_name="Laliga QC Results")
 
                     qc_general.color_excel(output_path, df)
