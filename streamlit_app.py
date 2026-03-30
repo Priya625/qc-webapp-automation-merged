@@ -143,14 +143,23 @@ def smart_multiselect(label, options, key, default=None):
 #BSA Dashboard change end
 
 def stringify_datetime_columns(df):
+    """
+    Force all date/time-like columns to clean strings before Excel export.
+    Prevents Excel from re-interpreting values as serials.
+    Preserves the Day column exactly as-is.
+    """
     import datetime
     import numpy as np
-    import pandas as pd
+
+    DAY_NAMES = {
+        "mon","tue","wed","thu","fri","sat","sun",
+        "monday","tuesday","wednesday","thursday","friday","saturday","sunday"
+    }
 
     for col in df.columns:
         col_lower = str(col).strip().lower()
 
-        # ✅ NEVER touch Day column
+        # ✅ Absolute skip for Day column
         if col_lower == "day":
             continue
 
@@ -161,6 +170,7 @@ def stringify_datetime_columns(df):
             continue
 
         def convert(v, mode):
+            # None / NaN
             if v is None:
                 return ""
             try:
@@ -168,16 +178,6 @@ def stringify_datetime_columns(df):
                     return ""
             except Exception:
                 pass
-
-            # ✅ Handle Timedelta — "0 days 15:10:00" → "15:10:00"
-            if isinstance(v, (pd.Timedelta, datetime.timedelta)):
-                total_sec = int(v.total_seconds())
-                if total_sec < 0:
-                    total_sec = 0
-                h = total_sec // 3600
-                m = (total_sec % 3600) // 60
-                s = total_sec % 60
-                return f"{h:02d}:{m:02d}:{s:02d}"
 
             # datetime.time
             if isinstance(v, datetime.time):
@@ -194,10 +194,12 @@ def stringify_datetime_columns(df):
             if isinstance(v, datetime.date):
                 return v.strftime("%Y-%m-%d") if mode == "date" else ""
 
-            # Numeric (Excel serial)
+            # ✅ Numeric — CRITICAL: check type explicitly, not truthiness
+            # This catches 0 (midnight) which evaluates as False
             if type(v) in (int, float) or isinstance(v, (np.integer, np.floating)):
                 f = float(v)
                 if mode == "time":
+                    # Normalize: 1.0 = next midnight = 00:00:00
                     f = f % 1.0
                     total_sec = round(f * 86400)
                     h = total_sec // 3600
@@ -211,16 +213,15 @@ def stringify_datetime_columns(df):
                     except Exception:
                         return str(v)
 
-            # String cleanup
+            # String — clean up
             s = str(v).strip()
             if s.lower() in ("nan", "none", "nat", ""):
                 return ""
-            # ✅ Strip time component from date strings: "2026-02-01 00:00:00" → "2026-02-01"
+
+            # String that looks like a datetime with time component
             if mode == "date" and " " in s:
+                # e.g. "2026-02-01 00:00:00" → "2026-02-01"
                 return s.split(" ")[0]
-            # ✅ Strip "0 days " prefix from string timedeltas
-            if mode == "time" and s.startswith("0 days "):
-                return s.replace("0 days ", "")
 
             return s
 
@@ -1164,14 +1165,6 @@ with laliga_qc_tab:
                     with open(rosco_path, "wb") as f: f.write(laliga_rosco_file.getbuffer())
                     with open(bsr_path, "wb") as f: f.write(laliga_bsr_file.getbuffer())
                     with open(macro_path, "wb") as f: f.write(laliga_macro_file.getbuffer())
-
-                    # ✅ Validate files are readable Excel before proceeding
-                    for label, path in [("Rosco", rosco_path), ("BSR", bsr_path), ("Macro", macro_path)]:
-                        try:
-                            pd.read_excel(path, nrows=50)
-                        except Exception as e:
-                            st.error(f"❌ {label} file is not a valid Excel file: {e}. Please re-export it as .xlsx from Excel and re-upload.")
-                            st.stop()
                     
                     # --- Load Data ---
                     start_date, end_date = qc_general.detect_period_from_rosco(rosco_path)
