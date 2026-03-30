@@ -136,26 +136,80 @@ def combine_parse(date_val, time_val):
         return pd.NaT
     return pd.to_datetime(f"{d} {t}", errors="coerce")
 
+def _normalize_excel_columns(df):
+    """
+    After pd.read_excel(), some columns that should be dates or times
+    come back as raw floats (Excel serial numbers). This converts them
+    to readable strings WITHOUT touching columns like 'Day' that contain
+    weekday names.
+    """
+    WEEKDAY_NAMES = {"monday","tuesday","wednesday","thursday","friday","saturday","sunday",
+                     "mon","tue","wed","thu","fri","sat","sun"}
+
+    for col in df.columns:
+        col_lower = str(col).strip().lower()
+
+        # ✅ Completely skip the Day column
+        if col_lower == "day":
+            continue
+
+        # Only process columns that look like date/time fields
+        is_date_col = any(kw in col_lower for kw in ["date", "start", "end", "time"])
+        if not is_date_col:
+            continue
+
+        sample = df[col].dropna().head(20)
+
+        # Check if column contains weekday names — if so, skip it
+        if sample.apply(lambda v: str(v).strip().lower() in WEEKDAY_NAMES).any():
+            continue
+
+        # Check if column is float-based (Excel serial)
+        if pd.api.types.is_float_dtype(df[col]) or pd.api.types.is_integer_dtype(df[col]):
+            # Determine if it looks like a date (values > 1) or time (values 0–1)
+            numeric_sample = pd.to_numeric(sample, errors="coerce").dropna()
+            if numeric_sample.empty:
+                continue
+
+            if numeric_sample.max() > 2:
+                # Likely a date serial number
+                df[col] = df[col].apply(
+                    lambda v: pd.to_datetime("1899-12-30") + pd.to_timedelta(v, unit="D")
+                    if pd.notna(v) and isinstance(v, (int, float)) else v
+                ).apply(lambda v: v.strftime("%Y-%m-%d") if isinstance(v, pd.Timestamp) else v)
+            else:
+                # Likely a time fraction (0.0 – 1.0)
+                df[col] = df[col].apply(to_time_str)
+
+    return df
+
 # ----------------------------- AUTO SORT BSR -----------------------------
 def auto_sort_bsr(df, bsr_cols):
-    """
-    Correct business-level BSR sorting:
-    Region → Country → Channel ID → UTC datetime
-    """
-
     df = df.copy()
 
-    col_region = _find_column(df, ["Region", "Wider Region"])
-    col_country = _find_column(df, ["Country", "Market"])
+    col_region    = _find_column(df, ["Region", "Wider Region"])
+    col_country   = _find_column(df, ["Country", "Market"])
     col_channel_id = _find_column(df, ["Channel ID"])
-    col_date_utc = _find_column(df, ["BSR_UTC_Date", "Date (UTC)", "Date"])
-    col_start_utc = _find_column(df, ["Start (UTC)", "Start UTC"])
+
+    # ✅ Explicitly avoid matching "Day" as a date column
+    col_date_utc  = None
+    col_start_utc = None
+    for c in df.columns:
+        c_lower = str(c).strip().lower()
+        if c_lower == "day":
+            continue
+        if c_lower in ["date (utc)", "date (utc/gmt)", "bsr_utc_date"]:
+            col_date_utc = c
+        elif c_lower in ["start (utc)", "start utc"]:
+            col_start_utc = c
+
+    if col_date_utc is None:
+        col_date_utc = _find_column(df, ["BSR_UTC_Date", "Date"])
 
     if not all([col_country, col_channel_id, col_date_utc, col_start_utc]):
         logging.warning("Auto-sort skipped: required BSR columns missing")
         return df
 
-    # Build true UTC datetime
     df["_utc_dt"] = df.apply(
         lambda r: combine_parse(r[col_date_utc], r[col_start_utc]),
         axis=1
@@ -164,25 +218,14 @@ def auto_sort_bsr(df, bsr_cols):
     sort_cols = []
     if col_region:
         sort_cols.append(col_region)
-
-    sort_cols.extend([
-        col_country,
-        col_channel_id,
-        "_utc_dt"
-    ])
+    sort_cols.extend([col_country, col_channel_id, "_utc_dt"])
 
     df = df.sort_values(
-        by=sort_cols,
-        ascending=True,
-        na_position="last"
+        by=sort_cols, ascending=True, na_position="last"
     ).reset_index(drop=True)
 
     df.drop(columns=["_utc_dt"], inplace=True, errors="ignore")
-
-    logging.info(
-        "✅ BSR auto-sorted by Region → Country → Channel ID → UTC datetime"
-    )
-
+    logging.info("✅ BSR auto-sorted by Region → Country → Channel ID → UTC datetime")
     return df
 
 # ----------------------------- 1️⃣ Detect Monitoring Period -----------------------------
@@ -288,33 +331,32 @@ def load_bsr(bsr_path):
     )
 
     df.columns = [str(c).strip() for c in df.columns]
+    df = _normalize_excel_columns(df)
     return df
 
 # ----------------------------- 3️⃣ Period Check -----------------------------
 def period_check(bsr_df, start_date, end_date):
-
     bsr_df = bsr_df.copy()
 
-    # Normalize monitoring period
     start_ts = pd.to_datetime(start_date).normalize()
     end_ts   = pd.to_datetime(end_date).normalize()
 
-    # --- Explicit, SAFE column detection ---
     utc_col = None
     local_col = None
 
     for c in bsr_df.columns:
         cname = str(c).lower().replace(" ", "").replace("_", "")
+        # ✅ NEVER treat the "Day" column as a date column
+        if str(c).strip().lower() == "day":
+            continue
         if "date" in cname and "utc" in cname:
             utc_col = c
         elif cname == "date":
             local_col = c
 
-    # Safety check (optional but recommended)
     if utc_col is None and local_col is None:
         raise ValueError("No valid date columns found in BSR")
 
-    # --- Safe datetime normalization ---
     def normalize_dt(series):
         if pd.api.types.is_datetime64_any_dtype(series):
             return series.dt.normalize()
@@ -323,17 +365,14 @@ def period_check(bsr_df, start_date, end_date):
     bsr_df["BSR_UTC_Date"] = (
         normalize_dt(bsr_df[utc_col]) if utc_col else pd.NaT
     )
-
     bsr_df["BSR_Local_Date"] = (
         normalize_dt(bsr_df[local_col]) if local_col else pd.NaT
     )
 
-    # --- OR logic (FINAL business rule) ---
     utc_in_range = bsr_df["BSR_UTC_Date"].between(start_ts, end_ts)
     local_in_range = bsr_df["BSR_Local_Date"].between(start_ts, end_ts)
 
     bsr_df["Within_Period_OK"] = utc_in_range | local_in_range
-
     bsr_df["Within_Period_Remark"] = bsr_df["Within_Period_OK"].apply(
         lambda x: "" if x else "Date outside monitoring period"
     )
