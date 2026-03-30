@@ -241,6 +241,59 @@ def stringify_datetime_columns(df):
 
     return df
 
+def force_time_string_format(df):
+    """
+    FINAL SAFETY NET — force all time/date columns into string format.
+    """
+
+    import pandas as pd
+    from datetime import datetime, date, time
+
+    def format_excel_safe(v, col_name):
+
+        if pd.isna(v):
+            return ""
+
+        # datetime
+        if isinstance(v, (pd.Timestamp, datetime)):
+            if "date" in col_name:
+                return v.strftime("%Y-%m-%d")
+            return v.strftime("%H:%M:%S")
+
+        # time
+        if isinstance(v, time):
+            return v.strftime("%H:%M:%S")
+
+        # date
+        if isinstance(v, date):
+            return v.strftime("%Y-%m-%d")
+
+        # 🔥 Excel float FIX
+        if isinstance(v, (int, float)):
+            f = float(v)
+
+            if any(k in col_name for k in ["time", "start", "end"]):
+                f = f % 1
+                total = int(round(f * 86400))
+                h = total // 3600
+                m = (total % 3600) // 60
+                s = total % 60
+                return f"{h:02d}:{m:02d}:{s:02d}"
+
+            if "date" in col_name and f > 1:
+                dt = pd.Timestamp("1899-12-30") + pd.to_timedelta(f, unit="D")
+                return dt.strftime("%Y-%m-%d")
+
+        return str(v)
+
+    for col in df.columns:
+        col_lower = str(col).lower()
+
+        if any(k in col_lower for k in ["date", "start", "end", "time"]):
+            df[col] = df[col].apply(lambda x: format_excel_safe(x, col_lower))
+
+    return df
+
 def normalize_datetime_columns(df):
     """
     Ensure all datetime columns are timezone-naive and consistent
@@ -902,8 +955,9 @@ with main_qc_tab:
                     try:
                         df = normalize_datetime_columns(df)  # ✅ NORMALIZE BEFORE EXPORT
                         df_export = stringify_datetime_columns(df.copy())  # ✅ ADD THIS LINE
+                        df_export = force_time_string_format(df_export)  # ✅ ENSURE TIME COLUMNS ARE PROPERLY FORMATTED AS STRINGS
+                        df_export = df_export.astype(str)  # Ensure all data is string for Excel export
                         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-                            df_export = df_export.astype(str)  # Ensure all data is string for Excel export
                             df_export.to_excel(writer, index=False, sheet_name="QC Results")  # ✅ df_export not df
                     # 2. FEATURE: Export Fixtures sheet from original BSR
                             try:
@@ -1235,8 +1289,9 @@ with laliga_qc_tab:
                     
                     df_export = normalize_datetime_columns(df)  # Normalize datetime columns before export
                     df_export = stringify_datetime_columns(df_export)  # Ensure datetime columns are stringified for Excel export
+                    df_export = force_time_string_format(df_export)  # ✅ ENSURE TIME COLUMNS ARE PROPERLY FORMATTED AS STRINGS
+                    df_export = df_export.astype(str)
                     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-                        df_export = df_export.astype(str)
                         df_export.to_excel(writer, index=False, sheet_name="Laliga QC Results")
 
                     qc_general.color_excel(output_path, df)
