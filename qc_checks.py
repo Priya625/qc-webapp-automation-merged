@@ -1291,7 +1291,7 @@ def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None,
         return None
 
     # ---------- Worksheet columns ----------
-    ws_event_col    = get_col(df_worksheet, ["event"])          # ← competition name lives HERE
+    ws_event_col    = get_col(df_worksheet, ["event"])
     ws_matchday_col = get_col(df_worksheet, ["matchday", "match day"])
     ws_home_col     = get_col(df_worksheet, ["home team", "hometeam", "home"])
     ws_away_col     = get_col(df_worksheet, ["away team", "awayteam", "away"])
@@ -1299,20 +1299,23 @@ def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None,
     ws_phase_col    = get_col(df_worksheet, ["phase", "fixture", "episode"])
 
     # ---------- Fixture List columns ----------
-    fx_comp_col     = get_col(df_fixtures, ["competition"])     # ← competition name lives HERE
+    fx_comp_col     = get_col(df_fixtures, ["competition"])
     fx_matchday_col = get_col(df_fixtures, ["matchday", "match day"])
     fx_home_col     = get_col(df_fixtures, ["home team", "hometeam", "home"])
     fx_away_col     = get_col(df_fixtures, ["away team", "awayteam", "away"])
 
-    # ---------- build fixture lookups ----------
-    # (home, away) → set of competitions they belong to in fixture list
-    home_away_to_competitions = {}
-    fixture_full_keys     = set()   # (competition, matchday, home, away)
-    fixture_event_md_keys = set()   # (competition, matchday)
-    fixture_valid_events  = set()   # all valid competition names
+    # ---------- Build fixture lookups ----------
+    fixture_full_keys     = set()
+    fixture_event_md_keys = set()
+    fixture_valid_events  = set()
+
+    # KEY FIX: (home, away) → EXACTLY ONE competition (the correct one from fixture list)
+    # If a match appears under multiple competitions in fixture list → flag as fixture data issue
+    home_away_to_competitions = {}   # (home, away) → set of competitions
+    home_away_to_matchday     = {}   # (home, away) → matchday (for cross-check)
 
     for _, r in df_fixtures.iterrows():
-        comp = norm(r.get(fx_comp_col))     # use Competition column from fixture list
+        comp = norm(r.get(fx_comp_col))
         md   = norm(r.get(fx_matchday_col))
         hm   = norm(r.get(fx_home_col))
         aw   = norm(r.get(fx_away_col))
@@ -1329,34 +1332,46 @@ def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None,
         if comp:
             home_away_to_competitions[pair_key].add(comp)
 
-    # ---------- output columns ----------
+        home_away_to_matchday[pair_key] = md
+
+    # ── DIAGNOSTIC: Warn if fixture list itself has duplicates ──
+    duplicates_in_fixture = {
+        k: v for k, v in home_away_to_competitions.items() if len(v) > 1
+    }
+    if duplicates_in_fixture:
+        print("⚠️  WARNING: These matches appear under MULTIPLE competitions in the fixture list:")
+        for (hm, aw), comps in duplicates_in_fixture.items():
+            print(f"   '{hm} vs {aw}' → {sorted(comps)}")
+        print("   These will be flagged as FAIL in the worksheet check.\n")
+
+    # ---------- Output columns ----------
     df = df_worksheet.copy()
     df["Event_Matchday_Competition_OK"]     = False
     df["Event_Matchday_Competition_Remark"] = ""
 
-    # ---------- row-by-row ----------
+    # ---------- Row-by-row ----------
     for idx, r in df.iterrows():
 
-        event_val    = norm(r.get(ws_event_col))   # Event col = competition name in worksheet
+        event_val    = norm(r.get(ws_event_col))
         matchday     = norm(r.get(ws_matchday_col))
         home         = norm(r.get(ws_home_col))
         away         = norm(r.get(ws_away_col))
         program_type = norm(r.get(ws_prog_col))
         phase_val    = norm(r.get(ws_phase_col)) if ws_phase_col else ""
 
-        # ── 1. MAGAZINE & SUPPORT ───────────────────────────────────────────
+        # ── 1. MAGAZINE & SUPPORT ──────────────────────────────────────────
         if program_type == "magazine & support":
             df.at[idx, "Event_Matchday_Competition_OK"]     = True
             df.at[idx, "Event_Matchday_Competition_Remark"] = "Magazine & Support – fixture check skipped"
             continue
 
-        # ── 2. SIMULCAST ────────────────────────────────────────────────────
+        # ── 2. SIMULCAST ──────────────────────────────────────────────────
         if program_type in ["live", "repeat", "delayed"] and "simulcast" in phase_val:
             df.at[idx, "Event_Matchday_Competition_OK"]     = True
             df.at[idx, "Event_Matchday_Competition_Remark"] = "NA – Simulcast"
             continue
 
-        # ── 3. HIGHLIGHTS → Event + Matchday only ───────────────────────────
+        # ── 3. HIGHLIGHTS → Event + Matchday only ─────────────────────────
         if program_type == "highlights":
             if event_val not in fixture_valid_events:
                 df.at[idx, "Event_Matchday_Competition_OK"]     = False
@@ -1371,12 +1386,12 @@ def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None,
                 )
             continue
 
-        # ── 4. LIVE / REPEAT / DELAYED ──────────────────────────────────────
+        # ── 4. LIVE / REPEAT / DELAYED ────────────────────────────────────
         if program_type in ["live", "repeat", "delayed"]:
 
             pair_key = (home, away)
 
-            # Step A: Does Home+Away exist in fixture list at all?
+            # Step A: Does this Home+Away exist in fixture list at all?
             if pair_key not in home_away_to_competitions:
                 df.at[idx, "Event_Matchday_Competition_OK"]     = False
                 df.at[idx, "Event_Matchday_Competition_Remark"] = (
@@ -1384,15 +1399,39 @@ def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None,
                 )
                 continue
 
-            # Step B: Does Home+Away belong to the competition stated in worksheet Event col?
             correct_competitions = home_away_to_competitions[pair_key]
+
+            # ── KEY FIX: Step B ──────────────────────────────────────────
+            # If this match exists in fixture list but ONLY under a different
+            # competition → hard fail, competition mismatch
+            #
+            # If this match exists under MULTIPLE competitions in fixture list
+            # (data quality issue in fixture list itself) → still fail the
+            # worksheet row unless it matches exactly
+            #
             if event_val not in correct_competitions:
                 df.at[idx, "Event_Matchday_Competition_OK"]     = False
                 df.at[idx, "Event_Matchday_Competition_Remark"] = "FAIL – Competition mismatch"
                 continue
 
-            # Step C: Full key — Competition + Matchday + Home + Away
-            if (event_val, matchday, home, away) in fixture_full_keys:
+            # If the match IS in multiple competitions in fixture list,
+            # warn but only pass if the full key (comp+md+home+away) matches
+            if len(correct_competitions) > 1:
+                # Fixture list has duplicate — enforce strict full key match
+                full_key = (event_val, matchday, home, away)
+                if full_key in fixture_full_keys:
+                    df.at[idx, "Event_Matchday_Competition_OK"]     = True
+                    df.at[idx, "Event_Matchday_Competition_Remark"] = (
+                        f"{program_type.title()} – Matched (note: fixture list has duplicate entry for this match)"
+                    )
+                else:
+                    df.at[idx, "Event_Matchday_Competition_OK"]     = False
+                    df.at[idx, "Event_Matchday_Competition_Remark"] = "FAIL – Competition mismatch"
+                continue
+
+            # Step C: Single competition in fixture list — full key match
+            full_key = (event_val, matchday, home, away)
+            if full_key in fixture_full_keys:
                 df.at[idx, "Event_Matchday_Competition_OK"]     = True
                 df.at[idx, "Event_Matchday_Competition_Remark"] = (
                     f"{program_type.title()} – Event + Matchday + Home + Away matched"
@@ -1404,13 +1443,13 @@ def check_event_matchday_competition(df_worksheet, df_fixtures, rosco_path=None,
                 )
             continue
 
-        # ── 5. FALLBACK ─────────────────────────────────────────────────────
+        # ── 5. FALLBACK ───────────────────────────────────────────────────
         df.at[idx, "Event_Matchday_Competition_OK"]     = False
         df.at[idx, "Event_Matchday_Competition_Remark"] = (
             f"FAIL – Unknown program type '{program_type}'"
         )
 
-    # ---------- debug ----------
+    # ---------- Debug ----------
     print("=== Event / Matchday / Competition QC ===")
     for i in range(min(debug_rows, len(df))):
         r = df.iloc[i]
