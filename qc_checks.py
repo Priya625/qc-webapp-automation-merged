@@ -138,48 +138,93 @@ def combine_parse(date_val, time_val):
 
 def _normalize_excel_columns(df):
     """
-    After pd.read_excel(), some columns that should be dates or times
-    come back as raw floats (Excel serial numbers). This converts them
-    to readable strings WITHOUT touching columns like 'Day' that contain
-    weekday names.
+    Normalizes date and time columns after pd.read_excel():
+    - Date columns → 'YYYY-MM-DD' string
+    - Time columns (Start/End) → 'HH:MM:SS' string
+    - Never touches the 'Day' column (weekday names like Mon/Tue)
     """
-    WEEKDAY_NAMES = {"monday","tuesday","wednesday","thursday","friday","saturday","sunday",
-                     "mon","tue","wed","thu","fri","sat","sun"}
+    WEEKDAY_NAMES = {
+        "monday","tuesday","wednesday","thursday","friday","saturday","sunday",
+        "mon","tue","wed","thu","fri","sat","sun"
+    }
 
     for col in df.columns:
         col_lower = str(col).strip().lower()
 
-        # ✅ Completely skip the Day column
+        # ✅ NEVER touch the Day column
         if col_lower == "day":
             continue
 
-        # Only process columns that look like date/time fields
-        is_date_col = any(kw in col_lower for kw in ["date", "start", "end", "time"])
-        if not is_date_col:
+        is_date_col = "date" in col_lower
+        is_time_col = any(kw in col_lower for kw in ["start", "end"])
+
+        if not is_date_col and not is_time_col:
             continue
 
+        # Check sample for weekday names — skip if found
         sample = df[col].dropna().head(20)
-
-        # Check if column contains weekday names — if so, skip it
         if sample.apply(lambda v: str(v).strip().lower() in WEEKDAY_NAMES).any():
             continue
 
-        # Check if column is float-based (Excel serial)
-        if pd.api.types.is_float_dtype(df[col]) or pd.api.types.is_integer_dtype(df[col]):
-            # Determine if it looks like a date (values > 1) or time (values 0–1)
-            numeric_sample = pd.to_numeric(sample, errors="coerce").dropna()
-            if numeric_sample.empty:
-                continue
+        def convert_value(v, target):
+            if pd.isna(v):
+                return v
 
-            if numeric_sample.max() > 2:
-                # Likely a date serial number
-                df[col] = df[col].apply(
-                    lambda v: pd.to_datetime("1899-12-30") + pd.to_timedelta(v, unit="D")
-                    if pd.notna(v) and isinstance(v, (int, float)) else v
-                ).apply(lambda v: v.strftime("%Y-%m-%d") if isinstance(v, pd.Timestamp) else v)
-            else:
-                # Likely a time fraction (0.0 – 1.0)
-                df[col] = df[col].apply(to_time_str)
+            # Already a datetime.time object
+            if isinstance(v, datetime.time):
+                if target == "time":
+                    return v.strftime("%H:%M:%S")
+                return v  # don't touch if it's a time in a date column
+
+            # Pandas Timestamp (covers datetime, date, and datetime with time)
+            if isinstance(v, (pd.Timestamp, datetime.datetime)):
+                if target == "date":
+                    return v.strftime("%Y-%m-%d")
+                elif target == "time":
+                    return v.strftime("%H:%M:%S")
+
+            # datetime.date object
+            if isinstance(v, datetime.date):
+                if target == "date":
+                    return v.strftime("%Y-%m-%d")
+
+            # Float / int — Excel serial
+            if isinstance(v, (int, float)):
+                if target == "date" and float(v) > 2:
+                    # Excel date serial: days since 1899-12-30
+                    try:
+                        converted = pd.to_datetime("1899-12-30") + pd.to_timedelta(float(v), unit="D")
+                        return converted.strftime("%Y-%m-%d")
+                    except Exception:
+                        return v
+                elif target == "time":
+                    # Excel time fraction 0.0–1.0 OR integer 0/1
+                    try:
+                        total_seconds = round(float(v) * 24 * 3600)
+                        h = total_seconds // 3600
+                        m = (total_seconds % 3600) // 60
+                        s = total_seconds % 60
+                        return f"{h:02d}:{m:02d}:{s:02d}"
+                    except Exception:
+                        return v
+
+            # String — try to parse
+            try:
+                parsed = pd.to_datetime(str(v), errors="coerce")
+                if pd.notna(parsed):
+                    if target == "date":
+                        return parsed.strftime("%Y-%m-%d")
+                    elif target == "time":
+                        return parsed.strftime("%H:%M:%S")
+            except Exception:
+                pass
+
+            return v
+
+        if is_date_col:
+            df[col] = df[col].apply(lambda v: convert_value(v, "date"))
+        elif is_time_col:
+            df[col] = df[col].apply(lambda v: convert_value(v, "time"))
 
     return df
 
