@@ -142,6 +142,94 @@ def smart_multiselect(label, options, key, default=None):
     return selection
 #BSA Dashboard change end
 
+def stringify_datetime_columns(df):
+    """
+    Force all date/time-like columns to clean strings before Excel export.
+    Prevents Excel from re-interpreting values as serials.
+    Preserves the Day column exactly as-is.
+    """
+    import datetime
+    import numpy as np
+
+    DAY_NAMES = {
+        "mon","tue","wed","thu","fri","sat","sun",
+        "monday","tuesday","wednesday","thursday","friday","saturday","sunday"
+    }
+
+    for col in df.columns:
+        col_lower = str(col).strip().lower()
+
+        # ✅ Absolute skip for Day column
+        if col_lower == "day":
+            continue
+
+        is_date = "date" in col_lower
+        is_time = any(k in col_lower for k in ["start", "end"])
+
+        if not is_date and not is_time:
+            continue
+
+        def convert(v, mode):
+            # None / NaN
+            if v is None:
+                return ""
+            try:
+                if pd.isna(v):
+                    return ""
+            except Exception:
+                pass
+
+            # datetime.time
+            if isinstance(v, datetime.time):
+                return v.strftime("%H:%M:%S")
+
+            # Full Timestamp or datetime
+            if isinstance(v, (pd.Timestamp, datetime.datetime)):
+                if mode == "date":
+                    return v.strftime("%Y-%m-%d")
+                else:
+                    return v.strftime("%H:%M:%S")
+
+            # date only
+            if isinstance(v, datetime.date):
+                return v.strftime("%Y-%m-%d") if mode == "date" else ""
+
+            # ✅ Numeric — CRITICAL: check type explicitly, not truthiness
+            # This catches 0 (midnight) which evaluates as False
+            if type(v) in (int, float) or isinstance(v, (np.integer, np.floating)):
+                f = float(v)
+                if mode == "time":
+                    # Normalize: 1.0 = next midnight = 00:00:00
+                    f = f % 1.0
+                    total_sec = round(f * 86400)
+                    h = total_sec // 3600
+                    m = (total_sec % 3600) // 60
+                    s = total_sec % 60
+                    return f"{h:02d}:{m:02d}:{s:02d}"
+                elif mode == "date" and f > 2:
+                    try:
+                        ts = pd.Timestamp("1899-12-30") + pd.to_timedelta(f, unit="D")
+                        return ts.strftime("%Y-%m-%d")
+                    except Exception:
+                        return str(v)
+
+            # String — clean up
+            s = str(v).strip()
+            if s.lower() in ("nan", "none", "nat", ""):
+                return ""
+
+            # String that looks like a datetime with time component
+            if mode == "date" and " " in s:
+                # e.g. "2026-02-01 00:00:00" → "2026-02-01"
+                return s.split(" ")[0]
+
+            return s
+
+        mode = "date" if is_date else "time"
+        df[col] = df[col].apply(lambda v: convert(v, mode))
+
+    return df
+
 # -------------------- 🧠 Config Loader --------------------
 @st.cache_data
 def load_config():
@@ -790,8 +878,9 @@ with main_qc_tab:
                     output_file = f"General_QC_Result_{os.path.splitext(main_bsr_file.name)[0]}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_file)
                     try:
+                        df_export = stringify_datetime_columns(df.copy())  # ✅ ADD THIS LINE
                         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-                            df.to_excel(writer, index=False, sheet_name="QC Results")
+                            df_export.to_excel(writer, index=False, sheet_name="QC Results")  # ✅ df_export not df
                     # 2. FEATURE: Export Fixtures sheet from original BSR
                             try:
                                 bsr_xl = pd.ExcelFile(bsr_path)
@@ -1120,8 +1209,9 @@ with laliga_qc_tab:
                     output_file = f"Laliga_QC_Result_{os.path.splitext(laliga_bsr_file.name)[0]}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_file)
                     
+                    df_export = stringify_datetime_columns(df.copy())  # Ensure datetime columns are stringified for Excel export
                     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-                        df.to_excel(writer, index=False, sheet_name="Laliga QC Results")
+                        df_export.to_excel(writer, index=False, sheet_name="Laliga QC Results")
 
                     qc_general.color_excel(output_path, df)
                     qc_general.generate_summary_sheet(output_path, df) 
@@ -1601,7 +1691,7 @@ with epl_tab:
                     # Ensure columns are normalized for saving
                     # NOTE: This function is not defined in your provided simplified qc_checks.py, but assumed to exist
                     # df_processed = qc_general.normalize_ok_columns(df_processed)
-
+                    df_processed = stringify_datetime_columns(df_processed.copy())
                     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
 
     
@@ -1820,7 +1910,7 @@ with serie_a_tab:
                     # 6. Save the processed data to a real Excel file for download
                     output_filename = f"Serie_A_QC_Result_{int(time.time())}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_filename)
-                    
+                    df_processed = stringify_datetime_columns(df_processed.copy())
                     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
                         df_processed.to_excel(writer, index=False, sheet_name="Serie A Processed")
                     
@@ -2552,6 +2642,7 @@ with mm_bsa_tab:
 
                         # Output Generation
                         mm_output = io.BytesIO()
+                        mm_df = stringify_datetime_columns(mm_df.copy())
                         with pd.ExcelWriter(mm_output, engine="openpyxl") as mm_writer:
                             mm_df.to_excel(mm_writer, sheet_name="MM_QC_Output", index=False)
                             if "audience_spot_range_clean_view" in mm_selected:
