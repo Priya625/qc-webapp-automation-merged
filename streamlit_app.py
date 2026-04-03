@@ -2724,12 +2724,71 @@ with mm_bsa_tab:
                         # Output Generation
                         mm_output = io.BytesIO()
                         mm_df = stringify_datetime_columns(mm_df.copy())
+
+                        # -----------------------------------
+                        # DEFINE COLUMN GROUPINGS
+                        # -----------------------------------
+
+                        program_cols = [
+                            col for col in mm_df.columns if any(x in col.lower() for x in [
+                                "duplicate_aid",
+                                "audience_spotprice",
+                                "program_category",
+                                "channel_country",
+                                "apt_bt",
+                                "season",
+                                "ps_market",
+                                "ps_content",
+                                "ea_creation"
+                            ])
+                        ]
+
+                        event_cols = [
+                            col for col in mm_df.columns if any(x in col.lower() for x in [
+                                "fixture",
+                                "mm_bsr",
+                                "event_quality"
+                            ])
+                        ]
+
+                        matchday_cols = [
+                            col for col in mm_df.columns if any(x in col.lower() for x in [
+                                "stadium",
+                                "home_market",
+                                "live_delayed"
+                            ])
+                        ]
+
+                        # Always keep base columns
+                        base_cols = [col for col in mm_df.columns if col not in (program_cols + event_cols + matchday_cols)]
+
+                        program_df = mm_df[base_cols + program_cols]
+                        event_df = mm_df[base_cols + event_cols]
+                        matchday_df = mm_df[base_cols + matchday_cols]
                         with pd.ExcelWriter(mm_output, engine="openpyxl") as mm_writer:
-                            mm_df.to_excel(mm_writer, sheet_name="MM_QC_Output", index=False)
+
+                            # ---------------- PROGRAM LEVEL ----------------
+                            if program_cols:
+                                program_df.to_excel(mm_writer, sheet_name="Program_Level", index=False)
+
+                            # ---------------- EVENT LEVEL ----------------
+                            if event_cols:
+                                event_df.to_excel(mm_writer, sheet_name="Event_Level", index=False)
+
+                            # ---------------- MATCHDAY LEVEL ----------------
+                            if matchday_cols:
+                                matchday_df.to_excel(mm_writer, sheet_name="Matchday_Level", index=False)
+
+                            # ---------------- ANALYTICAL ----------------
                             if "audience_spot_range_clean_view" in mm_selected:
-                                audience_spot_range_clean_view(mm_df).to_excel(mm_writer, sheet_name="Audience_Range", index=False)
+                                audience_spot_range_clean_view(mm_df).to_excel(
+                                    mm_writer, sheet_name="Audience_Range", index=False
+                                )
+
                             if "previous_delivery_check" in mm_selected:
-                                previous_delivery_check(mm_df, m_prev_df).to_excel(mm_writer, sheet_name="Previous_Delivery", index=False)
+                                previous_delivery_check(mm_df, m_prev_df).to_excel(
+                                    mm_writer, sheet_name="Previous_Delivery", index=False
+                                )
 
                         st.success("✅ MM-BSA QC Completed Successfully")
                         st.download_button("📥 Download MM-BSA Output", data=mm_output.getvalue(), file_name="MM_BSA_QC_Result.xlsx")
