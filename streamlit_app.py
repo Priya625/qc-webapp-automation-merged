@@ -13,6 +13,7 @@ import plotly.express as px
 import io
 import re
 from typing import Optional, List
+from openpyxl.styles import PatternFill, Font
 
 # --- BSA DASHBOARD CONFIG ---
 # This ensures we always look relative to the script location
@@ -2766,19 +2767,39 @@ with mm_bsa_tab:
                         program_df = mm_df[base_cols + program_cols]
                         event_df = mm_df[base_cols + event_cols]
                         matchday_df = mm_df[base_cols + matchday_cols]
+
+                        def highlight_result_headers(writer, sheet_name, df):
+
+                            workbook = writer.book
+                            worksheet = writer.sheets[sheet_name]
+
+                            header_fill = PatternFill(start_color="FFD966", end_color="FFD966", fill_type="solid")
+                            header_font = Font(bold=True)
+
+                            for col_idx, col_name in enumerate(df.columns, 1):
+
+                                if "flag" in col_name.lower() or "remark" in col_name.lower():
+
+                                    cell = worksheet.cell(row=1, column=col_idx)
+                                    cell.fill = header_fill
+                                    cell.font = header_font
+
                         with pd.ExcelWriter(mm_output, engine="openpyxl") as mm_writer:
 
                             # ---------------- PROGRAM LEVEL ----------------
                             if program_cols:
                                 program_df.to_excel(mm_writer, sheet_name="Program_Level", index=False)
+                                highlight_result_headers(mm_writer, "Program_Level", program_df)
 
                             # ---------------- EVENT LEVEL ----------------
                             if event_cols:
                                 event_df.to_excel(mm_writer, sheet_name="Event_Level", index=False)
+                                highlight_result_headers(mm_writer, "Event_Level", event_df)
 
                             # ---------------- MATCHDAY LEVEL ----------------
                             if matchday_cols:
                                 matchday_df.to_excel(mm_writer, sheet_name="Matchday_Level", index=False)
+                                highlight_result_headers(mm_writer, "Matchday_Level", matchday_df)
 
                             # ---------------- ANALYTICAL ----------------
                             if "audience_spot_range_clean_view" in mm_selected:

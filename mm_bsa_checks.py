@@ -369,25 +369,17 @@ def fixture_validation_check(df, fixture_df):
     df.columns = df.columns.str.strip()
     fixture_df.columns = fixture_df.columns.str.strip()
 
-    required_cols = [
-        "event",
-        "matchday",
-        "matchday date",
-        "match"
-    ]
+    required_cols = ["event", "matchday", "matchday date", "match"]
 
-    optional_col = "competition"
     for col in required_cols:
-        if col not in df.columns:
-            raise ValueError(f"Missing column in Adapt file: {col}")
-        if col not in fixture_df.columns:
-            raise ValueError(f"Missing column in Fixture file: {col}")
+        if col not in df.columns or col not in fixture_df.columns:
+            raise ValueError(f"Missing column: {col}")
 
-    for col in required_cols + [optional_col]:
+    for col in required_cols + ["competition"]:
         if col in df.columns:
-            df[col] = df[col].astype(str).str.strip().str.lower()
+            df[col] = df[col].astype(str).str.lower().str.strip()
         if col in fixture_df.columns:
-            fixture_df[col] = fixture_df[col].astype(str).str.strip().str.lower()
+            fixture_df[col] = fixture_df[col].astype(str).str.lower().str.strip()
 
     fixture_set = set()
 
@@ -396,37 +388,31 @@ def fixture_validation_check(df, fixture_df):
             row["event"],
             row["matchday"],
             row["matchday date"],
-            row["match"],
-            row.get("competition", "")
+            row["match"]
         )
         fixture_set.add(key)
 
-    results = []
+    flags = []
+    remarks = []
 
     for _, row in df.iterrows():
 
-        key_with_comp = (
+        key = (
             row["event"],
             row["matchday"],
             row["matchday date"],
-            row["match"],
-            row.get("competition", "")
+            row["match"]
         )
 
-        key_without_comp = (
-            row["event"],
-            row["matchday"],
-            row["matchday date"],
-            row["match"],
-            ""
-        )
-
-        if key_with_comp in fixture_set or key_without_comp in fixture_set:
-            results.append("TRUE")
+        if key in fixture_set:
+            flags.append(True)
+            remarks.append("")
         else:
-            results.append("FALSE")
+            flags.append(False)
+            remarks.append("Match/Event not found in Fixture file")
 
-    df["fixture_validation"] = results
+    df["Fixture_Validation_Flag"] = flags
+    df["Fixture_Validation_Remark"] = remarks
 
     return df
 
@@ -831,7 +817,7 @@ def channel_country_mapping_check(df, rosco_path):
 
 def mm_bsr_consistency_check(mm_df, bsr_input):
 
-    print("🔥 FINAL MM BSR FUNCTION RUNNING")
+    print(" FINAL MM BSR FUNCTION RUNNING")
 
     try:
         # LOAD BSR
@@ -890,7 +876,7 @@ def mm_bsr_consistency_check(mm_df, bsr_input):
             if mm_comp != bsr_comp:
                 flags.append(False)
                 remarks.append(
-                    f"Competition mismatch (MM: '{mm_comp}' vs BSR: '{bsr_comp}')"
+                    f"Competition mismatch → MM: {mm_comp} | BSR: {bsr_comp}"
                 )
                 continue
 
