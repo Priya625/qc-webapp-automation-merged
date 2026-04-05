@@ -878,7 +878,7 @@ with main_qc_tab:
 
                     # 3. Completeness check
                     try:
-                        df = qc_general.completeness_check(df, col_map.get("bsr", {}), rules.get("program_category", {}))
+                        df = qc_general.completeness_check(df, col_map.get("bsr", {}), rules.get("program_category", {}),rosco_path)
                     except Exception as e:
                         raise RuntimeError(f"Error during completeness_check: {e}")
 
@@ -1255,7 +1255,7 @@ with laliga_qc_tab:
                         df = qc_general.period_check(df, start_date, end_date)
                     
                     if "completeness_check" in selected_la_checks:
-                        df = qc_general.completeness_check(df, col_map["bsr"], rules["program_category"]) 
+                        df = qc_general.completeness_check(df, col_map["bsr"], rules["program_category"],rosco_path) 
                     
                     if "overlap_duplicate_check" in selected_la_checks:
                         df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules["overlap_check"]) 

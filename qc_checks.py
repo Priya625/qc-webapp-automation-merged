@@ -455,7 +455,29 @@ def period_check(bsr_df, start_date, end_date):
     return bsr_df
 
 # ----------------------------- 4️⃣ Completeness Check -----------------------------
-def completeness_check(df, bsr_cols, rules):
+def get_sport_from_rosco(rosco_path):
+    try:
+        import pandas as pd
+
+        df_rosco = pd.read_excel(rosco_path, sheet_name="General Information", header=None)
+
+        for i in range(len(df_rosco)):
+            for j in range(len(df_rosco.columns) - 1):
+                cell = str(df_rosco.iat[i, j]).strip().lower()
+
+                if cell == "sports":
+                    return str(df_rosco.iat[i, j + 1]).strip().lower()
+
+        return ""
+    except:
+        return ""
+
+
+def is_motorsport_type(sport_value):
+    keywords = ["motor", "motorsport", "formula", "f1", "moto", "nascar", "race"]
+    return any(k in sport_value for k in keywords)
+
+def completeness_check(df, bsr_cols, rules, rosco_path= None):
     colmap = {
         "tv_channel": _find_column(df, bsr_cols['tv_channel']),
         "channel_id": _find_column(df, bsr_cols.get('channel_id')),
@@ -473,6 +495,8 @@ def completeness_check(df, bsr_cols, rules):
     df["Completeness_Remark"] = ""
 
     live_types = set(rules.get('live_types', ['live', 'repeat', 'delayed']))
+    sport_value = get_sport_from_rosco(rosco_path) if rosco_path else ""
+    is_motorsport = is_motorsport_type(sport_value)
 
     for idx, row in df.iterrows():
         missing = []
@@ -525,7 +549,7 @@ def completeness_check(df, bsr_cols, rules):
         away_col = colmap.get("away_team")
 
         # ONLY enforce for Live / Repeat / Delayed AND not simulcast
-        if prog_type in live_types and not is_simulcast:
+        if prog_type in live_types and not is_simulcast and not is_motorsport:
             if not home_col:
                 missing.append("Home Team (column not found)")
             elif not _is_present(row.get(home_col)):
