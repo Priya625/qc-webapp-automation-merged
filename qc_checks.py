@@ -1336,7 +1336,7 @@ def check_event_matchday_competition(df_ws, df_fx):
     # ---------------- Normalize datetime ----------------
     def build_dt(date, time):
         try:
-            return pd.to_datetime(f"{date} {time}", errors="coerce")
+            return pd.to_datetime(f"{date} {time}", dayfirst= False,errors="coerce")
         except:
             return pd.NaT
 
