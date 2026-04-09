@@ -2619,12 +2619,13 @@ with mm_bsa_tab:
         return temp.name
     
     # ---------------- FILE UPLOAD ----------------
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     with col1: adapt_file = st.file_uploader("📂 Adapt File", type=["xlsx"], key="mm_up_adapt")
     with col2: mm_rosco_file = st.file_uploader("📑 ROSCO File", type=["xlsx"], key="mm_up_rosco")
     with col3: mm_fixture_file = st.file_uploader("📋 Fixture File", type=["xlsx"], key="mm_up_fixture")
     with col4: mm_prev_file = st.file_uploader("📋 Previous Delivery", type=["xlsx"], key="mm_up_prev")
     with col5: mm_bsr_file = st.file_uploader("📋 BSR File", type=["xlsx"], key="mm_up_bsr")
+    with col6: data_mm_export_file = st.file_uploader("📋 DPMM", type=["xlsx"], key="mm_up_dpmm")
 
     # ---------------- CHECKS LIST ----------------
     QC_CHECKS = [
@@ -2692,6 +2693,8 @@ with mm_bsa_tab:
                 st.error("BSR file required for the selected check.")
             elif "previous_delivery_check" in mm_selected and not mm_prev_file:
                 st.error("Previous Delivery file required.")
+            elif "program_analysis_status_check" in mm_selected and not data_mm_export_file:
+                st.error("DPMM file required for the selected check.")
             else:
                 with st.spinner("Processing MM-BSA validation..."):
                     try:
@@ -2703,6 +2706,7 @@ with mm_bsa_tab:
                         m_bsr_path = save_file(mm_bsr_file) if mm_bsr_file else None
                         m_fixture_df = pd.read_excel(mm_fixture_file) if mm_fixture_file else None
                         m_prev_df = pd.read_excel(mm_prev_file) if mm_prev_file else None
+                        m_dpmm_df = pd.read_excel(data_mm_export_file) if data_mm_export_file else None
 
                         # --- Apply Checks ---
                         if "duplicate_aid_final" in mm_selected: mm_df = duplicate_aid_final(mm_df)
