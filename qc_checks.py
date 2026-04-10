@@ -493,8 +493,6 @@ def period_check(bsr_df, start_date, end_date):
 # ----------------------------- 4️⃣ Completeness Check -----------------------------
 def get_sport_from_rosco(rosco_path):
     try:
-        import pandas as pd
-
         df_rosco = pd.read_excel(rosco_path, sheet_name="General Information", header=None)
 
         for i in range(len(df_rosco)):
@@ -1877,8 +1875,6 @@ def country_channel_id_check(df, bsr_cols):
 # 14️⃣ Home vs Away vs Phase Consistency Check (Updated Logic)
 # -----------------------------------------------------------
 def home_away_vs_phase_check(df, col_map):
-    import re
-    import pandas as pd
 
     result_col = "Home_vs_Away_vs_Phase_OK"
     df[result_col] = "NA"
@@ -1975,8 +1971,6 @@ def home_away_vs_phase_check(df, col_map):
 # 15️⃣ Multiple Live Match Consistency Check
 # -----------------------------------------------------------
 def multiple_live_match_check(df, col_map):
-    import pandas as pd
-
     result_col = "Multiple_Live_Match_OK"
     df = df.copy()
 
@@ -2225,7 +2219,6 @@ def color_excel(output_path, df):
 def generate_summary_sheet(output_path, df):
     from openpyxl import load_workbook
     from openpyxl.utils.dataframe import dataframe_to_rows
-    import pandas as pd
 
     wb = load_workbook(output_path)
 
