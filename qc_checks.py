@@ -234,6 +234,42 @@ def _normalize_excel_columns(df):
 
     return df
 
+def parse_datetime(date_val, time_val=None):
+    """
+    Robust parser that handles multiple date and time formats.
+    Supports:
+    - DD-MM-YYYY
+    - YYYY-MM-DD
+    - MM/DD/YYYY
+    - Excel serial dates
+    - Datetime objects
+    - Missing or invalid values
+    """
+    try:
+        if pd.isna(date_val):
+            return pd.NaT
+
+        # Handle Excel serial numbers
+        if isinstance(date_val, (int, float)):
+            date_val = pd.to_datetime(date_val, unit="d", origin="1899-12-30")
+
+        # Combine date and time if time is provided
+        if time_val is not None and not pd.isna(time_val):
+            datetime_str = f"{date_val} {time_val}"
+        else:
+            datetime_str = date_val
+
+        return pd.to_datetime(
+            datetime_str,
+            errors="coerce",
+            infer_datetime_format=True,
+            dayfirst=True
+        )
+
+    except Exception:
+        return pd.NaT
+
+
 # ----------------------------- AUTO SORT BSR -----------------------------
 def auto_sort_bsr(df, bsr_cols):
     df = df.copy()
@@ -919,8 +955,6 @@ def overlap_duplicate_daybreak_check(df, bsr_cols, rules):
 # 6️⃣ Program Category Check 
 # --------------------------------------------------
 def program_category_check(bsr_path, df, col_map, rules, file_rules):
-    import pandas as pd
-    import re
     from datetime import datetime, timedelta, time
 
     # -------------------------
@@ -939,7 +973,7 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
             return None
         if isinstance(val, (datetime, pd.Timestamp)):
             return val.date()
-        return pd.to_datetime(val, dayfirst=True, errors="coerce").date()
+        return pd.to_datetime(val,errors="coerce").date()
     
     def normalize_team(name):
         if pd.isna(name):
@@ -1336,7 +1370,7 @@ def check_event_matchday_competition(df_ws, df_fx):
     # ---------------- Normalize datetime ----------------
     def build_dt(date, time):
         try:
-            return pd.to_datetime(f"{date} {time}", dayfirst= False,errors="coerce")
+            return parse_datetime(date, time)
         except:
             return pd.NaT
 
