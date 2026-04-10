@@ -1349,23 +1349,63 @@ def check_event_matchday_competition(df_ws, df_fx):
         return None
 
     # ---------------- Worksheet columns ----------------
-    ws_event = get_col(df_ws, ["event"])
-    ws_md    = get_col(df_ws, ["matchday"])
-    ws_home  = get_col(df_ws, ["home"])
-    ws_away  = get_col(df_ws, ["away"])
+    ws_event = get_col(df_ws, ["event", "program title"])
+    ws_md    = get_col(df_ws, ["matchday", "match day", "md"])
+    ws_home  = get_col(df_ws, ["home team", "home"])
+    ws_away  = get_col(df_ws, ["away team", "away"])
     ws_date  = get_col(df_ws, ["date"])
     ws_start = get_col(df_ws, ["start"])
     ws_end   = get_col(df_ws, ["end"])
-    ws_prog  = get_col(df_ws, ["program type"])
+    ws_prog  = get_col(df_ws, ["program type", "type of program"])
 
     # ---------------- Fixture columns ----------------
-    fx_event = get_col(df_fx, ["competition"])
-    fx_md    = get_col(df_fx, ["matchday"])
-    fx_home  = get_col(df_fx, ["home"])
-    fx_away  = get_col(df_fx, ["away"])
+    fx_event = get_col(df_fx, ["competition", "event"])
+    fx_md    = get_col(df_fx, ["matchday", "match day", "md"])
+    fx_home  = get_col(df_fx, ["home team", "home"])
+    fx_away  = get_col(df_fx, ["away team", "away"])
     fx_date  = get_col(df_fx, ["date"])
     fx_start = get_col(df_fx, ["start"])
     fx_end   = get_col(df_fx, ["end"])
+
+    # ---------------- Column Validation ----------------
+    missing_ws = []
+    missing_fx = []
+
+    ws_required = {
+        "Event": ws_event,
+        "Matchday": ws_md,
+        "Home Team": ws_home,
+        "Away Team": ws_away,
+        "Date": ws_date,
+        "Start Time": ws_start,
+        "End Time": ws_end,
+        "Program Type": ws_prog,
+    }
+
+    fx_required = {
+        "Competition/Event": fx_event,
+        "Matchday": fx_md,
+        "Home Team": fx_home,
+        "Away Team": fx_away,
+        "Date": fx_date,
+        "Start Time": fx_start,
+        "End Time": fx_end,
+    }
+
+    for name, col in ws_required.items():
+        if col is None:
+            missing_ws.append(name)
+
+    for name, col in fx_required.items():
+        if col is None:
+            missing_fx.append(name)
+
+    if missing_ws or missing_fx:
+        raise ValueError(
+            "Event/Matchday/Competition Check Failed.\n"
+            f"Missing Worksheet Columns: {missing_ws}\n"
+            f"Missing Fixture Columns: {missing_fx}"
+        )
 
     # ---------------- Normalize datetime ----------------
     def build_dt(date, time):
