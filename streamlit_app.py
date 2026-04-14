@@ -1843,51 +1843,47 @@ with epl_tab:
 #         SERIE A SPECIFIC CHECKS TAB 
 # -----------------------------------------------------------
 
-def read_excel_with_dynamic_header(
-    file_path,
-    required_columns=("market", "channel"),
-    max_rows_to_scan=20,
-    sheet_name=0
-):
-    """
-    Reads an Excel file and dynamically detects the header row
-    based on required column names.
+def read_excel_with_dynamic_header(file_path, required_columns=("Market", "Channel"), sheet_name=0):
+        """
+        Dynamically detects the correct header row in an Excel file by searching
+        for the required columns. Returns a cleaned DataFrame.
+        """
+        # Read the file without headers
+        preview_df = pd.read_excel(file_path, sheet_name=sheet_name, header=None, dtype=str)
 
-    Returns:
-        pd.DataFrame
-    Raises:
-        ValueError if header row not found
-    """
+        required_columns_lower = {col.strip().lower() for col in required_columns}
 
-    # Read raw data (no header)
-    raw_df = pd.read_excel(
-        file_path,
-        header=None,
-        sheet_name=sheet_name
-    )
+        header_row = None
 
-    required_columns = {c.lower() for c in required_columns}
+        # Scan first 50 rows to locate the header
+        for i in range(min(50, len(preview_df))):
+            row_values = preview_df.iloc[i].astype(str).str.strip().str.lower()
+            row_values_set = set(row_values.dropna())
 
-    for i in range(min(max_rows_to_scan, len(raw_df))):
-        row_values = (
-            raw_df.iloc[i]
-            .astype(str)
-            .str.strip()
-            .str.lower()
-            .tolist()
-        )
+            if required_columns_lower.issubset(row_values_set):
+                header_row = i
+                break
 
-        if required_columns.issubset(set(row_values)):
-            # Found header row
-            return pd.read_excel(
-                file_path,
-                header=i,
-                sheet_name=sheet_name
+        if header_row is None:
+            raise ValueError(
+                f"Header row not found. Required columns: {required_columns_lower}"
             )
 
-    raise ValueError(
-        f"Header row not found. Required columns: {required_columns}"
-    )
+        # Read file again using detected header
+        df = pd.read_excel(file_path, sheet_name=sheet_name, header=header_row)
+
+        # Clean column names
+        df.columns = df.columns.astype(str).str.strip()
+        df = df.dropna(how="all")
+        df = df.loc[:, ~df.columns.str.contains("^Unnamed", case=False)]
+
+        return df
+
+def stringify_datetime_columns(df):
+    """Convert datetime columns to string format for Excel export."""
+    for col in df.select_dtypes(include=["datetime64[ns]", "datetime64"]).columns:
+        df[col] = df[col].astype(str)
+    return df
 
 with serie_a_tab:
     Serie_A_LOGO_PATH = "images/serie_a_logo.png"
@@ -1909,7 +1905,7 @@ with serie_a_tab:
     with col_file1:
         sa_bsr_file = st.file_uploader("📥 Upload BSR File (.xlsx)", type=["xlsx"], key="sa_bsr")
     with col_file2:
-        sa_duplicator_file = st.file_uploader("📄 Upload Market Duplicator (.xlsx)", type=["xlsx"], key="sa_dupe_file")
+        sa_duplicator_file = st.file_uploader("📄 Upload Market Duplicator", type=["xlsm", "xlsx"], key="sa_dupe_file")
     with col_file3:
         sa_infront_file = st.file_uploader("📈 Upload Infront Reference (.xlsx)", type=["xlsx"], key="sa_infront")
 

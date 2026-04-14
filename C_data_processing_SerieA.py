@@ -4,11 +4,29 @@ import os
 
 class SerieAValidator:
     def __init__(self, df, duplicator_path=None, infront_path=None):
-        # We use .copy() to ensure we don't modify the original dataframe unexpectedly
+        """
+        Initializes the Serie A Validator with the main dataframe and
+        optional reference files.
+        """
+        # Copy dataframe to avoid modifying the original input
         self.df = df.copy()
+
+        # Normalize column names for consistency across all checks
+        self.df.columns = (
+            self.df.columns
+            .astype(str)
+            .str.strip()
+            .str.lower()
+            .str.replace(" ", "_", regex=False)
+        )
+
+        # Store reference file paths
         self.duplicator_path = duplicator_path
         self.infront_path = infront_path
+
+        # Initialize results log
         self.results_log = []
+        
 
     def market_check_processor(self, active_checks):
         """Dispatches the selected checks to their respective functions."""
@@ -338,14 +356,36 @@ class SerieAValidator:
 
     # --- S.NO 5: Pre & Post Programs Exclusion ---
     def exclude_pre_post_programs(self):
-        # Initial logic to remove rows containing Pre/Post keywords in 'Combined' column
-        if 'Combined' in self.df.columns:
-            mask = self.df['Combined'].str.contains('PRE|POST|P.MATCH|P-MATCH', case=False, na=False)
+        check_key = "exclude_pre_post_programs"
+
+        possible_columns = ["combined", "program_title", "title"]
+        target_column = None
+
+        for col in possible_columns:
+            if col in self.df.columns:
+                target_column = col
+                break
+
+        if target_column:
+            mask = self.df[target_column].astype(str).str.contains(
+                r"PRE|POST|P\.MATCH|P-MATCH",
+                case=False,
+                na=False
+            )
             removed_count = mask.sum()
             self.df = self.df[~mask]
-            self.results_log.append({"check_key": "exclude_pre_post_programs", "status": "Success", "description": f"Excluded {removed_count} Pre/Post lines."})
+
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Success",
+                "description": f"Excluded {removed_count} Pre/Post lines using '{target_column}'."
+            })
         else:
-            self.results_log.append({"check_key": "exclude_pre_post_programs", "status": "Warning", "description": "Column 'Combined' not found."})
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Warning",
+                "description": "No suitable column found for Pre/Post exclusion."
+            })
 
     # --- S.NO 6: Duplication Check (Identical Lines) ---
     def remove_identical_broadcasts(self):
