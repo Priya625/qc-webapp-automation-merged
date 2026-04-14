@@ -1843,41 +1843,72 @@ with epl_tab:
 #         SERIE A SPECIFIC CHECKS TAB 
 # -----------------------------------------------------------
 
+import pandas as pd
+import os
+import time
+import streamlit as st
+
 def read_excel_with_dynamic_header(file_path, required_columns=("Market", "Channel"), sheet_name=0):
-        """
-        Dynamically detects the correct header row in an Excel file by searching
-        for the required columns. Returns a cleaned DataFrame.
-        """
-        # Read the file without headers
-        preview_df = pd.read_excel(file_path, sheet_name=sheet_name, header=None, dtype=str)
+    """
+    Dynamically detects the correct header row in an Excel file by searching
+    for the required columns, even when the file contains metadata or blank rows.
+    """
 
-        required_columns_lower = {col.strip().lower() for col in required_columns}
+    # Read the entire sheet without headers
+    preview_df = pd.read_excel(
+        file_path,
+        sheet_name=sheet_name,
+        header=None,
+        dtype=str,
+        engine="openpyxl"
+    )
 
-        header_row = None
+    # Normalize required column names
+    required_columns_lower = {col.strip().lower() for col in required_columns}
+    header_row = None
 
-        # Scan first 50 rows to locate the header
-        for i in range(min(50, len(preview_df))):
-            row_values = preview_df.iloc[i].astype(str).str.strip().str.lower()
-            row_values_set = set(row_values.dropna())
+    # Scan the first 200 rows to locate the header
+    for i in range(min(200, len(preview_df))):
+        row_values = (
+            preview_df.iloc[i]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .str.lower()
+        )
 
-            if required_columns_lower.issubset(row_values_set):
-                header_row = i
-                break
+        if required_columns_lower.issubset(set(row_values)):
+            header_row = i
+            break
 
-        if header_row is None:
-            raise ValueError(
-                f"Header row not found. Required columns: {required_columns_lower}"
-            )
+    # Raise error if header not found
+    if header_row is None:
+        raise ValueError(
+            f"Header row not found. Required columns: {required_columns_lower}"
+        )
 
-        # Read file again using detected header
-        df = pd.read_excel(file_path, sheet_name=sheet_name, header=header_row)
+    # Read the file again using the detected header
+    df = pd.read_excel(
+        file_path,
+        sheet_name=sheet_name,
+        header=header_row,
+        engine="openpyxl"
+    )
 
-        # Clean column names
-        df.columns = df.columns.astype(str).str.strip()
-        df = df.dropna(how="all")
-        df = df.loc[:, ~df.columns.str.contains("^Unnamed", case=False)]
+    # Clean column names
+    df.columns = (
+        df.columns.astype(str)
+        .str.strip()
+        .str.replace("\n", " ", regex=True)
+        .str.replace("\r", " ", regex=True)
+        .str.replace(r"\s+", " ", regex=True)
+    )
 
-        return df
+    # Drop empty rows and unnamed columns
+    df = df.dropna(how="all")
+    df = df.loc[:, ~df.columns.str.contains("^Unnamed", case=False)]
+
+    return df
 
 def stringify_datetime_columns(df):
     """Convert datetime columns to string format for Excel export."""
@@ -1910,7 +1941,7 @@ with serie_a_tab:
         sa_infront_file = st.file_uploader("📈 Upload Infront Reference (.xlsx)", type=["xlsx"], key="sa_infront")
 
     st.write("---")
-
+    st.write("detected columns:", df_to_process.columns.tolist() if 'df_to_process' in locals() else "No file loaded yet.")
     # --- 2. Select All Logic ---
     def toggle_all_sa():
         for key in all_market_check_keys_serie_a.keys():
