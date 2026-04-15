@@ -2652,7 +2652,221 @@ with mm_bsa_tab:
     with col3: mm_fixture_file = st.file_uploader("📋 Fixture File", type=["xlsx"], key="mm_up_fixture")
     with col4: mm_prev_file = st.file_uploader("📋 Previous Delivery", type=["xlsx"], key="mm_up_prev")
     with col5: mm_bsr_file = st.file_uploader("📋 BSR File", type=["xlsx"], key="mm_up_bsr")
-    with col6: data_mm_export_file = st.file_uploader("📋 DPMM", type=["xlsx"], key="mm_up_dpmm")
+
+    # ---------------- CHECKS LIST ----------------
+    QC_CHECKS = [
+        ("duplicate_aid_final", "Duplicate AID Check"),
+        ("audience_spotprice_check", "Audience & Spot Price Check"),
+        ("program_category_check", "Program Category Check"),
+        ("channel_country_mapping_check", "Channel & Country Mapping"),
+        ("apt_bt_check", "APT / BT Check"),
+        ("season_monitoring_check", "Season Monitoring Check"),
+        ("fixture_validation_check", "Event / Matchday Validation Check"),
+        ("stadium_consistency_check", "Stadium Consistency Check"),
+        ("event_quality_check", "Event Quality Check"),
+        ("home_market_check", "Home Market Check"),
+        ("ps_market_channel_check", "PS Market & Channel Check"),
+        ("ps_content_check", "PS Content Check"),
+        ("mm_bsr_consistency_check", "MM vs BSR Consistency Check"),
+        ("audience_spot_range_clean_view", "Audience Range Check"),
+        ("ea_creation_check", "EA Creation Check"),
+        ("previous_delivery_check", "Previous Delivery Check"),
+        ("live_delayed_check", "Live vs Delayed Check"),
+    ]
+
+    def sync_all_checks():
+        for key, _ in QC_CHECKS:
+            st.session_state[f"mm_chk_{key}"] = st.session_state["mm_master_select"]
+
+    st.markdown("⚙️ **Validation Rules**")
+    
+    # The Master Checkbox
+    st.checkbox("Select All Checks", key="mm_master_select", on_change=sync_all_checks)
+    
+    mm_selected = []
+    mm_cols = st.columns(4)
+    for index, (key, label) in enumerate(QC_CHECKS):
+        # Initialize state if not present to avoid KeyErrors
+        if f"mm_chk_{key}" not in st.session_state:
+            st.session_state[f"mm_chk_{key}"] = False
+            
+        with mm_cols[index % 4]:
+            # Each checkbox is now controlled by session_state
+            if st.checkbox(label, key=f"mm_chk_{key}"):
+                mm_selected.append(key)
+
+    st.divider()
+
+    st.markdown("📅 **Monitoring Period**")
+    mm_c1, mm_c2, mm_c3 = st.columns(3)
+    with mm_c1: mm_start_date = st.date_input("Start Date", key="mm_date_start")
+    with mm_c2: mm_end_date = st.date_input("End Date", key="mm_date_end")
+    with mm_c3: mm_bt_threshold = st.number_input("BT Threshold", min_value=0.0, step=0.1, key="mm_num_bt")
+
+    if st.button("🚀 Run MM-BSA Checks", key="mm_run_btn_final"):
+        if not adapt_file:
+            st.error("Please upload the Adapt file.")
+        elif not mm_selected:
+            st.error("Please select at least one check.")
+        else:
+            # File presence validations based on selection
+            if "fixture_validation_check" in mm_selected and not mm_fixture_file:
+                st.error("Fixture file required for the selected check.")
+            elif ("ps_market_channel_check" in mm_selected or "ps_content_check" in mm_selected) and not mm_rosco_file:
+                st.error("ROSCO file required for the selected check.")
+            elif "mm_bsr_consistency_check" in mm_selected and not mm_bsr_file:
+                st.error("BSR file required for the selected check.")
+            elif "previous_delivery_check" in mm_selected and not mm_prev_file:
+                st.error("Previous Delivery file required.")
+    
+            else:
+                with st.spinner("Processing MM-BSA validation..."):
+                    try:
+                        # Logic execution
+                        mm_df = pd.read_excel(adapt_file, sheet_name="mm - detailed")
+                        mm_df.columns = mm_df.columns.str.strip()
+                        
+                        m_rosco_path = save_file(mm_rosco_file) if mm_rosco_file else None
+                        m_bsr_path = save_file(mm_bsr_file) if mm_bsr_file else None
+                        m_fixture_df = pd.read_excel(mm_fixture_file) if mm_fixture_file else None
+                        m_prev_df = pd.read_excel(mm_prev_file) if mm_prev_file else None
+
+                        # --- Apply Checks ---
+                        if "duplicate_aid_final" in mm_selected: mm_df = duplicate_aid_final(mm_df)
+                        if "audience_spotprice_check" in mm_selected: mm_df = audience_spotprice_check(mm_df)
+                        if "program_category_check" in mm_selected: mm_df = program_category_check(mm_df)
+                        if "channel_country_mapping_check" in mm_selected: mm_df = channel_country_mapping_check(mm_df, m_rosco_path)
+                        if "apt_bt_check" in mm_selected: mm_df = apt_bt_check(mm_df, mm_bt_threshold)
+                        if "season_monitoring_check" in mm_selected: mm_df = season_monitoring_check(mm_df, mm_start_date, mm_end_date)
+                        if "fixture_validation_check" in mm_selected: mm_df = fixture_validation_check(mm_df, m_fixture_df)
+                        if "stadium_consistency_check" in mm_selected: mm_df = stadium_consistency_check(mm_df)
+                        if "event_quality_check" in mm_selected: mm_df = event_quality_check(mm_df)
+                        if "home_market_check" in mm_selected: mm_df = home_market_check(mm_df)
+                        
+                        if "ps_market_channel_check" in mm_selected or "ps_content_check" in mm_selected:
+                            mon_df = pd.read_excel(m_rosco_path, sheet_name="Monitoring List")
+                            if "ps_market_channel_check" in mm_selected: mm_df = ps_market_channel_check(mm_df, mon_df)
+                            if "ps_content_check" in mm_selected: mm_df = ps_content_check(mm_df, mon_df)
+
+                        if "mm_bsr_consistency_check" in mm_selected: mm_df = mm_bsr_consistency_check(mm_df, m_bsr_path)
+                        if "ea_creation_check" in mm_selected: mm_df = ea_creation_check(mm_df)
+                        if "live_delayed_check" in mm_selected: mm_df = live_delayed_check(mm_df)
+
+                        # Output Generation
+                        mm_output = io.BytesIO()
+                        mm_df = stringify_datetime_columns(mm_df.copy())
+
+                        # -----------------------------------
+                        # DEFINE COLUMN GROUPINGS
+                        # -----------------------------------
+
+                        program_cols = [
+                            col for col in mm_df.columns if any(x in col.lower() for x in [
+                                "duplicate_aid",
+                                "audience_spotprice",
+                                "program_category",
+                                "channel_country",
+                                "apt_bt",
+                                "season",
+                                "ps_market",
+                                "ps_content",
+                                "ea_creation",
+                                "program_status"
+                            ])
+                        ]
+
+                        event_cols = [
+                            col for col in mm_df.columns if any(x in col.lower() for x in [
+                                "fixture",
+                                "mm_bsr",
+                                "event_quality"
+                            ])
+                        ]
+
+                        matchday_cols = [
+                            col for col in mm_df.columns if any(x in col.lower() for x in [
+                                "stadium",
+                                "home_market",
+                                "live_delayed"
+                            ])
+                        ]
+
+                        # Always keep base columns
+                        base_cols = [col for col in mm_df.columns if col not in (program_cols + event_cols + matchday_cols)]
+
+                        program_df = mm_df[base_cols + program_cols]
+                        event_df = mm_df[base_cols + event_cols]
+                        matchday_df = mm_df[base_cols + matchday_cols]
+
+                        def highlight_result_headers(writer, sheet_name, df):
+
+                            workbook = writer.book
+                            worksheet = writer.sheets[sheet_name]
+
+                            header_fill = PatternFill(start_color="FFD966", end_color="FFD966", fill_type="solid")
+                            header_font = Font(bold=True)
+
+                            for col_idx, col_name in enumerate(df.columns, 1):
+
+                                if "flag" in col_name.lower() or "remark" in col_name.lower():
+
+                                    cell = worksheet.cell(row=1, column=col_idx)
+                                    cell.fill = header_fill
+                                    cell.font = header_font
+
+                        with pd.ExcelWriter(mm_output, engine="openpyxl") as mm_writer:
+
+                            # ---------------- PROGRAM LEVEL ----------------
+                            if program_cols:
+                                program_df.to_excel(mm_writer, sheet_name="Program_Level", index=False)
+                                highlight_result_headers(mm_writer, "Program_Level", program_df)
+
+                            # ---------------- EVENT LEVEL ----------------
+                            if event_cols:
+                                event_df.to_excel(mm_writer, sheet_name="Event_Level", index=False)
+                                highlight_result_headers(mm_writer, "Event_Level", event_df)
+
+                            # ---------------- MATCHDAY LEVEL ----------------
+                            if matchday_cols:
+                                matchday_df.to_excel(mm_writer, sheet_name="Matchday_Level", index=False)
+                                highlight_result_headers(mm_writer, "Matchday_Level", matchday_df)
+
+                            # ---------------- ANALYTICAL ----------------
+                            if "audience_spot_range_clean_view" in mm_selected:
+                                audience_spot_range_clean_view(mm_df).to_excel(
+                                    mm_writer, sheet_name="Audience_Range", index=False
+                                )
+
+                            if "previous_delivery_check" in mm_selected:
+                                previous_delivery_check(mm_df, m_prev_df).to_excel(
+                                    mm_writer, sheet_name="Previous_Delivery", index=False
+                                )
+
+                        st.success("✅ MM-BSA QC Completed Successfully")
+                        st.download_button("📥 Download MM-BSA Output", data=mm_output.getvalue(), file_name="MM_BSA_QC_Result.xlsx")
+                    except Exception as e:
+                        st.error(f"Processing Error: {e}")
+
+# -----------------------------------------------------------
+#            📊 OPS-MM-BSA QC CHECKS TAB 
+# -----------------------------------------------------------
+with ops_mm_bsa_tab:
+    st.subheader("📊 OPS-MM-BSA QC Checks")
+
+    def save_file(uploaded_file):
+        temp = tempfile.NamedTemporaryFile(delete=False)
+        temp.write(uploaded_file.read())
+        temp.close()
+        return temp.name
+    
+    # ---------------- FILE UPLOAD ----------------
+    col1, col2, col3, col4, col5 = st.columns(5)
+    with col1: data_mm_export_file = st.file_uploader("📋 DPMM", type=["xlsx"], key="mm_up_dpmm")
+    with col2: mm_rosco_file = st.file_uploader("📑 ROSCO File", type=["xlsx"], key="mm_up_rosco")
+    with col3: mm_fixture_file = st.file_uploader("📋 Fixture File", type=["xlsx"], key="mm_up_fixture")
+    with col4: mm_prev_file = st.file_uploader("📋 Previous Delivery", type=["xlsx"], key="mm_up_prev")
+    with col5: mm_bsr_file = st.file_uploader("📋 BSR File", type=["xlsx"], key="mm_up_bsr")
+    
 
     # ---------------- CHECKS LIST ----------------
     QC_CHECKS = [
@@ -2706,8 +2920,8 @@ with mm_bsa_tab:
     with mm_c3: mm_bt_threshold = st.number_input("BT Threshold", min_value=0.0, step=0.1, key="mm_num_bt")
 
     if st.button("🚀 Run MM-BSA Checks", key="mm_run_btn_final"):
-        if not adapt_file:
-            st.error("Please upload the Adapt file.")
+        if not data_mm_export_file:
+            st.error("Please upload the DPMM file.")
         elif not mm_selected:
             st.error("Please select at least one check.")
         else:
@@ -2720,13 +2934,11 @@ with mm_bsa_tab:
                 st.error("BSR file required for the selected check.")
             elif "previous_delivery_check" in mm_selected and not mm_prev_file:
                 st.error("Previous Delivery file required.")
-            elif "program_analysis_status_check" in mm_selected and not data_mm_export_file:
-                st.error("DPMM file required for the selected check.")
             else:
                 with st.spinner("Processing MM-BSA validation..."):
                     try:
                         # Logic execution
-                        mm_df = pd.read_excel(adapt_file, sheet_name="mm - detailed")
+                        mm_df = pd.read_excel(data_mm_export_file, sheet_name="mm - detailed")
                         mm_df.columns = mm_df.columns.str.strip()
                         
                         m_rosco_path = save_file(mm_rosco_file) if mm_rosco_file else None
@@ -2847,7 +3059,7 @@ with mm_bsa_tab:
                                     mm_writer, sheet_name="Previous_Delivery", index=False
                                 )
 
-                        st.success("✅ MM-BSA QC Completed Successfully")
-                        st.download_button("📥 Download MM-BSA Output", data=mm_output.getvalue(), file_name="MM_BSA_QC_Result.xlsx")
+                        st.success("✅OPS-MM-BSA QC Completed Successfully")
+                        st.download_button("📥 Download OPS-MM-BSA Output", data=mm_output.getvalue(), file_name="OPS_MM_BSA_QC_Result.xlsx")
                     except Exception as e:
                         st.error(f"Processing Error: {e}")

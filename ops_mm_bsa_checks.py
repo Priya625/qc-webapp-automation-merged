@@ -1173,3 +1173,53 @@ def live_delayed_check(df):
     df["Live_Delayed_Check_Remark"] = remarks
 
     return df
+
+def program_analysis_status_check(df):
+
+    df = df.copy()
+    df.columns = df.columns.str.strip().str.lower()
+
+    # Possible column names (handle variations)
+    possible_cols = [
+        "analysis status",
+        "status",
+        "mm status",
+        "child analysis status"
+    ]
+
+    status_col = None
+    for col in possible_cols:
+        if col in df.columns:
+            status_col = col
+            break
+
+    if not status_col:
+        raise ValueError("No status column found for Program Analysis Status Check")
+
+    flags = []
+    remarks = []
+
+    for _, row in df.iterrows():
+
+        status = str(row.get(status_col, "")).strip().lower()
+
+        if status == "done":
+            flags.append(True)
+            remarks.append("")
+
+        elif status == "ready":
+            flags.append(False)
+            remarks.append("Status is READY (should be moved to DONE)")
+
+        elif status == "" or status == "nan":
+            flags.append(False)
+            remarks.append("Status missing")
+
+        else:
+            flags.append(False)
+            remarks.append(f"Invalid status: {status}")
+
+    df["Program_Status_Flag"] = flags
+    df["Program_Status_Remark"] = remarks
+
+    return df
