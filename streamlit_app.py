@@ -450,8 +450,8 @@ except Exception:
 
 # --- Use Tabs for Clear Separation (MODIFIED) ---
 LOGO_PATH_4 = "images/Nielsen_Sports_logo.svg"
-# Fixed: 8 variables for 8 tab labels
-home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab, epl_tab, serie_a_tab,bsa_dashboard_tab,mm_bsa_tab= st.tabs([
+# Fixed: 9 variables for 9 tab labels
+home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab, epl_tab, serie_a_tab,bsa_dashboard_tab,mm_bsa_tab,ops_mm_bsa_tab= st.tabs([
     " Home Page", 
     " Main QC Automation", 
     " Laliga Specific QC", 
@@ -459,7 +459,8 @@ home_page_tab, main_qc_tab, laliga_qc_tab, f1_tab, epl_tab, serie_a_tab,bsa_dash
     " EPL Specific Checks",
     " Serie A Specific Checks",
     " BSA Early Warning Dashboard",
-    " MM-BSA QC Checks"
+    " MM-BSA QC Checks",
+    " OPS-MM-BSA QC Checks"
 ])
 
 # --- Define all market check keys globally for management ---
