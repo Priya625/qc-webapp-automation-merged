@@ -1870,64 +1870,32 @@ import streamlit as st
 
 def read_excel_with_dynamic_header(file_path, required_columns=("Market", "Channel"), sheet_name=0):
     """
-    Dynamically detects the correct header row in an Excel file by searching
-    for the required columns, even when the file contains metadata or blank rows.
+    Dynamically detects the header row by searching for the exact required columns,
+    ignoring empty rows and metadata at the top.
     """
+    # Read raw to find the header
+    raw_df = pd.read_excel(file_path, sheet_name=sheet_name, header=None, dtype=str)
+    
+    required_cols_lower = [c.strip().lower() for c in required_columns]
+    header_row_index = None
 
-    # Read the entire sheet without headers
-    preview_df = pd.read_excel(
-        file_path,
-        sheet_name=sheet_name,
-        header=None,
-        dtype=str,
-        engine="openpyxl"
-    )
-
-    # Normalize required column names
-    required_columns_lower = {col.strip().lower() for col in required_columns}
-    header_row = None
-
-    # Scan the first 200 rows to locate the header
-    for i in range(min(200, len(preview_df))):
-        row_values = (
-            preview_df.iloc[i]
-            .dropna()
-            .astype(str)
-            .str.strip()
-            .str.lower()
-        )
-
-        if required_columns_lower.issubset(set(row_values)):
-            header_row = i
+    for i in range(len(raw_df)):
+        # Get row as a list of lower-case strings
+        row = [str(cell).strip().lower() for cell in raw_df.iloc[i].tolist()]
+        # Check if all required columns exist in this row
+        if all(req in row for req in required_cols_lower):
+            header_row_index = i
             break
+            
+    if header_row_index is None:
+        raise ValueError(f"Header row not found. Searched for: {required_columns}")
 
-    # Raise error if header not found
-    if header_row is None:
-        raise ValueError(
-            f"Header row not found. Required columns: {required_columns_lower}"
-        )
-
-    # Read the file again using the detected header
-    df = pd.read_excel(
-        file_path,
-        sheet_name=sheet_name,
-        header=header_row,
-        engine="openpyxl"
-    )
-
-    # Clean column names
-    df.columns = (
-        df.columns.astype(str)
-        .str.strip()
-        .str.replace("\n", " ", regex=True)
-        .str.replace("\r", " ", regex=True)
-        .str.replace(r"\s+", " ", regex=True)
-    )
-
-    # Drop empty rows and unnamed columns
+    # Read the file again using the correct header
+    df = pd.read_excel(file_path, sheet_name=sheet_name, header=header_row_index)
+    
+    # Cleaning
+    df.columns = df.columns.astype(str).str.strip()
     df = df.dropna(how="all")
-    df = df.loc[:, ~df.columns.str.contains("^Unnamed", case=False)]
-
     return df
 
 def stringify_datetime_columns(df):
