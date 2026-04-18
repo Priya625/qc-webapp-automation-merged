@@ -1870,32 +1870,53 @@ import streamlit as st
 
 def read_excel_with_dynamic_header(file_path, required_columns=("Market", "Channel"), sheet_name=0):
     """
-    Dynamically detects the header row by searching for the exact required columns,
-    ignoring empty rows and metadata at the top.
+    Dynamically detects header row for both CSV and Excel files.
     """
-    # Read raw to find the header
-    raw_df = pd.read_excel(file_path, sheet_name=sheet_name, header=None, dtype=str)
-    
+    import pandas as pd
+    import os
+
+    # 1. Detect file type and load raw data
+    ext = os.path.splitext(file_path)[1].lower()
+    try:
+        if ext == '.csv':
+            # Use sep=None and engine='python' for automatic delimiter detection
+            raw_df = pd.read_csv(file_path, header=None, dtype=str, sep=None, engine='python')
+        else:
+            raw_df = pd.read_excel(file_path, sheet_name=sheet_name, header=None, dtype=str)
+    except Exception as e:
+        raise ValueError(f"Could not load file. Ensure it is a valid Excel or CSV file. Error: {e}")
+
+    # 2. Search for the header row
     required_cols_lower = [c.strip().lower() for c in required_columns]
     header_row_index = None
 
-    for i in range(len(raw_df)):
-        # Get row as a list of lower-case strings
-        row = [str(cell).strip().lower() for cell in raw_df.iloc[i].tolist()]
-        # Check if all required columns exist in this row
-        if all(req in row for req in required_cols_lower):
+    for i in range(min(50, len(raw_df))): # Look in the first 50 rows
+        # Join row values and clean them for easier matching
+        row_values = [str(val).strip().lower() for val in raw_df.iloc[i].tolist() if pd.notna(val)]
+        
+        # Check if all required columns are in this row
+        if all(req in row_values for req in required_cols_lower):
             header_row_index = i
             break
-            
-    if header_row_index is None:
-        raise ValueError(f"Header row not found. Searched for: {required_columns}")
 
-    # Read the file again using the correct header
-    df = pd.read_excel(file_path, sheet_name=sheet_name, header=header_row_index)
-    
-    # Cleaning
+    if header_row_index is None:
+        # Debugging: show what the code saw
+        first_few_rows = raw_df.head(10).values.tolist()
+        raise ValueError(
+            f"Header row not found. Searched for {required_columns}. "
+            f"Please ensure the file has a row containing these headers. "
+            f"Detected content in first 10 rows: {first_few_rows}"
+        )
+
+    # 3. Reload with correct header
+    if ext == '.csv':
+        df = pd.read_csv(file_path, header=header_row_index, sep=None, engine='python')
+    else:
+        df = pd.read_excel(file_path, sheet_name=sheet_name, header=header_row_index)
+
+    # 4. Final Cleanup
     df.columns = df.columns.astype(str).str.strip()
-    df = df.dropna(how="all")
+    df = df.loc[:, ~df.columns.str.contains("^Unnamed", case=False)]
     return df
 
 def stringify_datetime_columns(df):
