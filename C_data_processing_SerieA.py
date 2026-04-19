@@ -195,115 +195,95 @@ class SerieAValidator:
             "failed": failed
         })
 
-    # --- S.NO 2: Audience Trend Analysis ---
+    # =========================================================
+    # ✅ CHECK 2: AUDIENCE TREND
+    # =========================================================
+
     def compare_audience_trends(self):
-        check_key = "compare_audience_trends"
-
+        check_name = "Audience Trend Check"
+        df = self.df.copy()
+        # ---------------- CREATE SEASON ----------------
+        df["start_time"] = pd.to_datetime(df["start_time"], errors="coerce")
+        df["season"] = df["start_time"].dt.year
         required_cols = {
-            "season",
-            "market",
-            "channel",
-            "mat_country_id",
-            "channel_id",
-            "start_time",
-            "audience"
+            "season", "market", "channel",
+            "mat_country_id", "channel_id",
+            "start_time", "audience"
         }
-
-        if not required_cols.issubset(self.df.columns):
-            self.results_log.append({
-                "check_key": check_key,
-                "status": "Error",
-                "description": (
-                    "Required columns missing for season-level audience trend check. "
-                    "Expected MAT Country ID, Channel ID, Start Time, Audience."
-                )
-            })
+        if not required_cols.issubset(df.columns):
+            self.df["audience_trend_check"] = "ERROR"
+            self.df["audience_trend_remark"] = "Missing required columns"
+            return
+        # ---------------- CHECK SEASON COUNT ----------------
+        if df["season"].nunique() < 2:
+            self.df["audience_trend_check"] = "SKIPPED"
+            self.df["audience_trend_remark"] = "Only one season present"
             return
 
-        # Ensure datetime
-        self.df["start_time"] = pd.to_datetime(self.df["start_time"], errors="coerce")
+        # ---------------- BC LINE ----------------
 
-        # -------------------------------------------------
-        # 1. Define BC line using MAT Country + Channel + Time
-        # -------------------------------------------------
-        self.df["bc_line_key"] = (
-            self.df["mat_country_id"].astype(str) + "_" +
-            self.df["channel_id"].astype(str) + "_" +
-            self.df["start_time"].astype(str)
+        df["bc_line"] = (
+            df["mat_country_id"].astype(str) + "_" +
+            df["channel_id"].astype(str) + "_" +
+            df["start_time"].astype(str)
         )
 
-        # -------------------------------------------------
-        # 2. Aggregate at Season level
-        # -------------------------------------------------
-        season_summary = (
-            self.df
-            .groupby(["season", "market", "channel"])
+        # ---------------- AGGREGATE ----------------
+
+        summary = (
+            df.groupby(["season", "market", "channel"])
             .agg(
-                total_audience=("audience", "sum"),
-                bc_lines=("bc_line_key", "nunique")
+                audience=("audience", "sum"),
+                bc_lines=("bc_line", "nunique")
             )
             .reset_index()
         )
-
-        # -------------------------------------------------
-        # 3. Pivot Last vs Current Season
-        # -------------------------------------------------
-        pivot = season_summary.pivot_table(
+        pivot = summary.pivot_table(
             index=["market", "channel"],
             columns="season",
-            values=["total_audience", "bc_lines"]
+            values=["audience", "bc_lines"]
         )
-
-        if pivot.shape[1] < 4:
-            self.results_log.append({
-                "check_key": check_key,
-                "status": "Warning",
-                "description": "Insufficient season data to compare audience trends."
-            })
-            return
-
-        pivot.columns = ["_".join(map(str, col)) for col in pivot.columns]
         pivot = pivot.dropna()
-
-        # -------------------------------------------------
-        # 4. Compute percentage changes
-        # -------------------------------------------------
-        pivot["audience_change_pct"] = (
+        if pivot.shape[1] < 4:
+            self.df["audience_trend_check"] = "SKIPPED"
+            self.df["audience_trend_remark"] = "Not enough comparable seasons"
+            return
+        pivot.columns = ["_".join(map(str, col)) for col in pivot.columns]
+        # ---------------- CHANGE % ----------------
+        pivot["aud_change"] = (
             (pivot.iloc[:, 0] - pivot.iloc[:, 2]) /
             pivot.iloc[:, 2].replace(0, np.nan)
         ).abs() * 100
-
-        pivot["bc_line_change_pct"] = (
+        pivot["bc_change"] = (
             (pivot.iloc[:, 1] - pivot.iloc[:, 3]) /
             pivot.iloc[:, 3].replace(0, np.nan)
         ).abs() * 100
-
-        # -------------------------------------------------
-        # 5. Flag illogical movements
-        # -------------------------------------------------
         flagged = pivot[
-            (pivot["audience_change_pct"] >= 30) &
-            (pivot["bc_line_change_pct"] <= 10)
+            (pivot["aud_change"] >= 30) &
+            (pivot["bc_change"] <= 10)
         ]
-
-        if flagged.empty:
-            self.results_log.append({
-                "check_key": check_key,
-                "status": "Success",
-                "description": "Season-level audience trends align with BC line movement."
-            })
-        else:
-            examples = flagged.reset_index().head(5).to_dict(orient="records")
-            self.results_log.append({
-                "check_key": check_key,
-                "status": "Warning",
-                "description": (
-                    f"{len(flagged)} market/channel combinations show "
-                    f"audience variance not supported by BC line change. "
-                    f"Examples: {examples}"
-                )
-            })    
-
+        # ---------------- MAP BACK ----------------
+        flag_map = {
+            (row["market"], row["channel"]): True
+            for _, row in flagged.reset_index().iterrows()
+        }
+        results = []
+        remarks = []
+        for _, row in self.df.iterrows():
+            key = (row["market"], row["channel"])
+            if key in flag_map:
+                results.append("FALSE")
+                remarks.append("Audience spike without BC support")
+            else:
+                results.append("TRUE")
+                remarks.append("")
+        self.df["audience_trend_check"] = results
+        self.df["audience_trend_remark"] = remarks
+        self.results_log.append({
+            "check": check_name,
+            "status": "Completed"
+        })
+        
     # --- S.NO 3: Consolidation Check ---
     def consolidation_check(self):
 
