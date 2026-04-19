@@ -20,16 +20,15 @@ class SerieAValidator:
         self.results_log = []
 
         # ---------------- LOAD DUPLICATOR ----------------
-        self.dup_df = None
-        if duplicator_path:
-            try:
-                self.dup_df = pd.read_excel(duplicator_path, sheet_name="Data core")
-            except Exception as e:
-                self.results_log.append({
-                    "check": "Duplicator Load",
-                    "status": "Error",
-                    "description": f"Failed to load duplicator file: {str(e)}"
-                })
+        excel_file = pd.ExcelFile(duplicator_path)
+
+        # Normalize sheet names
+        sheet_map = {s.lower().strip(): s for s in excel_file.sheet_names}
+
+        if "data core" in sheet_map:
+            self.dup_df = pd.read_excel(duplicator_path, sheet_name=sheet_map["data core"])
+        else:
+            raise ValueError(f"'Data Core' sheet not found. Available sheets: {excel_file.sheet_names}")
 
         # ---------------- LOAD INFRONT ----------------
         self.infront_df = None
