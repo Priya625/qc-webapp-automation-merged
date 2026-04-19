@@ -177,114 +177,114 @@ class SerieAValidator:
             "description": f"{passed} passed, {failed} failed"
         })
 
-        # --- S.NO 2: Audience Trend Analysis ---
-        def compare_audience_trends(self):
-            check_key = "compare_audience_trends"
+    # --- S.NO 2: Audience Trend Analysis ---
+    def compare_audience_trends(self):
+        check_key = "compare_audience_trends"
 
-            required_cols = {
-                "season",
-                "market",
-                "channel",
-                "mat_country_id",
-                "channel_id",
-                "start_time",
-                "audience"
-            }
+        required_cols = {
+            "season",
+            "market",
+            "channel",
+            "mat_country_id",
+            "channel_id",
+            "start_time",
+            "audience"
+        }
 
-            if not required_cols.issubset(self.df.columns):
-                self.results_log.append({
-                    "check_key": check_key,
-                    "status": "Error",
-                    "description": (
-                        "Required columns missing for season-level audience trend check. "
-                        "Expected MAT Country ID, Channel ID, Start Time, Audience."
-                    )
-                })
-                return
-
-            # Ensure datetime
-            self.df["start_time"] = pd.to_datetime(self.df["start_time"], errors="coerce")
-
-            # -------------------------------------------------
-            # 1. Define BC line using MAT Country + Channel + Time
-            # -------------------------------------------------
-            self.df["bc_line_key"] = (
-                self.df["mat_country_id"].astype(str) + "_" +
-                self.df["channel_id"].astype(str) + "_" +
-                self.df["start_time"].astype(str)
-            )
-
-            # -------------------------------------------------
-            # 2. Aggregate at Season level
-            # -------------------------------------------------
-            season_summary = (
-                self.df
-                .groupby(["season", "market", "channel"])
-                .agg(
-                    total_audience=("audience", "sum"),
-                    bc_lines=("bc_line_key", "nunique")
+        if not required_cols.issubset(self.df.columns):
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Error",
+                "description": (
+                    "Required columns missing for season-level audience trend check. "
+                    "Expected MAT Country ID, Channel ID, Start Time, Audience."
                 )
-                .reset_index()
+            })
+            return
+
+        # Ensure datetime
+        self.df["start_time"] = pd.to_datetime(self.df["start_time"], errors="coerce")
+
+        # -------------------------------------------------
+        # 1. Define BC line using MAT Country + Channel + Time
+        # -------------------------------------------------
+        self.df["bc_line_key"] = (
+            self.df["mat_country_id"].astype(str) + "_" +
+            self.df["channel_id"].astype(str) + "_" +
+            self.df["start_time"].astype(str)
+        )
+
+        # -------------------------------------------------
+        # 2. Aggregate at Season level
+        # -------------------------------------------------
+        season_summary = (
+            self.df
+            .groupby(["season", "market", "channel"])
+            .agg(
+                total_audience=("audience", "sum"),
+                bc_lines=("bc_line_key", "nunique")
             )
+            .reset_index()
+        )
 
-            # -------------------------------------------------
-            # 3. Pivot Last vs Current Season
-            # -------------------------------------------------
-            pivot = season_summary.pivot_table(
-                index=["market", "channel"],
-                columns="season",
-                values=["total_audience", "bc_lines"]
-            )
+        # -------------------------------------------------
+        # 3. Pivot Last vs Current Season
+        # -------------------------------------------------
+        pivot = season_summary.pivot_table(
+            index=["market", "channel"],
+            columns="season",
+            values=["total_audience", "bc_lines"]
+        )
 
-            if pivot.shape[1] < 4:
-                self.results_log.append({
-                    "check_key": check_key,
-                    "status": "Warning",
-                    "description": "Insufficient season data to compare audience trends."
-                })
-                return
+        if pivot.shape[1] < 4:
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Warning",
+                "description": "Insufficient season data to compare audience trends."
+            })
+            return
 
-            pivot.columns = ["_".join(map(str, col)) for col in pivot.columns]
-            pivot = pivot.dropna()
+        pivot.columns = ["_".join(map(str, col)) for col in pivot.columns]
+        pivot = pivot.dropna()
 
-            # -------------------------------------------------
-            # 4. Compute percentage changes
-            # -------------------------------------------------
-            pivot["audience_change_pct"] = (
-                (pivot.iloc[:, 0] - pivot.iloc[:, 2]) /
-                pivot.iloc[:, 2].replace(0, np.nan)
-            ).abs() * 100
+        # -------------------------------------------------
+        # 4. Compute percentage changes
+        # -------------------------------------------------
+        pivot["audience_change_pct"] = (
+            (pivot.iloc[:, 0] - pivot.iloc[:, 2]) /
+            pivot.iloc[:, 2].replace(0, np.nan)
+        ).abs() * 100
 
-            pivot["bc_line_change_pct"] = (
-                (pivot.iloc[:, 1] - pivot.iloc[:, 3]) /
-                pivot.iloc[:, 3].replace(0, np.nan)
-            ).abs() * 100
+        pivot["bc_line_change_pct"] = (
+            (pivot.iloc[:, 1] - pivot.iloc[:, 3]) /
+            pivot.iloc[:, 3].replace(0, np.nan)
+        ).abs() * 100
 
-            # -------------------------------------------------
-            # 5. Flag illogical movements
-            # -------------------------------------------------
-            flagged = pivot[
-                (pivot["audience_change_pct"] >= 30) &
-                (pivot["bc_line_change_pct"] <= 10)
-            ]
+        # -------------------------------------------------
+        # 5. Flag illogical movements
+        # -------------------------------------------------
+        flagged = pivot[
+            (pivot["audience_change_pct"] >= 30) &
+            (pivot["bc_line_change_pct"] <= 10)
+        ]
 
-            if flagged.empty:
-                self.results_log.append({
-                    "check_key": check_key,
-                    "status": "Success",
-                    "description": "Season-level audience trends align with BC line movement."
-                })
-            else:
-                examples = flagged.reset_index().head(5).to_dict(orient="records")
-                self.results_log.append({
-                    "check_key": check_key,
-                    "status": "Warning",
-                    "description": (
-                        f"{len(flagged)} market/channel combinations show "
-                        f"audience variance not supported by BC line change. "
-                        f"Examples: {examples}"
-                    )
-                })
+        if flagged.empty:
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Success",
+                "description": "Season-level audience trends align with BC line movement."
+            })
+        else:
+            examples = flagged.reset_index().head(5).to_dict(orient="records")
+            self.results_log.append({
+                "check_key": check_key,
+                "status": "Warning",
+                "description": (
+                    f"{len(flagged)} market/channel combinations show "
+                    f"audience variance not supported by BC line change. "
+                    f"Examples: {examples}"
+                )
+            })    
 
     # --- S.NO 3: Consolidation Check ---
     def consolidation_check(self):
