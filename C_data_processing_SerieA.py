@@ -2,45 +2,46 @@ import pandas as pd
 import numpy as np
 import os
 
+import pandas as pd
+
 class SerieAValidator:
+
     def __init__(self, df, duplicator_path=None, infront_path=None):
-        """
-        Initializes the Serie A Validator with the main dataframe and
-        optional reference files.
-        """
-        # Copy dataframe to avoid modifying the original input
+
         self.df = df.copy()
 
-        # Normalize column names for consistency across all checks
+        # Normalize BSR columns
         self.df.columns = (
-            self.df.columns
-            .astype(str)
-            .str.strip()
-            .str.lower()
+            self.df.columns.astype(str)
+            .str.strip().str.lower()
             .str.replace(" ", "_", regex=False)
         )
 
-        # Store reference file paths
-        self.duplicator_path = duplicator_path
-        self.infront_path = infront_path
-
-        # Initialize results log
         self.results_log = []
 
-        # Ensure required fallback columns exist
-        if "start_time" not in self.df.columns:
-            if "start" in self.df.columns:
-                self.df["start_time"] = self.df["start"]
-            else:
-                self.df["start_time"] = None
+        # ---------------- LOAD DUPLICATOR ----------------
+        self.dup_df = None
+        if duplicator_path:
+            try:
+                self.dup_df = pd.read_excel(duplicator_path, sheet_name="Data core")
+            except Exception as e:
+                self.results_log.append({
+                    "check": "Duplicator Load",
+                    "status": "Error",
+                    "description": f"Failed to load duplicator file: {str(e)}"
+                })
 
-        if "program_title" not in self.df.columns:
-            if "program_title" in self.df.columns:
-                pass
-            elif "program title" in self.df.columns:
-                self.df["program_title"] = self.df["program title"]
-            else:
-                self.df["program_title"] = ""
+        # ---------------- LOAD INFRONT ----------------
+        self.infront_df = None
+        if infront_path:
+            try:
+                self.infront_df = pd.read_excel(infront_path)
+            except Exception as e:
+                self.results_log.append({
+                    "check": "Infront Load",
+                    "status": "Error",
+                    "description": f"Failed to load infront file: {str(e)}"
+                })
         
 
     def market_check_processor(self, active_checks):
@@ -72,123 +73,89 @@ class SerieAValidator:
 
     # --- S.NO 1: Market Duplicator Check ---
     def check_missing_duplicator_data(self):
-        """
-        Ensures that markets defined as 'Duplicated Markets'
-        have at least one broadcast line in final output.
-        """
 
-        check_key = "check_missing_duplicator_data"
+    # ---------------- FILE CHECK ----------------
+    if self.dup_df is None:
+        self.results_log.append({
+            "check": "Duplicator Mapping",
+            "status": "Skipped",
+            "description": "Duplicator file not provided"
+        })
+        return
 
-        # -----------------------------
-        # 1. Validate reference file
-        # -----------------------------
-        if not self.duplicator_path or not os.path.exists(self.duplicator_path):
-            self.results_log.append({
-                "check_key": check_key,
-                "status": "Error",
-                "description": "Duplicated markets reference file not found."
-            })
-            return
+    dup_df = self.dup_df.copy()
 
-        # -----------------------------
-        # 2. Read duplicated markets sheet
-        # -----------------------------
-        try:
-            dup_df = pd.read_excel(self.duplicator_path, sheet_name=0, header=None)
+    # ---------------- CLEAN COLUMN NAMES ----------------
+    dup_df.columns = (
+        dup_df.columns.astype(str)
+        .str.strip().str.lower()
+        .str.replace(" ", "_", regex=False)
+    )
 
-        for i in range(20):
-            row = dup_df.iloc[i].astype(str).str.lower().tolist()
-            if "market" in row and "channel" in row:
-                dup_df = pd.read_excel(self.duplicator_path, skiprows=i)
-                break
+    required_cols = ["orig_market", "orig_channel", "dup_market", "dup_channel"]
 
-        dup_df.columns = dup_df.columns.str.strip().str.lower()
-        except Exception as e:
-            self.results_log.append({
-                "check_key": check_key,
-                "status": "Error",
-                "description": f"Failed to read duplicated markets sheet: {str(e)}"
-            })
-            return
+    missing = [c for c in required_cols if c not in dup_df.columns]
 
-        # Normalize column names
-        dup_df.columns = dup_df.columns.str.strip().str.lower()
-        self.df.columns = self.df.columns.str.strip().str.lower()
+    if missing:
+        self.results_log.append({
+            "check": "Duplicator Mapping",
+            "status": "Error",
+            "description": f"Missing columns in duplicator file: {missing}"
+        })
+        return
 
-        required_dup_cols = {"market", "channel"}
+    # ---------------- CLEAN DATA ----------------
+    dup_df = dup_df.dropna(subset=required_cols)
 
-        dup_df.rename(columns={
-            "market name": "market",
-            "channel name": "channel"
-        }, inplace=True)
-        required_main_cols = {"market", "channel"}
+    # ---------------- BUILD LOOKUP SETS ----------------
+    orig_set = set(
+        zip(
+            dup_df["orig_market"].astype(str).str.lower().str.strip(),
+            dup_df["orig_channel"].astype(str).str.lower().str.strip()
+        )
+    )
 
-        if not required_dup_cols.issubset(dup_df.columns):
-            self.results_log.append({
-                "check_key": check_key,
-                "status": "Error",
-                "description": "Duplicated markets sheet missing Market / Channel columns."
-            })
-            return
+    dup_set = set(
+        zip(
+            dup_df["dup_market"].astype(str).str.lower().str.strip(),
+            dup_df["dup_channel"].astype(str).str.lower().str.strip()
+        )
+    )
 
-        if not required_main_cols.issubset(self.df.columns):
-            self.results_log.append({
-                "check_key": check_key,
-                "status": "Error",
-                "description": "Main dataset missing Market / Channel columns."
-            })
-            return
+    # ---------------- VALIDATE BSR ----------------
+    results = []
 
-        # -----------------------------
-        # 3. Expected duplicated outputs
-        # -----------------------------
-        expected_pairs = (
-            dup_df[["market", "channel"]]
-            .dropna()
-            .drop_duplicates()
+    for _, row in self.df.iterrows():
+
+        key = (
+            str(row.get("market", "")).lower().strip(),
+            str(row.get("channel", "")).lower().strip()
         )
 
-        # -----------------------------
-        # 4. Actual output presence
-        # -----------------------------
-        actual_pairs = (
-            self.df[["market", "channel"]]
-            .dropna()
-            .drop_duplicates()
-        )
-
-        # -----------------------------
-        # 5. Identify missing duplicated markets
-        # -----------------------------
-        merged = expected_pairs.merge(
-            actual_pairs,
-            on=["market", "channel"],
-            how="left",
-            indicator=True
-        )
-
-        missing_df = merged[merged["_merge"] == "left_only"]
-
-        # -----------------------------
-        # 6. Log results
-        # -----------------------------
-        if missing_df.empty:
-            self.results_log.append({
-                "check_key": check_key,
-                "status": "Success",
-                "description": "All duplicated markets have broadcast output."
-            })
+        if key in orig_set or key in dup_set:
+            results.append(True)
         else:
-            examples = missing_df.head(5).to_dict(orient="records")
+            results.append(False)
 
-            self.results_log.append({
-                "check_key": check_key,
-                "status": "Warning",
-                "description": (
-                    f"{len(missing_df)} duplicated market/channel combinations "
-                    f"have no broadcast output. Examples: {examples}"
-                )
-            })
+    # ---------------- WRITE RESULT ----------------
+    self.df["duplicator_check"] = results
+
+    # Optional: convert to TRUE/FALSE string
+    self.df["duplicator_check"] = self.df["duplicator_check"].map({
+        True: "TRUE",
+        False: "FALSE"
+    })
+
+    # ---------------- LOG SUMMARY ----------------
+    passed = results.count(True)
+    failed = results.count(False)
+
+    self.results_log.append({
+        "check": "Duplicator Mapping",
+        "status": "Completed",
+        "passed": passed,
+        "failed": failed
+    })
 
     # --- S.NO 2: Audience Trend Analysis ---
     def compare_audience_trends(self):
