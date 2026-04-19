@@ -35,7 +35,7 @@ class SerieAValidator:
         self.infront_df = None
         if infront_path:
             try:
-                self.infront_df = pd.read_excel(infront_path)
+                self.infront_df = infront_path
             except Exception as e:
                 self.results_log.append({
                     "check": "Infront Load",
@@ -70,92 +70,91 @@ class SerieAValidator:
                     })
         
         return self.results_log
-
+    
     # --- S.NO 1: Market Duplicator Check ---
     def check_missing_duplicator_data(self):
 
-    # ---------------- FILE CHECK ----------------
-    if self.dup_df is None:
+        # ---------------- FILE CHECK ----------------
+        if self.dup_df is None:
+            self.results_log.append({
+                "check": "Duplicator Mapping",
+                "status": "Skipped",
+                "description": "Duplicator file not provided"
+            })
+            return
+
+        dup_df = self.dup_df.copy()
+
+        # ---------------- CLEAN COLUMN NAMES ----------------
+        dup_df.columns = (
+            dup_df.columns.astype(str)
+            .str.strip().str.lower()
+            .str.replace(" ", "_", regex=False)
+        )
+
+        required_cols = ["orig_market", "orig_channel", "dup_market", "dup_channel"]
+
+        missing = [c for c in required_cols if c not in dup_df.columns]
+
+        if missing:
+            self.results_log.append({
+                "check": "Duplicator Mapping",
+                "status": "Error",
+                "description": f"Missing columns in duplicator file: {missing}"
+            })
+            return
+
+        # ---------------- CLEAN DATA ----------------
+        dup_df = dup_df.dropna(subset=required_cols)
+
+        # ---------------- BUILD LOOKUP SETS ----------------
+        orig_set = set(
+            zip(
+                dup_df["orig_market"].astype(str).str.lower().str.strip(),
+                dup_df["orig_channel"].astype(str).str.lower().str.strip()
+            )
+        )
+
+        dup_set = set(
+            zip(
+                dup_df["dup_market"].astype(str).str.lower().str.strip(),
+                dup_df["dup_channel"].astype(str).str.lower().str.strip()
+            )
+        )
+
+        # ---------------- VALIDATE BSR ----------------
+        results = []
+
+        for _, row in self.df.iterrows():
+            key = (
+                str(row.get("market", "")).lower().strip(),
+                str(row.get("channel", "")).lower().strip()
+            )
+
+            if key in orig_set or key in dup_set:
+                results.append(True)
+            else:
+                results.append(False)
+
+        # ---------------- WRITE RESULT ----------------
+        self.df["duplicator_check"] = results
+
+        # Convert to TRUE / FALSE (Excel friendly)
+        self.df["duplicator_check"] = self.df["duplicator_check"].map({
+            True: "TRUE",
+            False: "FALSE"
+        })
+
+        # ---------------- LOG SUMMARY ----------------
+        passed = results.count(True)
+        failed = results.count(False)
+
         self.results_log.append({
             "check": "Duplicator Mapping",
-            "status": "Skipped",
-            "description": "Duplicator file not provided"
+            "status": "Completed",
+            "passed": passed,
+            "failed": failed
         })
-        return
-
-    dup_df = self.dup_df.copy()
-
-    # ---------------- CLEAN COLUMN NAMES ----------------
-    dup_df.columns = (
-        dup_df.columns.astype(str)
-        .str.strip().str.lower()
-        .str.replace(" ", "_", regex=False)
-    )
-
-    required_cols = ["orig_market", "orig_channel", "dup_market", "dup_channel"]
-
-    missing = [c for c in required_cols if c not in dup_df.columns]
-
-    if missing:
-        self.results_log.append({
-            "check": "Duplicator Mapping",
-            "status": "Error",
-            "description": f"Missing columns in duplicator file: {missing}"
-        })
-        return
-
-    # ---------------- CLEAN DATA ----------------
-    dup_df = dup_df.dropna(subset=required_cols)
-
-    # ---------------- BUILD LOOKUP SETS ----------------
-    orig_set = set(
-        zip(
-            dup_df["orig_market"].astype(str).str.lower().str.strip(),
-            dup_df["orig_channel"].astype(str).str.lower().str.strip()
-        )
-    )
-
-    dup_set = set(
-        zip(
-            dup_df["dup_market"].astype(str).str.lower().str.strip(),
-            dup_df["dup_channel"].astype(str).str.lower().str.strip()
-        )
-    )
-
-    # ---------------- VALIDATE BSR ----------------
-    results = []
-
-    for _, row in self.df.iterrows():
-
-        key = (
-            str(row.get("market", "")).lower().strip(),
-            str(row.get("channel", "")).lower().strip()
-        )
-
-        if key in orig_set or key in dup_set:
-            results.append(True)
-        else:
-            results.append(False)
-
-    # ---------------- WRITE RESULT ----------------
-    self.df["duplicator_check"] = results
-
-    # Optional: convert to TRUE/FALSE string
-    self.df["duplicator_check"] = self.df["duplicator_check"].map({
-        True: "TRUE",
-        False: "FALSE"
-    })
-
-    # ---------------- LOG SUMMARY ----------------
-    passed = results.count(True)
-    failed = results.count(False)
-
-    self.results_log.append({
-        "check": "Duplicator Mapping",
-        "status": "Completed",
-        "passed": passed,
-        "failed": failed
-    })
 
     # --- S.NO 2: Audience Trend Analysis ---
     def compare_audience_trends(self):
