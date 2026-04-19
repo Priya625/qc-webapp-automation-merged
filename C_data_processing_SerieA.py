@@ -119,7 +119,6 @@ class SerieAValidator:
 
         dup_df = self.dup_df.copy()
 
-        # ---------------- REQUIRED COLUMNS ----------------
         required_cols = ["orig_market", "orig_channel", "dup_market", "dup_channel"]
 
         missing = [c for c in required_cols if c not in dup_df.columns]
@@ -135,38 +134,65 @@ class SerieAValidator:
         # ---------------- CLEAN ----------------
         dup_df = dup_df.dropna(subset=required_cols)
 
-        # Normalize
         dup_df["orig_market"] = dup_df["orig_market"].astype(str).str.lower().str.strip()
         dup_df["orig_channel"] = dup_df["orig_channel"].astype(str).str.lower().str.strip()
         dup_df["dup_market"] = dup_df["dup_market"].astype(str).str.lower().str.strip()
         dup_df["dup_channel"] = dup_df["dup_channel"].astype(str).str.lower().str.strip()
 
-        # ---------------- CREATE LOOKUP ----------------
-        valid_pairs = set(
-            zip(dup_df["orig_market"], dup_df["orig_channel"])
-        ).union(
-            set(zip(dup_df["dup_market"], dup_df["dup_channel"]))
-        )
+        # ---------------- CREATE LOOKUPS ----------------
+        orig_pairs = set(zip(dup_df["orig_market"], dup_df["orig_channel"]))
+        dup_pairs = set(zip(dup_df["dup_market"], dup_df["dup_channel"]))
+
+        all_valid_pairs = orig_pairs.union(dup_pairs)
+
+        all_markets = set(dup_df["orig_market"]).union(set(dup_df["dup_market"]))
+        all_channels = set(dup_df["orig_channel"]).union(set(dup_df["dup_channel"]))
 
         # ---------------- APPLY CHECK ----------------
-        def check_row(row):
-            key = (
-                str(row.get("market", "")).lower().strip(),
-                str(row.get("channel", "")).lower().strip()
-            )
-            return "TRUE" if key in valid_pairs else "FALSE"
+        results = []
+        remarks = []
 
-        self.df["duplicator_check"] = self.df.apply(check_row, axis=1)
+        for _, row in self.df.iterrows():
+
+            market = str(row.get("market", "")).lower().strip()
+            channel = str(row.get("channel", "")).lower().strip()
+
+            key = (market, channel)
+
+            # ✅ TRUE CASE
+            if key in all_valid_pairs:
+                results.append("TRUE")
+                remarks.append("")
+
+            # ❌ FALSE CASES
+            else:
+                results.append("FALSE")
+
+                if market in all_markets and channel not in all_channels:
+                    remarks.append("Market exists but channel not mapped in duplicator")
+
+                elif channel in all_channels and market not in all_markets:
+                    remarks.append("Channel exists but market not mapped in duplicator")
+
+                elif market in all_markets and channel in all_channels:
+                    remarks.append("Market & Channel exist but not mapped together")
+
+                else:
+                    remarks.append("Market & Channel both not found in duplicator")
+
+        # ---------------- WRITE RESULT ----------------
+        self.df["duplicator_check"] = results
+        self.df["duplicator_remark"] = remarks
 
         # ---------------- SUMMARY ----------------
-        passed = (self.df["duplicator_check"] == "TRUE").sum()
-        failed = (self.df["duplicator_check"] == "FALSE").sum()
+        passed = results.count("TRUE")
+        failed = results.count("FALSE")
 
         self.results_log.append({
             "check": check_name,
             "status": "Completed",
-            "passed": int(passed),
-            "failed": int(failed)
+            "passed": passed,
+            "failed": failed
         })
 
     # --- S.NO 2: Audience Trend Analysis ---
