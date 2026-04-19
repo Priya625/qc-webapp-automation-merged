@@ -2,8 +2,6 @@ import pandas as pd
 import numpy as np
 import os
 
-import pandas as pd
-
 class SerieAValidator:
 
     def __init__(self, df, duplicator_path=None, infront_path=None):
@@ -13,7 +11,8 @@ class SerieAValidator:
         # Normalize BSR columns
         self.df.columns = (
             self.df.columns.astype(str)
-            .str.strip().str.lower()
+            .str.strip()
+            .str.lower()
             .str.replace(" ", "_", regex=False)
         )
 
@@ -21,62 +20,73 @@ class SerieAValidator:
 
         # ---------------- LOAD DUPLICATOR ----------------
         self.dup_df = None
+
         if duplicator_path:
             try:
                 excel_file = pd.ExcelFile(duplicator_path)
 
-                # Normalize all sheet names
-                sheet_map = {s.lower().strip(): s for s in excel_file.sheet_names}
+                # DEBUG
+                print("Available sheets:", excel_file.sheet_names)
 
-                if "data core" in sheet_map:
-                    correct_sheet_name = sheet_map["data core"]
-                    self.dup_df = pd.read_excel(duplicator_path, sheet_name=correct_sheet_name)
-                    
-                    self.results_log.append({
-                        "check": "Duplicator Load",
-                        "status": "Success",
-                        "description": f"Loaded sheet: {correct_sheet_name}"
-                    })
+                # Try different header rows automatically
+                for header_row in [0, 1, 2, 3]:
+                    try:
+                        temp_df = pd.read_excel(
+                            duplicator_path,
+                            sheet_name="Data Core",
+                            header=header_row
+                        )
 
-                else:
-                    self.results_log.append({
-                        "check": "Duplicator Load",
-                        "status": "Error",
-                        "description": f"'Data Core' sheet not found. Available sheets: {excel_file.sheet_names}"
-                    })
+                        temp_df.columns = (
+                            temp_df.columns.astype(str)
+                            .str.strip()
+                            .str.lower()
+                            .str.replace(" ", "_")
+                        )
+
+                        if "orig_market" in temp_df.columns:
+                            self.dup_df = temp_df
+                            print(f"✅ Correct header found at row {header_row}")
+                            break
+
+                    except:
+                        continue
+
+                if self.dup_df is None:
+                    raise Exception("Could not detect correct header row")
+
+                self.results_log.append({
+                    "check": "Duplicator Load",
+                    "status": "Success",
+                    "description": "Loaded sheet: Data Core"
+                })
 
             except Exception as e:
                 self.results_log.append({
                     "check": "Duplicator Load",
                     "status": "Error",
-                    "description": f"Failed to load duplicator file: {str(e)}"
+                    "description": str(e)
                 })
 
         # ---------------- LOAD INFRONT ----------------
         self.infront_df = None
         if infront_path:
             try:
-                self.infront_df = infront_path
+                self.infront_df = pd.read_excel(infront_path)
             except Exception as e:
                 self.results_log.append({
                     "check": "Infront Load",
                     "status": "Error",
-                    "description": f"Failed to load infront file: {str(e)}"
+                    "description": str(e)
                 })
-        
 
+    # =========================================================
+    # MAIN PROCESSOR
+    # =========================================================
     def market_check_processor(self, active_checks):
-        """Dispatches the selected checks to their respective functions."""
-        
-        # This map connects the keys in Streamlit to the functions below
+
         check_map = {
-            "check_missing_duplicator_data": self.check_missing_duplicator_data,
-            "compare_audience_trends": self.compare_audience_trends,
-            "consolidation_check": self.consolidation_check,
-            "filter_irrelevant_data": self.filter_irrelevant_data,
-            "exclude_pre_post_programs": self.exclude_pre_post_programs,
-            "remove_identical_broadcasts": self.remove_identical_broadcasts,
-            "upload_issue_audit": self.upload_issue_audit
+            "check_missing_duplicator_data": self.check_missing_duplicator_data
         }
 
         for check_key in active_checks:
@@ -85,14 +95,16 @@ class SerieAValidator:
                     check_map[check_key]()
                 except Exception as e:
                     self.results_log.append({
-                        "check_key": check_key,
+                        "check": check_key,
                         "status": "Error",
-                        "description": f"Function failed: {str(e)}"
+                        "description": str(e)
                     })
-        
+
         return self.results_log
-    
-    # --- S.NO 1: Market Duplicator Check ---
+
+    # =========================================================
+    # CHECK 1: DUPLICATOR VALIDATION
+    # =========================================================
     def check_missing_duplicator_data(self):
 
         check_name = "Duplicator Mapping"
@@ -101,22 +113,13 @@ class SerieAValidator:
             self.results_log.append({
                 "check": check_name,
                 "status": "Skipped",
-                "description": "Duplicator file not provided"
+                "description": "Duplicator not loaded"
             })
             return
 
         dup_df = self.dup_df.copy()
 
-        # ---------------- CLEAN COLUMN NAMES ----------------
-        dup_df.columns = (
-            dup_df.columns.astype(str)
-            .str.strip().str.lower()
-            .str.replace(" ", "_", regex=False)
-        )
-
-        # ---------------- DEBUG PRINT ----------------
-        print("Duplicator columns:", dup_df.columns.tolist())
-
+        # ---------------- REQUIRED COLUMNS ----------------
         required_cols = ["orig_market", "orig_channel", "dup_market", "dup_channel"]
 
         missing = [c for c in required_cols if c not in dup_df.columns]
@@ -129,52 +132,41 @@ class SerieAValidator:
             })
             return
 
-        # ---------------- BUILD LOOKUP ----------------
-        orig_set = set(zip(
-            dup_df["orig_market"].astype(str).str.lower().str.strip(),
-            dup_df["orig_channel"].astype(str).str.lower().str.strip()
-        ))
+        # ---------------- CLEAN ----------------
+        dup_df = dup_df.dropna(subset=required_cols)
 
-        dup_set = set(zip(
-            dup_df["dup_market"].astype(str).str.lower().str.strip(),
-            dup_df["dup_channel"].astype(str).str.lower().str.strip()
-        ))
+        # Normalize
+        dup_df["orig_market"] = dup_df["orig_market"].astype(str).str.lower().str.strip()
+        dup_df["orig_channel"] = dup_df["orig_channel"].astype(str).str.lower().str.strip()
+        dup_df["dup_market"] = dup_df["dup_market"].astype(str).str.lower().str.strip()
+        dup_df["dup_channel"] = dup_df["dup_channel"].astype(str).str.lower().str.strip()
+
+        # ---------------- CREATE LOOKUP ----------------
+        valid_pairs = set(
+            zip(dup_df["orig_market"], dup_df["orig_channel"])
+        ).union(
+            set(zip(dup_df["dup_market"], dup_df["dup_channel"]))
+        )
 
         # ---------------- APPLY CHECK ----------------
-        result_col = []
-        remarks_col = []
-
-        for _, row in self.df.iterrows():
-
+        def check_row(row):
             key = (
                 str(row.get("market", "")).lower().strip(),
                 str(row.get("channel", "")).lower().strip()
             )
+            return "TRUE" if key in valid_pairs else "FALSE"
 
-            if key in orig_set:
-                result_col.append("TRUE")
-                remarks_col.append("Matched in Orig Mapping")
-
-            elif key in dup_set:
-                result_col.append("TRUE")
-                remarks_col.append("Matched in Dup Mapping")
-
-            else:
-                result_col.append("FALSE")
-                remarks_col.append("No mapping found")
-
-        # ---------------- ADD TO OUTPUT ----------------
-        self.df["duplicator_check_result"] = result_col
-        self.df["duplicator_check_remarks"] = remarks_col
+        self.df["duplicator_check"] = self.df.apply(check_row, axis=1)
 
         # ---------------- SUMMARY ----------------
-        passed = result_col.count("TRUE")
-        failed = result_col.count("FALSE")
+        passed = (self.df["duplicator_check"] == "TRUE").sum()
+        failed = (self.df["duplicator_check"] == "FALSE").sum()
 
         self.results_log.append({
             "check": check_name,
             "status": "Completed",
-            "description": f"{passed} passed, {failed} failed"
+            "passed": int(passed),
+            "failed": int(failed)
         })
 
     # --- S.NO 2: Audience Trend Analysis ---
