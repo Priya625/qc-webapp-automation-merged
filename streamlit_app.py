@@ -1911,7 +1911,7 @@ with serie_a_tab:
     
     st.markdown("Upload the required files here to perform Serie A specific validations.")
 
-    # --- 1. File Uploaders ---
+    # ---------------- FILE UPLOAD ----------------
     col_file1, col_file2, col_file3 = st.columns(3)
     with col_file1:
         sa_bsr_file = st.file_uploader("📥 Upload BSR File (.xlsx)", type=["xlsx"], key="sa_bsr")
@@ -1921,91 +1921,123 @@ with serie_a_tab:
         sa_infront_file = st.file_uploader("📈 Upload Infront Reference (.xlsx)", type=["xlsx"], key="sa_infront")
 
     st.write("---")
-    st.write("detected columns:", df_to_process.columns.tolist() if 'df_to_process' in locals() else "No file loaded yet.")
-    # --- 2. Select All Logic ---
+
+    # ---------------- SELECT ALL ----------------
     def toggle_all_sa():
         for key in all_market_check_keys_serie_a.keys():
             st.session_state[f"sa_{key}"] = st.session_state.select_all_sa
 
     st.checkbox("Select All Serie A Checks", key="select_all_sa", on_change=toggle_all_sa)
 
-    # --- 3. Checkbox Grid ---
+    # ---------------- CHECKBOXES ----------------
     st.subheader("Select Required Checks")
-    
-    # Initialize session states for checkboxes if not exist
+
     for key in all_market_check_keys_serie_a.keys():
         if f"sa_{key}" not in st.session_state:
             st.session_state[f"sa_{key}"] = False
 
-    # Render Checkboxes in two columns for better layout
     sa_col1, sa_col2 = st.columns(2)
     keys = list(all_market_check_keys_serie_a.keys())
-    
+
     for i, key in enumerate(keys):
-        target_col = sa_col1 if i % 2 == 0 else sa_col2
-        target_col.checkbox(all_market_check_keys_serie_a[key], key=f"sa_{key}")
+        col = sa_col1 if i % 2 == 0 else sa_col2
+        col.checkbox(all_market_check_keys_serie_a[key], key=f"sa_{key}")
 
     st.write("---")
 
-    # --- 4. Run Processing Button ---
+    # ---------------- RUN BUTTON ----------------
     if st.button("🚀 Run Selected Serie A Checks"):
-        # We strip "sa_" from the keys to match the function names in your new Validator class
-        active_sa_checks = [key for key in all_market_check_keys_serie_a.keys() if st.session_state[f"sa_{key}"]]
-        
+
+        active_sa_checks = [
+            key for key in all_market_check_keys_serie_a.keys()
+            if st.session_state[f"sa_{key}"]
+        ]
+
         if not sa_bsr_file:
             st.error("⚠️ Please upload the BSR file to proceed.")
         elif not active_sa_checks:
-            st.warning("⚠️ Please select at least one check to run.")
+            st.warning("⚠️ Please select at least one check.")
         else:
-            with st.spinner(f"Running {len(active_sa_checks)} Serie A checks..."):
+            with st.spinner("Running Serie A checks..."):
                 try:
-                    # 1. Save files temporarily to disk
+                    # ---------------- SAVE FILES ----------------
                     bsr_path = os.path.join(UPLOAD_FOLDER, sa_bsr_file.name)
-                    with open(bsr_path, "wb") as f: 
+                    with open(bsr_path, "wb") as f:
                         f.write(sa_bsr_file.getbuffer())
-                    
+
                     dupe_path = None
                     if sa_duplicator_file:
                         dupe_path = os.path.join(UPLOAD_FOLDER, sa_duplicator_file.name)
-                        with open(dupe_path, "wb") as f: f.write(sa_duplicator_file.getbuffer())
+                        with open(dupe_path, "wb") as f:
+                            f.write(sa_duplicator_file.getbuffer())
 
                     infront_path = None
                     if sa_infront_file:
                         infront_path = os.path.join(UPLOAD_FOLDER, sa_infront_file.name)
-                        with open(infront_path, "wb") as f: f.write(sa_infront_file.getbuffer())
+                        with open(infront_path, "wb") as f:
+                            f.write(sa_infront_file.getbuffer())
 
-                    # 2. Load the main dataframe
-                    df_to_process = read_excel_with_dynamic_header(bsr_path,
-                                                                   required_columns=("Market", "Channel")
-                        )
+                    # ---------------- LOAD BSR (CRITICAL FIX) ----------------
+                    df_to_process = qc_general.load_bsr(bsr_path)
 
-                    # 3. Initialize your NEW Serie A Validator
+                    # Normalize column names
+                    df_to_process.columns = (
+                        df_to_process.columns
+                        .astype(str)
+                        .str.strip()
+                        .str.lower()
+                        .str.replace(" ", "_", regex=False)
+                    )
+
+                    # ---------------- COLUMN STANDARDIZATION ----------------
+                    rename_map = {
+                        "program title": "program_title",
+                        "start": "start_time",
+                        "start_utc": "start_time",
+                        "duration": "duration",
+                        "source": "source",
+                        "market": "market",
+                        "channel": "channel"
+                    }
+
+                    df_to_process.rename(columns=rename_map, inplace=True)
+
+                    # ---------------- SAFETY CHECK ----------------
+                    required_cols = ["market", "channel"]
+                    missing_cols = [c for c in required_cols if c not in df_to_process.columns]
+
+                    if missing_cols:
+                        st.error(f"❌ Missing required columns: {missing_cols}")
+                        st.stop()
+
+                    # ---------------- RUN VALIDATOR ----------------
                     from C_data_processing_SerieA import SerieAValidator
+
                     validator = SerieAValidator(
-                        df=df_to_process, 
-                        duplicator_path=dupe_path, 
+                        df=df_to_process,
+                        duplicator_path=dupe_path,
                         infront_path=infront_path
                     )
-                    
-                    # 4. Run the checks and get results
+
                     status_summaries = validator.market_check_processor(active_sa_checks)
                     df_processed = validator.df
-                    
+
                     st.success("✅ Serie A Checks completed!")
-                    
-                    # 5. Display the Summary Table
+
+                    # ---------------- SUMMARY ----------------
                     if status_summaries:
                         st.subheader("Processing Summary")
                         st.dataframe(pd.DataFrame(status_summaries), use_container_width=True)
-                    
-                    # 6. Save the processed data to a real Excel file for download
+
+                    # ---------------- EXPORT ----------------
                     output_filename = f"Serie_A_QC_Result_{int(time.time())}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_filename)
+
                     df_processed = stringify_datetime_columns(df_processed.copy())
+
                     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
                         df_processed.to_excel(writer, index=False, sheet_name="Serie A Processed")
-                    
-                    # 7. Provide the REAL Download Button
+
                     with open(output_path, "rb") as f:
                         st.download_button(
                             label="📥 Download Serie A QC Result",
@@ -2016,7 +2048,7 @@ with serie_a_tab:
 
                 except Exception as e:
                     st.error(f"❌ Error during Serie A processing: {e}")
-                    st.exception(e) # This will show the full error trace for debugging
+                    st.exception(e)
 
 # -----------------------------------------------------------
 #          📊 BSA EARLY WARNING DASHBOARD TAB 

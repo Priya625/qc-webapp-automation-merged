@@ -26,6 +26,21 @@ class SerieAValidator:
 
         # Initialize results log
         self.results_log = []
+
+        # Ensure required fallback columns exist
+        if "start_time" not in self.df.columns:
+            if "start" in self.df.columns:
+                self.df["start_time"] = self.df["start"]
+            else:
+                self.df["start_time"] = None
+
+        if "program_title" not in self.df.columns:
+            if "program_title" in self.df.columns:
+                pass
+            elif "program title" in self.df.columns:
+                self.df["program_title"] = self.df["program title"]
+            else:
+                self.df["program_title"] = ""
         
 
     def market_check_processor(self, active_checks):
@@ -79,7 +94,15 @@ class SerieAValidator:
         # 2. Read duplicated markets sheet
         # -----------------------------
         try:
-            dup_df = pd.read_excel(self.duplicator_path, sheet_name=0)
+            dup_df = pd.read_excel(self.duplicator_path, sheet_name=0, header=None)
+
+        for i in range(20):
+            row = dup_df.iloc[i].astype(str).str.lower().tolist()
+            if "market" in row and "channel" in row:
+                dup_df = pd.read_excel(self.duplicator_path, skiprows=i)
+                break
+
+        dup_df.columns = dup_df.columns.str.strip().str.lower()
         except Exception as e:
             self.results_log.append({
                 "check_key": check_key,
@@ -93,6 +116,11 @@ class SerieAValidator:
         self.df.columns = self.df.columns.str.strip().str.lower()
 
         required_dup_cols = {"market", "channel"}
+
+        dup_df.rename(columns={
+            "market name": "market",
+            "channel name": "channel"
+        }, inplace=True)
         required_main_cols = {"market", "channel"}
 
         if not required_dup_cols.issubset(dup_df.columns):
