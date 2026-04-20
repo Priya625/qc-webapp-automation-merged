@@ -836,12 +836,12 @@ with home_page_tab:
         st.session_state.show_updates = False
     col1, col2 = st.columns([8,1])
     with col2:
-        if st.button("📢 Updates"):
+        if st.button("📢New Updates"):
             st.session_state.show_updates = not st.session_state.show_updates
     # ---------------- WHAT'S NEW SECTION ----------------
     if st.session_state.show_updates:
         st.markdown("---")
-        st.markdown("## 🆕 What's New")
+        st.markdown("### 🆕 What's New")
         st.caption("Latest updates in QC Automation Portal")
         latest = WHATS_NEW_DATA[0]
         older_versions = WHATS_NEW_DATA[1:]
