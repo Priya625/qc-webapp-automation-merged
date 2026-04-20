@@ -342,6 +342,39 @@ config = load_config()
 if config is None:
     st.stop()
 
+# -------------------- 🆕 WHAT'S NEW DATA --------------------
+WHATS_NEW_DATA = [
+    {
+        "version": "v1.1",
+        "date": "April 2026",
+        "changes": {
+            "New Features": [
+                "Added Laliga QC module",
+                "Added F1 Market checks"
+            ],
+            "Improvements": [
+                "Improved file upload stability"
+            ],
+            "Bug Fixes": [
+                "Fixed UTC column blocking issue"
+            ],
+            "QC Logic Updates": [
+                "Improved program category classification"
+            ]
+        }
+    },
+    {
+        "version": "v1.0",
+        "date": "April 2026",
+        "changes": {
+            "New Features": [
+                "Initial QC Automation release",
+                "Main QC checks implemented"
+            ]
+        }
+    }
+]
+
 # -------------------- 🌐 Streamlit UI --------------------
 LOGO_PATH_4 = "images/Nielsen_Sports_logo.svg"
 
@@ -695,7 +728,95 @@ with home_page_tab:
     # --- Header Section (Centered) ---
     st.markdown("<div class='header-title'> Nielsen  Automation Portal</div>", unsafe_allow_html=True)
     st.markdown("<p class='subtitle'>The central hub for data integrity, transformation, and complex market modeling for Sports BSR data.</p>", unsafe_allow_html=True)
-    
+    st.markdown("### Current Version: v1.1 (April 2026)", unsafe_allow_html=True)
+    # -------------------- 🆕 WHAT'S NEW BUTTON --------------------
+    if "show_whats_new" not in st.session_state:
+        st.session_state.show_whats_new = False
+
+    colA, colB = st.columns([8, 1])
+
+    with colB:
+        if st.button("🆕 What's New"):
+            st.session_state.show_whats_new = True
+
+
+    # -------------------- 🆕 POPUP PANEL --------------------
+    if st.session_state.show_whats_new:
+
+        st.markdown("""
+        <style>
+        .whatsnew-popup {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            width: 420px;
+            max-height: 80vh;
+            overflow-y: auto;
+            background-color: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0px 10px 30px rgba(0,0,0,0.25);
+            z-index: 9999;
+            border: 1px solid #E0E0E0;
+        }
+
+        .whatsnew-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: #B30095;
+            margin-bottom: 5px;
+        }
+
+        .whatsnew-section {
+            margin-top: 10px;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+        st.markdown('<div class="whatsnew-popup">', unsafe_allow_html=True)
+
+        # Header row
+        h1, h2 = st.columns([5,1])
+
+        with h1:
+            st.markdown("<div class='whatsnew-title'>🆕 What's New</div>", unsafe_allow_html=True)
+
+        with h2:
+            if st.button("❌", key="close_whats_new"):
+                st.session_state.show_whats_new = False
+
+        st.caption("Latest updates in QC Automation Portal")
+
+        st.markdown("---")
+
+        # Loop through releases (latest first)
+        for release in WHATS_NEW_DATA[::-1]:
+
+            with st.expander(f"{release['version']} – {release['date']}", expanded=True):
+
+                changes = release.get("changes", {})
+
+                if "New Features" in changes:
+                    st.markdown("**🚀 New Features**")
+                    for item in changes["New Features"]:
+                        st.write(f"- {item}")
+
+                if "Improvements" in changes:
+                    st.markdown("**🔧 Improvements**")
+                    for item in changes["Improvements"]:
+                        st.write(f"- {item}")
+
+                if "Bug Fixes" in changes:
+                    st.markdown("**🐞 Bug Fixes**")
+                    for item in changes["Bug Fixes"]:
+                        st.write(f"- {item}")
+
+                if "QC Logic Updates" in changes:
+                    st.markdown("**📊 QC Logic Updates**")
+                    for item in changes["QC Logic Updates"]:
+                        st.write(f"- {item}")
+
+        st.markdown("</div>", unsafe_allow_html=True)
     # # --- 1. Navigation Guide (Central Hero Section) ---
     # # st.markdown("<div class='nav-container'>", unsafe_allow_html=True)
     # st.markdown("<h3>Modules</h3>", unsafe_allow_html=True)
