@@ -869,12 +869,17 @@ with home_page_tab:
     st.markdown('<div class="subtitle">The central hub for data integrity, transformation, and market modeling</div>', unsafe_allow_html=True)
     st.markdown('<div class="version-text">Current Version: v1.1 (April 2026)</div>', unsafe_allow_html=True)
     # ---------------- BUTTON ----------------
+    # --- 🆕 UPDATES BUTTON LOGIC ---
     if "show_updates" not in st.session_state:
         st.session_state.show_updates = False
-    col1, col2 = st.columns([8,1])
+
+    col1, col2 = st.columns([8, 1])
     with col2:
-        st.markdown('<button class="fancy-btn">🚀 New Updates</button>', unsafe_allow_html=True)
-    # ---------------- WHAT'S NEW SECTION ----------------
+        if st.button("🚀 New Updates"):
+            st.session_state.show_updates = not st.session_state.show_updates
+            st.rerun() # Forces the page to refresh and show/hide the section
+
+    # --- WHAT'S NEW SECTION ---
     if st.session_state.show_updates:
         st.markdown("---")
         st.markdown("### 🆕 What's New")
