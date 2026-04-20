@@ -603,232 +603,301 @@ all_market_check_keys_serie_a = {
 
 with home_page_tab:
     # --- Custom CSS for Styling ---
-    st.markdown(
-        """
-        <style>
-            /* Ensure the overall background color is applied */
-            .stApp {
-                background-color:  #FFFFFF; 
-            }
+    # st.markdown(
+    #     """
+    #     <style>
+    #         /* Ensure the overall background color is applied */
+    #         .stApp {
+    #             background-color:  #FFFFFF; 
+    #         }
 
-            .stApp > header {
-                text-align: center;
-            }
+    #         .stApp > header {
+    #             text-align: center;
+    #         }
 
-            .stTabs [data-baseweb="tab-list"] {
-                justify-content: flex-start !important;
-                gap: 12px !important;
-                overflow-x: auto !important;
-                white-space: nowrap !important;
-                scrollbar-width: thin;
-            }
+    #         .stTabs [data-baseweb="tab-list"] {
+    #             justify-content: flex-start !important;
+    #             gap: 12px !important;
+    #             overflow-x: auto !important;
+    #             white-space: nowrap !important;
+    #             scrollbar-width: thin;
+    #         }
 
-            /* Optional: nicer scrollbar */
-            .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar {
-                height: 6px;
-            }
-            .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb {
-                background: #c1c1c1;
-                border-radius: 15px;
-            }
+    #         /* Optional: nicer scrollbar */
+    #         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar {
+    #             height: 6px;
+    #         }
+    #         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar-thumb {
+    #             background: #c1c1c1;
+    #             border-radius: 15px;
+    #         }
             
             
-            /* Main Header Styling */
-            .header-title {
-                color: #0049BE; /* Vibrant Corporate Blue */
-                font-size: 3.5em;
-                font-weight: 900;
-                text-align: center;
-                padding-top: 80px; /* <-- INCREASED TOP SPACE */
-            }
-            .subtitle {
-                color:  #259600; 
-                font-size: 1.3em;
-                text-align: center;
-                margin-bottom: 8em; /* <-- INCREASED BOTTOM SPACE */
-            }
+    #         /* Main Header Styling */
+    #         .header-title {
+    #             color: #0049BE; /* Vibrant Corporate Blue */
+    #             font-size: 3.5em;
+    #             font-weight: 900;
+    #             text-align: center;
+    #             padding-top: 80px; /* <-- INCREASED TOP SPACE */
+    #         }
+    #         .subtitle {
+    #             color:  #259600; 
+    #             font-size: 1.3em;
+    #             text-align: center;
+    #             margin-bottom: 8em; /* <-- INCREASED BOTTOM SPACE */
+    #         }
             
-            /* Navigation Section (Hero Container) */
-            .nav-container {
-                background-color: #FFFFFF; /* White background for the action area */
-                padding: 40px 50px;
-                border-radius: 15px;
-                box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15); /* Stronger shadow */
-                margin-bottom: 30px;
-                text-align: center;
-            }
-            .nav-container h3 {
-                color: #0047AB;
-                font-size: 1.8em;
-                margin-bottom: 0.5em;
-            }
-            .nav-item-list {
-                list-style-type: none; 
-                padding: -100;
-                display: flex; /* Flex layout for horizontal tabs/buttons */
-                justify-content: space-around;
-                margin-top: 20px;
-            }
-            .nav-item {
-                flex: 1;
-                margin: 0 10px;
-                padding: 15px 20px;
-                border: 2px solid #4D577D;
-                border-radius: 8px;
-                transition: transform 0.2s, border-color 0.2s;
-                text-align: center;
-                cursor: pointer;
-            }
-            .nav-item:hover {
-                transform: translateY(-3px);
-                border-color: #B30095; /* Blue hover accent */
-            }
+    #         /* Navigation Section (Hero Container) */
+    #         .nav-container {
+    #             background-color: #FFFFFF; /* White background for the action area */
+    #             padding: 40px 50px;
+    #             border-radius: 15px;
+    #             box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15); /* Stronger shadow */
+    #             margin-bottom: 30px;
+    #             text-align: center;
+    #         }
+    #         .nav-container h3 {
+    #             color: #0047AB;
+    #             font-size: 1.8em;
+    #             margin-bottom: 0.5em;
+    #         }
+    #         .nav-item-list {
+    #             list-style-type: none; 
+    #             padding: -100;
+    #             display: flex; /* Flex layout for horizontal tabs/buttons */
+    #             justify-content: space-around;
+    #             margin-top: 20px;
+    #         }
+    #         .nav-item {
+    #             flex: 1;
+    #             margin: 0 10px;
+    #             padding: 15px 20px;
+    #             border: 2px solid #4D577D;
+    #             border-radius: 8px;
+    #             transition: transform 0.2s, border-color 0.2s;
+    #             text-align: center;
+    #             cursor: pointer;
+    #         }
+    #         .nav-item:hover {
+    #             transform: translateY(-3px);
+    #             border-color: #B30095; /* Blue hover accent */
+    #         }
 
-            /* Capability Cards Styling (3-column layout) */
-            .metric-card {
-                background-color: #F7F7F9;
-                border-bottom: 4px solid var(--accent-color); /* Bottom border accent */
-                border-radius: 8px;
-                padding: 20px 20px;
-                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); 
-                height: 100%;
-                transition: box-shadow 0.3s;
-            }
-            .metric-card:hover {
-                box-shadow: 0 6px 15px rgba(0, 0, 0, 0.15); 
-            }
-            .metric-card h3 {
-                color: #1A5276; 
-                font-size: 1.2em;
-                font-weight: 700;
-                margin-bottom: 0.5em;
-            }
-            .metric-card p {
-                font-size: 0.9em;
-                color: #555;
-            }
-            .stHeader {
-                background-color: #E4F0F7; /* Ensures Streamlit headers match background */
-            }
-            /* Targets the entire file uploader container for subtle background changes */
-                div[data-testid="stFileUploader"] {
-                    background-color: #EAE4FF; /* Light Lavender Background */
-                    padding: 10px;
-                    border-radius: 10px;
-                }
-                /* Targets the actual upload button/text area */
-                div[data-testid="stFileUploaderDropzone"] {
-                    border: 2px dashed #0049BE; /* Custom Border Color */
-                }
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
+    #         /* Capability Cards Styling (3-column layout) */
+    #         .metric-card {
+    #             background-color: #F7F7F9;
+    #             border-bottom: 4px solid var(--accent-color); /* Bottom border accent */
+    #             border-radius: 8px;
+    #             padding: 20px 20px;
+    #             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); 
+    #             height: 100%;
+    #             transition: box-shadow 0.3s;
+    #         }
+    #         .metric-card:hover {
+    #             box-shadow: 0 6px 15px rgba(0, 0, 0, 0.15); 
+    #         }
+    #         .metric-card h3 {
+    #             color: #1A5276; 
+    #             font-size: 1.2em;
+    #             font-weight: 700;
+    #             margin-bottom: 0.5em;
+    #         }
+    #         .metric-card p {
+    #             font-size: 0.9em;
+    #             color: #555;
+    #         }
+    #         .stHeader {
+    #             background-color: #E4F0F7; /* Ensures Streamlit headers match background */
+    #         }
+    #         /* Targets the entire file uploader container for subtle background changes */
+    #             div[data-testid="stFileUploader"] {
+    #                 background-color: #EAE4FF; /* Light Lavender Background */
+    #                 padding: 10px;
+    #                 border-radius: 10px;
+    #             }
+    #             /* Targets the actual upload button/text area */
+    #             div[data-testid="stFileUploaderDropzone"] {
+    #                 border: 2px dashed #0049BE; /* Custom Border Color */
+    #             }
+    #     </style>
+    #     """,
+    #     unsafe_allow_html=True
+    # )
 
-    # --- Header Section (Centered) ---
-    st.markdown("<div class='header-title'> Nielsen  Automation Portal</div>", unsafe_allow_html=True)
-    st.markdown("<p class='subtitle'>The central hub for data integrity, transformation, and complex market modeling for Sports BSR data.</p>", unsafe_allow_html=True)
-    st.markdown("### Current Version: v1.1 (April 2026)", unsafe_allow_html=True)
+    # # --- Header Section (Centered) ---
+    # st.markdown("<div class='header-title'> Nielsen  Automation Portal</div>", unsafe_allow_html=True)
+    # st.markdown("<p class='subtitle'>The central hub for data integrity, transformation, and complex market modeling for Sports BSR data.</p>", unsafe_allow_html=True)
+    
     # -------------------- 🆕 WHAT'S NEW --------------------
-    if "show_whats_new" not in st.session_state:
-        st.session_state.show_whats_new = False
 
-    colA, colB = st.columns([8,1])
-    with colB:
-        if st.button("🆕 What's New"):
-            st.session_state.show_whats_new = True
-
-
-    if st.session_state.show_whats_new:
-
-        # 🔴 CLOSE BUTTON
-        col1, col2 = st.columns([9,1])
-        with col1:
-            st.markdown("## 🆕 What's New")
-        with col2:
-            if st.button("✖"):
-                st.session_state.show_whats_new = False
-
-        st.caption("Latest updates in QC Automation Portal")
+    WHATS_NEW_DATA = [
+        {
+            "version": "v1.1",
+            "date": "April 2026",
+            "changes": {
+                "New Features": [
+                    "Added Laliga QC module",
+                    "Added F1 Market checks"
+                ],
+                "Improvements": [
+                    "Improved file upload stability"
+                ],
+                "QC Logic Updates": [
+                    "Improved program category classification"
+                ]
+            }
+        },
+        {
+            "version": "v1.0",
+            "date": "March 2026",
+            "changes": {
+                "New Features": [
+                    "Initial QC Automation release",
+                    "Main QC checks implemented"
+                ],
+                "Improvements": [
+                    "Basic validation engine"
+                ]
+            }
+        },
+        {
+            "version": "v0.9",
+            "date": "February 2026",
+            "changes": {
+                "New Features": ["Internal beta release"],
+                "Bug Fixes": ["Minor stability fixes"]
+            }
+        },
+        {
+            "version": "v0.8",
+            "date": "January 2026",
+            "changes": {
+                "New Features": ["Prototype build"]
+            }
+        }
+    ]
+    # ---------------- CUSTOM CSS ----------------
+    st.markdown("""
+    <style>
+    .card {
+        background-color: #111827;
+        padding: 16px;
+        border-radius: 12px;
+        border: 1px solid #2A2E39;
+        height: 100%;
+    }
+    .card-title {
+        font-weight: 600;
+        margin-bottom: 10px;
+        font-size: 15px;
+    }
+    .section-divider {
+        margin-top: 25px;
+        margin-bottom: 15px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    # ---------------- HEADER ----------------
+    st.title("Nielsen Automation Portal")
+    st.caption("The central hub for data integrity, transformation, and market modeling")
+    st.markdown("### Current Version: v1.1 (April 2026)")
+    # ---------------- BUTTON ----------------
+    if "show_updates" not in st.session_state:
+        st.session_state.show_updates = False
+    col1, col2 = st.columns([8,1])
+    with col2:
+        if st.button("📢 Updates"):
+            st.session_state.show_updates = not st.session_state.show_updates
+    # ---------------- WHAT'S NEW SECTION ----------------
+    if st.session_state.show_updates:
         st.markdown("---")
-
-        # 🔥 LATEST VERSION
+        st.markdown("## 🆕 What's New")
+        st.caption("Latest updates in QC Automation Portal")
         latest = WHATS_NEW_DATA[0]
         older_versions = WHATS_NEW_DATA[1:]
-
-        st.markdown(f"### 🚀 {latest['version']} – {latest['date']}")
-
+        # ----------- LATEST VERSION HIGHLIGHT -----------
+        st.markdown(f"""
+        <div style="
+            background-color:#1F2937;
+            padding:10px 15px;
+            border-radius:10px;
+            border:1px solid #374151;
+            display:inline-block;
+            margin-bottom:15px;
+        ">
+        <strong>🚀 Latest: {latest['version']} – {latest['date']}</strong>
+        </div>
+        """, unsafe_allow_html=True)
         changes = latest["changes"]
-
+        # ----------- 3 COLUMN CARD LAYOUT -----------
         col1, col2, col3 = st.columns(3)
-
         with col1:
             if "New Features" in changes:
-                st.markdown("**🚀 Features**")
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                st.markdown('<div class="card-title">🚀 Features</div>', unsafe_allow_html=True)
                 for i in changes["New Features"]:
-                    st.write(f"- {i}")
-
+                    st.markdown(f"- {i}")
+                st.markdown('</div>', unsafe_allow_html=True)
         with col2:
+            st.markdown('<div class="card">', unsafe_allow_html=True)
             if "Improvements" in changes:
-                st.markdown("**🔧 Improvements**")
+                st.markdown('<div class="card-title">🔧 Improvements</div>', unsafe_allow_html=True)
                 for i in changes["Improvements"]:
-                    st.write(f"- {i}")
-
+                    st.markdown(f"- {i}")
             if "Bug Fixes" in changes:
-                st.markdown("**🐞 Fixes**")
+                st.markdown('<div class="card-title">🐞 Fixes</div>', unsafe_allow_html=True)
                 for i in changes["Bug Fixes"]:
-                    st.write(f"- {i}")
-
+                    st.markdown(f"- {i}")
+            st.markdown('</div>', unsafe_allow_html=True)
         with col3:
             if "QC Logic Updates" in changes:
-                st.markdown("**📊 QC Updates**")
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                st.markdown('<div class="card-title">📊 QC Updates</div>', unsafe_allow_html=True)
                 for i in changes["QC Logic Updates"]:
-                    st.write(f"- {i}")
-
-        st.markdown("---")
-
-        # 🔽 DROPDOWN FOR OLD VERSIONS
+                    st.markdown(f"- {i}")
+                st.markdown('</div>', unsafe_allow_html=True)
+        # ----------- DIVIDER -----------
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        # ----------- DROPDOWN FOR OLD VERSIONS -----------
         if older_versions:
             version_labels = [f"{v['version']} – {v['date']}" for v in older_versions]
-
             selected_version = st.selectbox(
                 "📂 View Previous Versions",
                 version_labels
             )
-
             selected_data = next(
                 v for v in older_versions
                 if f"{v['version']} – {v['date']}" == selected_version
             )
-
             st.markdown(f"### {selected_data['version']} – {selected_data['date']}")
-
             changes = selected_data["changes"]
-
             col1, col2, col3 = st.columns(3)
-
             with col1:
                 if "New Features" in changes:
-                    st.markdown("**🚀 Features**")
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    st.markdown('<div class="card-title">🚀 Features</div>', unsafe_allow_html=True)
                     for i in changes["New Features"]:
-                        st.write(f"- {i}")
-
+                        st.markdown(f"- {i}")
+                    st.markdown('</div>', unsafe_allow_html=True)
             with col2:
+                st.markdown('<div class="card">', unsafe_allow_html=True)
                 if "Improvements" in changes:
-                    st.markdown("**🔧 Improvements**")
+                    st.markdown('<div class="card-title">🔧 Improvements</div>', unsafe_allow_html=True)
                     for i in changes["Improvements"]:
-                        st.write(f"- {i}")
-
+                        st.markdown(f"- {i}")
                 if "Bug Fixes" in changes:
-                    st.markdown("**🐞 Fixes**")
+                    st.markdown('<div class="card-title">🐞 Fixes</div>', unsafe_allow_html=True)
                     for i in changes["Bug Fixes"]:
-                        st.write(f"- {i}")
-
+                        st.markdown(f"- {i}")
+                st.markdown('</div>', unsafe_allow_html=True)
             with col3:
                 if "QC Logic Updates" in changes:
-                    st.markdown("**📊 QC Updates**")
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    st.markdown('<div class="card-title">📊 QC Updates</div>', unsafe_allow_html=True)
                     for i in changes["QC Logic Updates"]:
-                        st.write(f"- {i}")
+                        st.markdown(f"- {i}")
+                    st.markdown('</div>', unsafe_allow_html=True)
     # # --- 1. Navigation Guide (Central Hero Section) ---
     # # st.markdown("<div class='nav-container'>", unsafe_allow_html=True)
     # st.markdown("<h3>Modules</h3>", unsafe_allow_html=True)
