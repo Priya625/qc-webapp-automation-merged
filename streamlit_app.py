@@ -781,7 +781,7 @@ with home_page_tab:
     st.markdown("""
     <style>
 
-    /* CENTER MAIN HEADER */
+    /* ---------------- MAIN HEADER ---------------- */
     .main-title {
         text-align: center;
         font-size: 42px;
@@ -793,36 +793,73 @@ with home_page_tab:
         text-align: center;
         color: #9CA3AF;
         font-size: 16px;
-        margin-bottom: 25px;
+        margin-bottom: 10px;
     }
 
-    /* CARD STYLING */
+    /* CURRENT VERSION (NEW STYLE) */
+    .version-text {
+        text-align: center;
+        color: #6B7280;
+        font-size: 14px;
+        margin-bottom: 30px;
+    }
+
+    /* ---------------- BUTTON ---------------- */
+    .fancy-btn {
+        float: right;
+        background: linear-gradient(135deg, #4F46E5, #7C3AED);
+        color: white;
+        padding: 10px 18px;
+        border-radius: 10px;
+        font-weight: 600;
+        border: none;
+        cursor: pointer;
+        transition: 0.3s;
+    }
+
+    .fancy-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 18px rgba(79,70,229,0.4);
+    }
+
+    /* ---------------- CARDS ---------------- */
     .card {
-        background-color: #111827;
+        background-color: #1F2937;   /* lighter than before */
         padding: 18px;
         border-radius: 12px;
-        border: 1px solid #2A2E39;
+        border: 1px solid #374151;
         height: 100%;
     }
 
-    /* FIX HEADER VISIBILITY */
+    /* FORCE TEXT VISIBILITY */
+    .card * {
+        color: #F9FAFB !important;
+    }
+
+    /* HEADERS INSIDE CARDS */
     .card-title {
         font-weight: 700;
         margin-bottom: 12px;
         font-size: 16px;
-        color: #F9FAFB;   /* <-- THIS FIXES INVISIBLE TEXT */
     }
 
-    /* ADD SEPARATION BETWEEN COLUMNS */
+    /* REMOVE BLACK BARS ISSUE */
+    .card-title::before {
+        content: "";
+    }
+
+    /* COLUMN SPACING */
     div[data-testid="column"] {
-        padding: 10px;
+        padding: 12px;
     }
 
-    /* ADD HOVER EFFECT (optional but clean) */
-    .card:hover {
-        border: 1px solid #4F46E5;
-        transform: translateY(-2px);
-        transition: 0.2s ease;
+    /* CLEAN BULLETS */
+    .card ul {
+        padding-left: 18px;
+    }
+
+    .card li {
+        margin-bottom: 6px;
     }
 
     </style>
@@ -830,14 +867,13 @@ with home_page_tab:
     # ---------------- HEADER ----------------
     st.markdown('<div class="main-title">Nielsen Automation Portal</div>', unsafe_allow_html=True)
     st.markdown('<div class="subtitle">The central hub for data integrity, transformation, and market modeling</div>', unsafe_allow_html=True)
-    st.markdown("### Current Version: v1.1 (April 2026)")
+    st.markdown('<div class="version-text">Current Version: v1.1 (April 2026)</div>', unsafe_allow_html=True)
     # ---------------- BUTTON ----------------
     if "show_updates" not in st.session_state:
         st.session_state.show_updates = False
     col1, col2 = st.columns([8,1])
     with col2:
-        if st.button("📢New Updates"):
-            st.session_state.show_updates = not st.session_state.show_updates
+        st.markdown('<button class="fancy-btn">🚀 New Updates</button>', unsafe_allow_html=True)
     # ---------------- WHAT'S NEW SECTION ----------------
     if st.session_state.show_updates:
         st.markdown("---")
