@@ -741,64 +741,21 @@ with home_page_tab:
 
     if st.session_state.show_whats_new:
 
-        # 🔷 CLEAN SIDEBAR STYLE PANEL (NO WHITE BAR ISSUE)
-        st.markdown("""
-        <style>
-        .drawer {
-            position: fixed;
-            top: 0;
-            right: 0;
-            width: 420px;
-            height: 100vh;
-            background-color: #0E1117;
-            color: white;
-            padding: 20px;
-            box-shadow: -5px 0px 25px rgba(0,0,0,0.3);
-            z-index: 9999;
-            overflow-y: auto;
-        }
-
-        .drawer h2 {
-            color: #FF4B91;
-            margin-bottom: 5px;
-        }
-
-        .section-box {
-            background-color: #161A23;
-            padding: 12px;
-            border-radius: 10px;
-            margin-bottom: 10px;
-        }
-
-        .section-title {
-            font-weight: 600;
-            margin-bottom: 6px;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-
-        st.markdown('<div class="drawer">', unsafe_allow_html=True)
-
-        # 🔴 Header
-        c1, c2 = st.columns([6,1])
-
-        with c1:
+        # 🔴 CLOSE BUTTON
+        col1, col2 = st.columns([9,1])
+        with col1:
             st.markdown("## 🆕 What's New")
-
-        with c2:
-            if st.button("✖", key="close_drawer"):
+        with col2:
+            if st.button("✖"):
                 st.session_state.show_whats_new = False
 
         st.caption("Latest updates in QC Automation Portal")
         st.markdown("---")
 
-        # 🔥 SORT DATA (latest first)
+        # 🔥 LATEST VERSION
         latest = WHATS_NEW_DATA[0]
         older_versions = WHATS_NEW_DATA[1:]
 
-        # =========================
-        # 🔥 LATEST VERSION (VISIBLE ALWAYS)
-        # =========================
         st.markdown(f"### 🚀 {latest['version']} – {latest['date']}")
 
         changes = latest["changes"]
@@ -830,11 +787,8 @@ with home_page_tab:
 
         st.markdown("---")
 
-        # =========================
-        # 🔽 OLDER VERSIONS DROPDOWN
-        # =========================
+        # 🔽 DROPDOWN FOR OLD VERSIONS
         if older_versions:
-
             version_labels = [f"{v['version']} – {v['date']}" for v in older_versions]
 
             selected_version = st.selectbox(
@@ -875,8 +829,6 @@ with home_page_tab:
                     st.markdown("**📊 QC Updates**")
                     for i in changes["QC Logic Updates"]:
                         st.write(f"- {i}")
-
-        st.markdown("</div>", unsafe_allow_html=True)
     # # --- 1. Navigation Guide (Central Hero Section) ---
     # # st.markdown("<div class='nav-container'>", unsafe_allow_html=True)
     # st.markdown("<h3>Modules</h3>", unsafe_allow_html=True)
