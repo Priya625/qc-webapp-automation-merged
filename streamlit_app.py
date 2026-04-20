@@ -780,27 +780,56 @@ with home_page_tab:
     # ---------------- CUSTOM CSS ----------------
     st.markdown("""
     <style>
+
+    /* CENTER MAIN HEADER */
+    .main-title {
+        text-align: center;
+        font-size: 42px;
+        font-weight: 700;
+        margin-bottom: 5px;
+    }
+
+    .subtitle {
+        text-align: center;
+        color: #9CA3AF;
+        font-size: 16px;
+        margin-bottom: 25px;
+    }
+
+    /* CARD STYLING */
     .card {
         background-color: #111827;
-        padding: 16px;
+        padding: 18px;
         border-radius: 12px;
         border: 1px solid #2A2E39;
         height: 100%;
     }
+
+    /* FIX HEADER VISIBILITY */
     .card-title {
-        font-weight: 600;
-        margin-bottom: 10px;
-        font-size: 15px;
+        font-weight: 700;
+        margin-bottom: 12px;
+        font-size: 16px;
+        color: #F9FAFB;   /* <-- THIS FIXES INVISIBLE TEXT */
     }
-    .section-divider {
-        margin-top: 25px;
-        margin-bottom: 15px;
+
+    /* ADD SEPARATION BETWEEN COLUMNS */
+    div[data-testid="column"] {
+        padding: 10px;
     }
+
+    /* ADD HOVER EFFECT (optional but clean) */
+    .card:hover {
+        border: 1px solid #4F46E5;
+        transform: translateY(-2px);
+        transition: 0.2s ease;
+    }
+
     </style>
     """, unsafe_allow_html=True)
     # ---------------- HEADER ----------------
-    st.title("Nielsen Automation Portal")
-    st.caption("The central hub for data integrity, transformation, and market modeling")
+    st.markdown('<div class="main-title">Nielsen Automation Portal</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subtitle">The central hub for data integrity, transformation, and market modeling</div>', unsafe_allow_html=True)
     st.markdown("### Current Version: v1.1 (April 2026)")
     # ---------------- BUTTON ----------------
     if "show_updates" not in st.session_state:
