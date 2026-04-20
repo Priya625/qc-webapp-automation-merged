@@ -730,114 +730,239 @@ with home_page_tab:
     # st.markdown("<p class='subtitle'>The central hub for data integrity, transformation, and complex market modeling for Sports BSR data.</p>", unsafe_allow_html=True)
     
     # -------------------- 🆕 WHAT'S NEW --------------------
-    st.set_page_config(layout="wide")
 
-    # ---------------- STATE ----------------
+    WHATS_NEW_DATA = [
+        {
+            "version": "v1.1",
+            "date": "April 2026",
+            "changes": {
+                "New Features": [
+                    "Added Laliga QC module",
+                    "Added F1 Market checks"
+                ],
+                "Improvements": [
+                    "Improved file upload stability"
+                ],
+                "QC Logic Updates": [
+                    "Improved program category classification"
+                ]
+            }
+        },
+        {
+            "version": "v1.0",
+            "date": "March 2026",
+            "changes": {
+                "New Features": [
+                    "Initial QC Automation release",
+                    "Main QC checks implemented"
+                ],
+                "Improvements": [
+                    "Basic validation engine"
+                ]
+            }
+        },
+        {
+            "version": "v0.9",
+            "date": "February 2026",
+            "changes": {
+                "New Features": ["Internal beta release"],
+                "Bug Fixes": ["Minor stability fixes"]
+            }
+        },
+        {
+            "version": "v0.8",
+            "date": "January 2026",
+            "changes": {
+                "New Features": ["Prototype build"]
+            }
+        }
+    ]
+    # ---------------- CUSTOM CSS ----------------
+    st.markdown("""
+    <style>
+
+    /* ---------------- MAIN HEADER ---------------- */
+    .main-title {
+        text-align: center;
+        font-size: 42px;
+        font-weight: 700;
+        margin-bottom: 5px;
+    }
+
+    .subtitle {
+        text-align: center;
+        color: #9CA3AF;
+        font-size: 16px;
+        margin-bottom: 10px;
+    }
+
+    /* CURRENT VERSION (NEW STYLE) */
+    .version-text {
+        text-align: center;
+        color: #6B7280;
+        font-size: 14px;
+        margin-bottom: 30px;
+    }
+
+    /* ---------------- BUTTON ---------------- */
+    .fancy-btn {
+        float: right;
+        background: linear-gradient(135deg, #4F46E5, #7C3AED);
+        color: white;
+        padding: 10px 18px;
+        border-radius: 10px;
+        font-weight: 600;
+        border: none;
+        cursor: pointer;
+        transition: 0.3s;
+    }
+
+    .fancy-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 18px rgba(79,70,229,0.4);
+    }
+
+    /* ---------------- CARDS ---------------- */
+    .card {
+        background-color: #1F2937;   /* lighter than before */
+        padding: 18px;
+        border-radius: 12px;
+        border: 1px solid #374151;
+        height: 100%;
+    }
+
+    /* FORCE TEXT VISIBILITY */
+    .card * {
+        color: #F9FAFB !important;
+    }
+
+    /* HEADERS INSIDE CARDS */
+    .card-title {
+        font-weight: 700;
+        margin-bottom: 12px;
+        font-size: 16px;
+    }
+
+    /* REMOVE BLACK BARS ISSUE */
+    .card-title::before {
+        content: "";
+    }
+
+    /* COLUMN SPACING */
+    div[data-testid="column"] {
+        padding: 12px;
+    }
+
+    /* CLEAN BULLETS */
+    .card ul {
+        padding-left: 18px;
+    }
+
+    .card li {
+        margin-bottom: 6px;
+    }
+
+    </style>
+    """, unsafe_allow_html=True)
+    # ---------------- HEADER ----------------
+    st.markdown('<div class="main-title">Nielsen Automation Portal</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subtitle">The central hub for data integrity, transformation, and market modeling</div>', unsafe_allow_html=True)
+    st.markdown('<div class="version-text">Current Version: v1.1 (April 2026)</div>', unsafe_allow_html=True)
+    # ---------------- BUTTON ----------------
     if "show_updates" not in st.session_state:
         st.session_state.show_updates = False
-
-    # ---------------- HEADER ----------------
-    st.markdown("<h1 style='text-align: center;'>Nielsen Automation Portal</h1>", unsafe_allow_html=True)
-
-    st.markdown(
-        "<p style='text-align: center; color: gray;'>"
-        "The central hub for data integrity, transformation, and market modeling"
-        "</p>",
-        unsafe_allow_html=True
-    )
-
-    st.markdown(
-        "<p style='text-align: center; color: #6B7280; font-size:14px;'>"
-        "Current Version: v1.1 (April 2026)"
-        "</p>",
-        unsafe_allow_html=True
-    )
-
-    # ---------------- BUTTON ----------------
-    col1, col2 = st.columns([8, 2])
-
+    col1, col2 = st.columns([8,1])
     with col2:
-        if st.button("🚀 New Updates"):
-            st.session_state.show_updates = not st.session_state.show_updates
-
-    st.markdown("---")
-
-    # ---------------- WHAT'S NEW (TOGGLE) ----------------
+        st.markdown('<button class="fancy-btn">🚀 New Updates</button>', unsafe_allow_html=True)
+    # ---------------- WHAT'S NEW SECTION ----------------
     if st.session_state.show_updates:
-
-        st.markdown("## 🆕 What's New")
-        st.caption("Latest updates in QC Automation Portal")
-
-        # ---------------- LATEST VERSION ----------------
-        st.markdown("### 🚀 v1.1 – April 2026")
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.markdown("#### 🚀 Features")
-            st.markdown("""
-            - Added Laliga QC module  
-            - Added F1 Market checks  
-            """)
-
-        with col2:
-            st.markdown("#### 🔧 Improvements")
-            st.markdown("""
-            - Improved file upload stability  
-            """)
-
-        with col3:
-            st.markdown("#### 📊 QC Updates")
-            st.markdown("""
-            - Improved program category classification  
-            """)
-
         st.markdown("---")
-
-        # ---------------- PREVIOUS VERSIONS ----------------
-        st.markdown("### 📂 View Previous Versions")
-
-        selected_version = st.selectbox(
-            "Select version",
-            ["v1.0 – March 2026", "v0.9 – February 2026"]
-        )
-
-        # ---------------- VERSION: v1.0 ----------------
-        if selected_version == "v1.0 – March 2026":
-            st.markdown("### v1.0 – March 2026")
-
-            col1, col2 = st.columns(2)
-
+        st.markdown("### 🆕 What's New")
+        st.caption("Latest updates in QC Automation Portal")
+        latest = WHATS_NEW_DATA[0]
+        older_versions = WHATS_NEW_DATA[1:]
+        # ----------- LATEST VERSION HIGHLIGHT -----------
+        st.markdown(f"""
+        <div style="
+            background-color:#1F2937;
+            padding:10px 15px;
+            border-radius:10px;
+            border:1px solid #374151;
+            display:inline-block;
+            margin-bottom:15px;
+        ">
+        <strong>🚀 Latest: {latest['version']} – {latest['date']}</strong>
+        </div>
+        """, unsafe_allow_html=True)
+        changes = latest["changes"]
+        # ----------- 3 COLUMN CARD LAYOUT -----------
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if "New Features" in changes:
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                st.markdown('<div class="card-title">🚀 Features</div>', unsafe_allow_html=True)
+                for i in changes["New Features"]:
+                    st.markdown(f"- {i}")
+                st.markdown('</div>', unsafe_allow_html=True)
+        with col2:
+            st.markdown('<div class="card">', unsafe_allow_html=True)
+            if "Improvements" in changes:
+                st.markdown('<div class="card-title">🔧 Improvements</div>', unsafe_allow_html=True)
+                for i in changes["Improvements"]:
+                    st.markdown(f"- {i}")
+            if "Bug Fixes" in changes:
+                st.markdown('<div class="card-title">🐞 Fixes</div>', unsafe_allow_html=True)
+                for i in changes["Bug Fixes"]:
+                    st.markdown(f"- {i}")
+            st.markdown('</div>', unsafe_allow_html=True)
+        with col3:
+            if "QC Logic Updates" in changes:
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                st.markdown('<div class="card-title">📊 QC Updates</div>', unsafe_allow_html=True)
+                for i in changes["QC Logic Updates"]:
+                    st.markdown(f"- {i}")
+                st.markdown('</div>', unsafe_allow_html=True)
+        # ----------- DIVIDER -----------
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+        # ----------- DROPDOWN FOR OLD VERSIONS -----------
+        if older_versions:
+            version_labels = [f"{v['version']} – {v['date']}" for v in older_versions]
+            selected_version = st.selectbox(
+                "📂 View Previous Versions",
+                version_labels
+            )
+            selected_data = next(
+                v for v in older_versions
+                if f"{v['version']} – {v['date']}" == selected_version
+            )
+            st.markdown(f"### {selected_data['version']} – {selected_data['date']}")
+            changes = selected_data["changes"]
+            col1, col2, col3 = st.columns(3)
             with col1:
-                st.markdown("#### 🚀 Features")
-                st.markdown("""
-                - Initial QC Automation release  
-                - Main QC checks implemented  
-                """)
-
+                if "New Features" in changes:
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    st.markdown('<div class="card-title">🚀 Features</div>', unsafe_allow_html=True)
+                    for i in changes["New Features"]:
+                        st.markdown(f"- {i}")
+                    st.markdown('</div>', unsafe_allow_html=True)
             with col2:
-                st.markdown("#### 🔧 Improvements")
-                st.markdown("""
-                - Performance optimizations  
-                """)
-
-        # ---------------- VERSION: v0.9 ----------------
-        elif selected_version == "v0.9 – February 2026":
-            st.markdown("### v0.9 – February 2026")
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-                st.markdown("#### 🚀 Features")
-                st.markdown("""
-                - Internal beta release  
-                """)
-
-            with col2:
-                st.markdown("#### 🐞 Fixes")
-                st.markdown("""
-                - Minor stability fixes  
-                """)
+                st.markdown('<div class="card">', unsafe_allow_html=True)
+                if "Improvements" in changes:
+                    st.markdown('<div class="card-title">🔧 Improvements</div>', unsafe_allow_html=True)
+                    for i in changes["Improvements"]:
+                        st.markdown(f"- {i}")
+                if "Bug Fixes" in changes:
+                    st.markdown('<div class="card-title">🐞 Fixes</div>', unsafe_allow_html=True)
+                    for i in changes["Bug Fixes"]:
+                        st.markdown(f"- {i}")
+                st.markdown('</div>', unsafe_allow_html=True)
+            with col3:
+                if "QC Logic Updates" in changes:
+                    st.markdown('<div class="card">', unsafe_allow_html=True)
+                    st.markdown('<div class="card-title">📊 QC Updates</div>', unsafe_allow_html=True)
+                    for i in changes["QC Logic Updates"]:
+                        st.markdown(f"- {i}")
+                    st.markdown('</div>', unsafe_allow_html=True)
     # # --- 1. Navigation Guide (Central Hero Section) ---
     # # st.markdown("<div class='nav-container'>", unsafe_allow_html=True)
     # st.markdown("<h3>Modules</h3>", unsafe_allow_html=True)
