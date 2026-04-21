@@ -896,7 +896,6 @@ with home_page_tab:
         # Features
         with col1:
             if "New Features" in changes:
-                st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.markdown('<div class="card-title">🚀 Features</div>', unsafe_allow_html=True)
                 for item in changes["New Features"]:
                     st.markdown(f"- {item}")
@@ -945,15 +944,12 @@ with home_page_tab:
 
             with col1:
                 if "New Features" in changes:
-                    st.markdown('<div class="card">', unsafe_allow_html=True)
                     st.markdown('<div class="card-title">🚀 Features</div>', unsafe_allow_html=True)
                     for item in changes["New Features"]:
                         st.markdown(f"- {item}")
                     st.markdown('</div>', unsafe_allow_html=True)
 
             with col2:
-                st.markdown('<div class="card">', unsafe_allow_html=True)
-
                 if "Improvements" in changes:
                     st.markdown('<div class="card-title">🔧 Improvements</div>', unsafe_allow_html=True)
                     for item in changes["Improvements"]:
@@ -968,7 +964,6 @@ with home_page_tab:
 
             with col3:
                 if "QC Logic Updates" in changes:
-                    st.markdown('<div class="card">', unsafe_allow_html=True)
                     st.markdown('<div class="card-title">📊 QC Updates</div>', unsafe_allow_html=True)
                     for item in changes["QC Logic Updates"]:
                         st.markdown(f"- {item}")
