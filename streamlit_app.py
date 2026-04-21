@@ -904,8 +904,6 @@ with home_page_tab:
 
         # Improvements + Fixes
         with col2:
-            st.markdown('<div class="card">', unsafe_allow_html=True)
-
             if "Improvements" in changes:
                 st.markdown('<div class="card-title">🔧 Improvements</div>', unsafe_allow_html=True)
                 for item in changes["Improvements"]:
@@ -921,7 +919,6 @@ with home_page_tab:
         # QC Updates
         with col3:
             if "QC Logic Updates" in changes:
-                st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.markdown('<div class="card-title">📊 QC Updates</div>', unsafe_allow_html=True)
                 for item in changes["QC Logic Updates"]:
                     st.markdown(f"- {item}")
