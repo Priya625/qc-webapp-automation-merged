@@ -832,15 +832,25 @@ with home_page_tab:
     }
 
     /* FORCE TEXT VISIBILITY */
-    .card * {
-        color: #F9FAFB !important;
+    .card {
+        background-color: #1F2937;
+        padding: 18px;
+        border-radius: 12px;
+        border: 1px solid #374151;
+        height: 100%;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.25);
     }
 
     /* HEADERS INSIDE CARDS */
     .card-title {
         font-weight: 700;
         margin-bottom: 12px;
-        font-size: 16px;
+        font-size: 15px;
+        padding: 8px 10px;
+        border-radius: 8px;
+
+        background: linear-gradient(135deg, #4F46E5, #7C3AED);
+        color: white !important;
     }
 
     /* REMOVE BLACK BARS ISSUE */
@@ -873,7 +883,8 @@ with home_page_tab:
         st.session_state.show_updates = False
     col1, col2 = st.columns([8,1])
     with col2:
-        st.markdown('<button class="fancy-btn">🚀 New Updates</button>', unsafe_allow_html=True)
+        if st.button("🚀 New Updates", key="updates_btn"):
+            st.session_state.show_updates = not st.session_state.show_updates
     # ---------------- WHAT'S NEW SECTION ----------------
     if st.session_state.show_updates:
         st.markdown("---")
