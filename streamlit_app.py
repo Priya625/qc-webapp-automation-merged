@@ -730,7 +730,9 @@ with home_page_tab:
     # st.markdown("<p class='subtitle'>The central hub for data integrity, transformation, and complex market modeling for Sports BSR data.</p>", unsafe_allow_html=True)
     
     # -------------------- 🆕 WHAT'S NEW --------------------
+    st.set_page_config(layout="wide")
 
+    # ---------------- DATA ----------------
     WHATS_NEW_DATA = [
         {
             "version": "v1.1",
@@ -777,126 +779,106 @@ with home_page_tab:
             }
         }
     ]
-    # ---------------- CUSTOM CSS ----------------
+
+    # ---------------- STATE ----------------
+    if "show_updates" not in st.session_state:
+        st.session_state.show_updates = False
+
+    # ---------------- CSS ----------------
     st.markdown("""
     <style>
 
-    /* ---------------- MAIN HEADER ---------------- */
+    /* HEADER */
     .main-title {
         text-align: center;
         font-size: 42px;
         font-weight: 700;
-        margin-bottom: 5px;
     }
-
     .subtitle {
         text-align: center;
         color: #9CA3AF;
-        font-size: 16px;
-        margin-bottom: 10px;
     }
-
-    /* CURRENT VERSION (NEW STYLE) */
     .version-text {
         text-align: center;
         color: #6B7280;
         font-size: 14px;
-        margin-bottom: 30px;
     }
 
-    /* ---------------- BUTTON ---------------- */
-    .fancy-btn {
-        float: right;
+    /* BUTTON */
+    div[data-testid="stButton"] > button {
         background: linear-gradient(135deg, #4F46E5, #7C3AED);
         color: white;
         padding: 10px 18px;
         border-radius: 10px;
         font-weight: 600;
         border: none;
-        cursor: pointer;
         transition: 0.3s;
     }
-
-    .fancy-btn:hover {
+    div[data-testid="stButton"] > button:hover {
         transform: translateY(-2px);
         box-shadow: 0 6px 18px rgba(79,70,229,0.4);
     }
 
-    /* ---------------- CARDS ---------------- */
+    /* CARD */
     .card {
-        background-color: #1F2937;   /* lighter than before */
+        background-color: #111827;
         padding: 18px;
         border-radius: 12px;
         border: 1px solid #374151;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.25);
         height: 100%;
     }
-
-    /* FORCE TEXT VISIBILITY */
-    .card {
-        background-color: #1F2937;
-        padding: 18px;
-        border-radius: 12px;
-        border: 1px solid #374151;
-        height: 100%;
-        box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+    .card * {
+        color: #F9FAFB !important;
     }
 
-    /* HEADERS INSIDE CARDS */
+    /* CARD TITLE */
     .card-title {
-        font-weight: 700;
-        margin-bottom: 12px;
+        font-weight: 600;
         font-size: 15px;
-        padding: 8px 10px;
+        margin-bottom: 12px;
+        padding: 8px 12px;
         border-radius: 8px;
-
-        background: linear-gradient(135deg, #4F46E5, #7C3AED);
+        background: linear-gradient(135deg, #6366F1, #8B5CF6);
         color: white !important;
-    }
-
-    /* REMOVE BLACK BARS ISSUE */
-    .card-title::before {
-        content: "";
+        display: inline-block;
     }
 
     /* COLUMN SPACING */
     div[data-testid="column"] {
-        padding: 12px;
-    }
-
-    /* CLEAN BULLETS */
-    .card ul {
-        padding-left: 18px;
-    }
-
-    .card li {
-        margin-bottom: 6px;
+        padding: 10px;
     }
 
     </style>
     """, unsafe_allow_html=True)
+
     # ---------------- HEADER ----------------
     st.markdown('<div class="main-title">Nielsen Automation Portal</div>', unsafe_allow_html=True)
     st.markdown('<div class="subtitle">The central hub for data integrity, transformation, and market modeling</div>', unsafe_allow_html=True)
     st.markdown('<div class="version-text">Current Version: v1.1 (April 2026)</div>', unsafe_allow_html=True)
+
     # ---------------- BUTTON ----------------
-    if "show_updates" not in st.session_state:
-        st.session_state.show_updates = False
     col1, col2 = st.columns([8,1])
+
     with col2:
-        if st.button("🚀 New Updates", key="updates_btn"):
+        if st.button("🚀 New Updates"):
             st.session_state.show_updates = not st.session_state.show_updates
-    # ---------------- WHAT'S NEW SECTION ----------------
+
+    # ---------------- WHAT'S NEW ----------------
     if st.session_state.show_updates:
+
         st.markdown("---")
         st.markdown("### 🆕 What's New")
         st.caption("Latest updates in QC Automation Portal")
+
         latest = WHATS_NEW_DATA[0]
         older_versions = WHATS_NEW_DATA[1:]
-        # ----------- LATEST VERSION HIGHLIGHT -----------
+
+        # Latest Badge
         st.markdown(f"""
         <div style="
             background-color:#1F2937;
-            padding:10px 15px;
+            padding:8px 14px;
             border-radius:10px;
             border:1px solid #374151;
             display:inline-block;
@@ -905,74 +887,94 @@ with home_page_tab:
         <strong>🚀 Latest: {latest['version']} – {latest['date']}</strong>
         </div>
         """, unsafe_allow_html=True)
+
         changes = latest["changes"]
-        # ----------- 3 COLUMN CARD LAYOUT -----------
+
+        # -------- LATEST VERSION COLUMNS --------
         col1, col2, col3 = st.columns(3)
+
+        # Features
         with col1:
             if "New Features" in changes:
                 st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.markdown('<div class="card-title">🚀 Features</div>', unsafe_allow_html=True)
-                for i in changes["New Features"]:
-                    st.markdown(f"- {i}")
+                for item in changes["New Features"]:
+                    st.markdown(f"- {item}")
                 st.markdown('</div>', unsafe_allow_html=True)
+
+        # Improvements + Fixes
         with col2:
             st.markdown('<div class="card">', unsafe_allow_html=True)
+
             if "Improvements" in changes:
                 st.markdown('<div class="card-title">🔧 Improvements</div>', unsafe_allow_html=True)
-                for i in changes["Improvements"]:
-                    st.markdown(f"- {i}")
+                for item in changes["Improvements"]:
+                    st.markdown(f"- {item}")
+
             if "Bug Fixes" in changes:
                 st.markdown('<div class="card-title">🐞 Fixes</div>', unsafe_allow_html=True)
-                for i in changes["Bug Fixes"]:
-                    st.markdown(f"- {i}")
+                for item in changes["Bug Fixes"]:
+                    st.markdown(f"- {item}")
+
             st.markdown('</div>', unsafe_allow_html=True)
+
+        # QC Updates
         with col3:
             if "QC Logic Updates" in changes:
                 st.markdown('<div class="card">', unsafe_allow_html=True)
                 st.markdown('<div class="card-title">📊 QC Updates</div>', unsafe_allow_html=True)
-                for i in changes["QC Logic Updates"]:
-                    st.markdown(f"- {i}")
+                for item in changes["QC Logic Updates"]:
+                    st.markdown(f"- {item}")
                 st.markdown('</div>', unsafe_allow_html=True)
-        # ----------- DIVIDER -----------
-        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
-        # ----------- DROPDOWN FOR OLD VERSIONS -----------
+
+        # -------- OLD VERSIONS --------
+        st.markdown("---")
+
         if older_versions:
-            version_labels = [f"{v['version']} – {v['date']}" for v in older_versions]
-            selected_version = st.selectbox(
-                "📂 View Previous Versions",
-                version_labels
-            )
+            labels = [f"{v['version']} – {v['date']}" for v in older_versions]
+
+            selected = st.selectbox("📂 View Previous Versions", labels)
+
             selected_data = next(
                 v for v in older_versions
-                if f"{v['version']} – {v['date']}" == selected_version
+                if f"{v['version']} – {v['date']}" == selected
             )
+
             st.markdown(f"### {selected_data['version']} – {selected_data['date']}")
+
             changes = selected_data["changes"]
+
             col1, col2, col3 = st.columns(3)
+
             with col1:
                 if "New Features" in changes:
                     st.markdown('<div class="card">', unsafe_allow_html=True)
                     st.markdown('<div class="card-title">🚀 Features</div>', unsafe_allow_html=True)
-                    for i in changes["New Features"]:
-                        st.markdown(f"- {i}")
+                    for item in changes["New Features"]:
+                        st.markdown(f"- {item}")
                     st.markdown('</div>', unsafe_allow_html=True)
+
             with col2:
                 st.markdown('<div class="card">', unsafe_allow_html=True)
+
                 if "Improvements" in changes:
                     st.markdown('<div class="card-title">🔧 Improvements</div>', unsafe_allow_html=True)
-                    for i in changes["Improvements"]:
-                        st.markdown(f"- {i}")
+                    for item in changes["Improvements"]:
+                        st.markdown(f"- {item}")
+
                 if "Bug Fixes" in changes:
                     st.markdown('<div class="card-title">🐞 Fixes</div>', unsafe_allow_html=True)
-                    for i in changes["Bug Fixes"]:
-                        st.markdown(f"- {i}")
+                    for item in changes["Bug Fixes"]:
+                        st.markdown(f"- {item}")
+
                 st.markdown('</div>', unsafe_allow_html=True)
+
             with col3:
                 if "QC Logic Updates" in changes:
                     st.markdown('<div class="card">', unsafe_allow_html=True)
                     st.markdown('<div class="card-title">📊 QC Updates</div>', unsafe_allow_html=True)
-                    for i in changes["QC Logic Updates"]:
-                        st.markdown(f"- {i}")
+                    for item in changes["QC Logic Updates"]:
+                        st.markdown(f"- {item}")
                     st.markdown('</div>', unsafe_allow_html=True)
     # # --- 1. Navigation Guide (Central Hero Section) ---
     # # st.markdown("<div class='nav-container'>", unsafe_allow_html=True)
