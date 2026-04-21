@@ -877,14 +877,15 @@ with home_page_tab:
         # Latest Badge
         st.markdown(f"""
         <div style="
-            background-color:#1F2937;
-            padding:8px 14px;
+            background: linear-gradient(135deg, #4F46E5, #7C3AED);
+            color: white;
+            padding:10px 16px;
             border-radius:10px;
-            border:1px solid #374151;
             display:inline-block;
             margin-bottom:15px;
+            font-weight:600;
         ">
-        <strong>🚀 Latest: {latest['version']} – {latest['date']}</strong>
+        🚀 Latest: {latest['version']} – {latest['date']}
         </div>
         """, unsafe_allow_html=True)
 
