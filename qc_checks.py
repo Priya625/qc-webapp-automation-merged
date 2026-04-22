@@ -1923,6 +1923,10 @@ def home_away_vs_phase_check(df, col_map):
         if pd.isna(text):
             return ""
         return re.sub(r"\s+", " ", str(text).strip().lower())
+    
+    def normalize_team(team):
+        team = re.sub(r"\(.*?\)","", str(team))
+        return clean_text(team)
 
     # Process Rows
     for idx, row in df.iterrows():
@@ -1958,10 +1962,13 @@ def home_away_vs_phase_check(df, col_map):
         if not home_team or not away_team:
             df.at[idx, result_col] = "Not Applicable"
             continue
+        home_team_n = normalize_team(home_team)
+        away_team_n = normalize_team(away_team)
+        phase_val_n = normalize_team(phase_val)
 
         # Final Validation
-        if home_team in phase_val and away_team in phase_val:
-            df.at[idx, result_col] = True
+        if home_team_n in phase_val_n and away_team_n in phase_val_n:
+            df.at[idx, result_col] = "OK"
         else:
             df.at[idx, result_col] = "Home/Away teams do not match PhaseFixtureEpisode"
 
