@@ -1331,139 +1331,167 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 # -----------------------------------------------------------
 # 8️⃣ Event / Matchday / Competition Check
 # -----------------------------------------------------------
-def check_event_matchday_competition(df_ws, df_fx):
+def normalize_str(val):
+    return str(val).strip().lower() if pd.notna(val) else ""
 
-    def norm(x):
-        if pd.isna(x):
-            return ""
-        return str(x).strip().lower()
+def check_event_matchday_competition(df, bsr_path, col_map, file_rules):
 
-    def get_col(df, keywords):
-        for c in df.columns:
-            c_norm = str(c).lower()
-            for kw in keywords:
-                if kw in c_norm:
-                    return c
-        return None
+    logging.info("Starting Event / Matchday / Fixture consistency check...")
 
-    # ---------------- Worksheet columns ----------------
-    ws_event = get_col(df_ws, ["event", "program title"])
-    ws_md    = get_col(df_ws, ["matchday", "match day", "md"])
-    ws_home  = get_col(df_ws, ["home team", "home"])
-    ws_away  = get_col(df_ws, ["away team", "away"])
-    ws_date  = get_col(df_ws, ["date"])
-    ws_start = get_col(df_ws, ["start"])
-    ws_end   = get_col(df_ws, ["end"])
-    ws_prog  = get_col(df_ws, ["program type", "type of program"])
+    bsr_cols = col_map['bsr']
+    fix_cols = col_map['fixture']
 
-    # ---------------- Fixture columns ----------------
-    fx_event = get_col(df_fx, ["competition", "event"])
-    fx_md    = get_col(df_fx, ["matchday", "match day", "md"])
-    fx_home  = get_col(df_fx, ["home team", "home"])
-    fx_away  = get_col(df_fx, ["away team", "away"])
-    fx_date  = get_col(df_fx, ["date"])
-    fx_start = get_col(df_fx, ["start"])
-    fx_end   = get_col(df_fx, ["end"])
+    # -------------------------------
+    # Find required BSR columns
+    # -------------------------------
+    col_progtype = _find_column(df, bsr_cols['type_of_program'])
+    bsr_event_col = _find_column(df, bsr_cols['event'])
+    bsr_home_col = _find_column(df, bsr_cols['home_team'])
+    bsr_away_col = _find_column(df, bsr_cols['away_team'])
+    bsr_md_col = _find_column(df, bsr_cols['match_day'])
 
-    # ---------------- Column Validation ----------------
-    missing_ws = []
-    missing_fx = []
+    if not col_progtype:
+        logging.error("❌ 'Type of program' column not found.")
+        df["Event_Matchday_OK"] = False
+        df["Event_Matchday_Remark"] = "Missing 'Type of program'"
+        return df
 
-    ws_required = {
-        "Event": ws_event,
-        "Matchday": ws_md,
-        "Home Team": ws_home,
-        "Away Team": ws_away,
-        "Date": ws_date,
-        "Start Time": ws_start,
-        "End Time": ws_end,
-        "Program Type": ws_prog,
-    }
+    # -------------------------------
+    # Default columns
+    # -------------------------------
+    df["Event_Matchday_OK"] = pd.NA
+    df["Event_Matchday_Remark"] = "Not applicable"
 
-    fx_required = {
-        "Competition/Event": fx_event,
-        "Matchday": fx_md,
-        "Home Team": fx_home,
-        "Away Team": fx_away,
-        "Date": fx_date,
-        "Start Time": fx_start,
-        "End Time": fx_end,
-    }
+    # -------------------------------
+    # Load fixture sheet
+    # -------------------------------
+    fixture_df = None
 
-    for name, col in ws_required.items():
-        if col is None:
-            missing_ws.append(name)
+    try:
+        excel_file = pd.ExcelFile(bsr_path)
+        fixture_keyword = file_rules.get('fixture_sheet_keyword', 'fixture')
 
-    for name, col in fx_required.items():
-        if col is None:
-            missing_fx.append(name)
-
-    if missing_ws or missing_fx:
-        raise ValueError(
-            "Event/Matchday/Competition Check Failed.\n"
-            f"Missing Worksheet Columns: {missing_ws}\n"
-            f"Missing Fixture Columns: {missing_fx}"
+        fixture_sheet = next(
+            (s for s in excel_file.sheet_names if fixture_keyword in s.lower()),
+            None
         )
 
-    # ---------------- Normalize datetime ----------------
-    def build_dt(date, time):
-        try:
-            return parse_datetime(date, time)
-        except:
-            return pd.NaT
-
-    df_ws["_start_dt"] = df_ws.apply(lambda r: build_dt(r[ws_date], r[ws_start]), axis=1)
-    df_ws["_end_dt"]   = df_ws.apply(lambda r: build_dt(r[ws_date], r[ws_end]), axis=1)
-
-    df_fx["_start_dt"] = df_fx.apply(lambda r: build_dt(r[fx_date], r[fx_start]), axis=1)
-    df_fx["_end_dt"]   = df_fx.apply(lambda r: build_dt(r[fx_date], r[fx_end]), axis=1)
-
-    # ---------------- Build fixture lookup ----------------
-    fixture_keys = set()
-
-    for _, r in df_fx.iterrows():
-        key = (
-            norm(r[fx_event]),
-            norm(r[fx_md]),
-            norm(r[fx_home]),
-            norm(r[fx_away]),
-            r["_start_dt"],
-            r["_end_dt"]
-        )
-        fixture_keys.add(key)
-
-    # ---------------- Output ----------------
-    df_ws["Event_Matchday_Competition_OK"] = False
-    df_ws["Event_Matchday_Competition_Remark"] = ""
-
-    # ---------------- Row validation ----------------
-    for idx, r in df_ws.iterrows():
-
-        prog = norm(r[ws_prog])
-
-        # Skip magazine/support
-        if prog == "magazine & support":
-            df_ws.at[idx, "Event_Matchday_Competition_OK"] = True
-            df_ws.at[idx, "Event_Matchday_Competition_Remark"] = "Skipped"
-            continue
-
-        key = (
-            norm(r[ws_event]),
-            norm(r[ws_md]),
-            norm(r[ws_home]),
-            norm(r[ws_away]),
-            r["_start_dt"],
-            r["_end_dt"]
-        )
-
-        if key in fixture_keys:
-            df_ws.at[idx, "Event_Matchday_Competition_OK"] = True
-            df_ws.at[idx, "Event_Matchday_Competition_Remark"] = "Exact fixture match"
+        if not fixture_sheet:
+            logging.error("❌ No fixture sheet found.")
         else:
-            df_ws.at[idx, "Event_Matchday_Competition_OK"] = False
-            df_ws.at[idx, "Event_Matchday_Competition_Remark"] = "Mismatch with fixture"
+            fixture_df = excel_file.parse(fixture_sheet)
+            fixture_df.columns = [c.strip() for c in fixture_df.columns]
 
-    return df_ws
+    except Exception as e:
+        logging.error(f"❌ Error loading fixture sheet: {e}")
+
+    # -------------------------------
+    # Validate fixture columns
+    # -------------------------------
+    if fixture_df is not None:
+
+        fix_event_col = _find_column(fixture_df, fix_cols['event'])
+        fix_home_col = _find_column(fixture_df, fix_cols['home_team'])
+        fix_away_col = _find_column(fixture_df, fix_cols['away_team'])
+        fix_md_col = _find_column(fixture_df, fix_cols['match_day'])
+
+        required_cols = [fix_home_col, fix_away_col, fix_md_col]
+
+        if not all(required_cols):
+            logging.error("❌ Missing critical fixture columns.")
+            fixture_df = None
+        else:
+            # Normalize strings
+            fixture_df[fix_home_col] = fixture_df[fix_home_col].apply(normalize_str)
+            fixture_df[fix_away_col] = fixture_df[fix_away_col].apply(normalize_str)
+
+            if fix_event_col:
+                fixture_df[fix_event_col] = fixture_df[fix_event_col].apply(normalize_str)
+
+            # 🔥 CRITICAL FIX → datetime conversion
+            fixture_df[fix_md_col] = pd.to_datetime(
+                fixture_df[fix_md_col],
+                errors='coerce'
+            )
+
+    # -------------------------------
+    # Normalize BSR columns
+    # -------------------------------
+    df[bsr_home_col] = df[bsr_home_col].apply(normalize_str)
+    df[bsr_away_col] = df[bsr_away_col].apply(normalize_str)
+
+    if bsr_event_col:
+        df[bsr_event_col] = df[bsr_event_col].apply(normalize_str)
+
+    # 🔥 CRITICAL FIX → datetime conversion
+    df[bsr_md_col] = pd.to_datetime(df[bsr_md_col], errors='coerce')
+
+    # -------------------------------
+    # Main Logic
+    # -------------------------------
+    for i, row in df.iterrows():
+        try:
+            prog_type = normalize_str(row.get(col_progtype))
+
+            if prog_type != 'live':
+                continue
+
+            if fixture_df is None:
+                df.at[i, "Event_Matchday_OK"] = False
+                df.at[i, "Event_Matchday_Remark"] = "Fixture not available"
+                continue
+
+            event = normalize_str(row.get(bsr_event_col))
+            home = row.get(bsr_home_col)
+            away = row.get(bsr_away_col)
+            matchday = row.get(bsr_md_col)
+
+            if pd.isna(matchday) or not home or not away:
+                df.at[i, "Event_Matchday_OK"] = False
+                df.at[i, "Event_Matchday_Remark"] = "Missing critical fields"
+                continue
+
+            # -------------------------------
+            # Matching logic (robust)
+            # -------------------------------
+            match = fixture_df[
+                (fixture_df[fix_md_col] == matchday)
+                & (
+                    (
+                        (fixture_df[fix_home_col] == home) &
+                        (fixture_df[fix_away_col] == away)
+                    )
+                    |
+                    (
+                        (fixture_df[fix_home_col] == away) &
+                        (fixture_df[fix_away_col] == home)
+                    )
+                )
+            ]
+
+            # Optional event check (loose)
+            if match.empty and fix_event_col:
+                match = fixture_df[
+                    (fixture_df[fix_md_col] == matchday)
+                    & (fixture_df[fix_event_col].str.contains(event[:10], na=False))
+                ]
+
+            # -------------------------------
+            # Result assignment
+            # -------------------------------
+            if match.empty:
+                df.at[i, "Event_Matchday_OK"] = False
+                df.at[i, "Event_Matchday_Remark"] = "No matching fixture"
+            else:
+                df.at[i, "Event_Matchday_OK"] = True
+                df.at[i, "Event_Matchday_Remark"] = "Fixture matched"
+
+        except Exception as e:
+            df.at[i, "Event_Matchday_OK"] = False
+            df.at[i, "Event_Matchday_Remark"] = f"Error: {e}"
+
+    logging.info("✅ Event / Matchday / Fixture check completed.")
+    return df
 
 # -----------------------------------------------------------
 # 9️⃣ Market / Channel / Program / Duration Consistency Check
