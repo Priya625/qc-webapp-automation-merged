@@ -1351,10 +1351,6 @@ def find_column(df, keywords):
 def norm(x):
     return str(x).strip().lower() if pd.notna(x) else ""
 
-
-# -------------------------------
-# MAIN FUNCTION
-# -------------------------------
 def check_event_matchday_competition(df, bsr_path, col_map, file_rules):
 
     logging.info("Starting Event / Matchday / Fixture consistency check...")
@@ -1372,129 +1368,177 @@ def check_event_matchday_competition(df, bsr_path, col_map, file_rules):
     df["Event_Matchday_OK"] = pd.NA
     df["Event_Matchday_Remark"] = "Not applicable for this program type"
 
-    # Load fixture list
+    # Program types that require fixture checking (lowercase for comparison)
+    CHECKABLE_TYPES = {'live', 'delayed', 'live delayed', 'delay'}
+    SKIP_TYPES      = {'highlights', 'magazine', 'support'}
+
+    # ── Load fixture sheet ──────────────────────────────────────────────────
     fixture_df = None
     try:
-        excel_file = pd.ExcelFile(bsr_path)
+        excel_file    = pd.ExcelFile(bsr_path)
         fixture_keyword = file_rules.get('fixture_sheet_keyword', 'fixture')
         fixture_sheet = next(
             (s for s in excel_file.sheet_names if fixture_keyword in s.lower()), None
         )
-
         if fixture_sheet:
             fixture_df = excel_file.parse(fixture_sheet)
             fixture_df.columns = [str(c).strip() for c in fixture_df.columns]
-            logging.info(f"✅ Fixture sheet loaded: '{fixture_sheet}' with columns: {list(fixture_df.columns)}")
+            logging.info(f"✅ Loaded fixture sheet: '{fixture_sheet}' | columns: {list(fixture_df.columns)}")
         else:
-            logging.warning("⚠️ No sheet containing 'fixture' found.")
+            logging.warning("⚠️ No sheet containing 'fixture' keyword found.")
     except Exception as e:
         logging.error(f"❌ Error loading fixture list: {e}")
 
-    # Resolve fixture column names
-    fix_event_col = None
-    fix_home_col = None
-    fix_away_col = None
-    fix_md_col = None
+    # ── Resolve fixture columns ─────────────────────────────────────────────
+    fix_competition_col = fix_matchday_col = fix_episode_col = None
 
     if fixture_df is not None:
-        fix_event_col = _find_column(fixture_df, fix_cols['event'])
-        fix_home_col = _find_column(fixture_df, fix_cols['home_team'])
-        fix_away_col = _find_column(fixture_df, fix_cols['away_team'])
-        fix_md_col = _find_column(fixture_df, fix_cols['match_day'])
+        # Competition column in fixture list (same as event)
+        fix_competition_col = _find_column(fixture_df, fix_cols.get('competition', fix_cols.get('event')))
+        fix_matchday_col    = _find_column(fixture_df, fix_cols['match_day'])
+        fix_episode_col     = _find_column(fixture_df, fix_cols.get('phase_fixture_episode', fix_cols.get('episode')))
+
+        logging.info(
+            f"Fixture cols resolved → "
+            f"competition='{fix_competition_col}', "
+            f"matchday='{fix_matchday_col}', "
+            f"episode='{fix_episode_col}'"
+        )
 
         missing = [
-            name for name, col in [
-                ('event', fix_event_col),
-                ('home_team', fix_home_col),
-                ('away_team', fix_away_col),
-                ('match_day', fix_md_col),
-            ] if col is None
+            label for label, col in [
+                ('competition', fix_competition_col),
+                ('match_day',   fix_matchday_col),
+                ('episode',     fix_episode_col),
+            ] if not col
         ]
-
         if missing:
-            logging.warning(f"⚠️ Fixture sheet missing mapped columns for: {missing}. Fixture check will be skipped.")
+            logging.warning(f"⚠️ Fixture sheet missing columns for: {missing}. Invalidating fixture data.")
             fixture_df = None
         else:
-            # Normalize fixture lookup columns to lowercase stripped strings
-            for col in [fix_event_col, fix_home_col, fix_away_col, fix_md_col]:
-                fixture_df[col] = fixture_df[col].astype(str).str.strip().str.lower()
+            # Normalise key columns
+            for col in [fix_competition_col, fix_matchday_col, fix_episode_col]:
+                fixture_df[col] = _normalise_series(fixture_df[col])
 
             logging.info(
-                f"Fixture columns resolved — event: '{fix_event_col}', "
-                f"home: '{fix_home_col}', away: '{fix_away_col}', matchday: '{fix_md_col}'"
+                f"Sample fixture data after normalisation:\n"
+                f"{fixture_df[[fix_competition_col, fix_matchday_col, fix_episode_col]].head(3).to_string()}"
             )
 
-    # Resolve BSR columns
-    bsr_event_col = _find_column(df, bsr_cols['event'])
-    bsr_home_col = _find_column(df, bsr_cols['home_team'])
-    bsr_away_col = _find_column(df, bsr_cols['away_team'])
-    bsr_md_col = _find_column(df, bsr_cols['match_day'])
+    # ── Resolve BSR columns ─────────────────────────────────────────────────
+    bsr_event_col   = _find_column(df, bsr_cols.get('event'))
+    bsr_matchday_col = _find_column(df, bsr_cols.get('match_day'))
+    bsr_episode_col  = _find_column(df, bsr_cols.get('phase_fixture_episode', bsr_cols.get('episode')))
 
     logging.info(
-        f"BSR columns resolved — event: '{bsr_event_col}', "
-        f"home: '{bsr_home_col}', away: '{bsr_away_col}', matchday: '{bsr_md_col}'"
+        f"BSR cols resolved → "
+        f"event='{bsr_event_col}', "
+        f"matchday='{bsr_matchday_col}', "
+        f"episode='{bsr_episode_col}'"
     )
 
+    # ── Row-by-row check ────────────────────────────────────────────────────
     for i, row in df.iterrows():
         try:
-            prog_type = str(row.get(col_progtype, "")).strip().lower()
+            prog_type = _norm(row.get(col_progtype, ""))
 
-            if prog_type != 'live':
-                # Keep default "Not applicable"
+            # Skip non-checkable types explicitly
+            if prog_type in SKIP_TYPES:
+                df.at[i, "Event_Matchday_OK"]     = pd.NA
+                df.at[i, "Event_Matchday_Remark"] = "Not applicable for this program type"
                 continue
 
+            # Only check Live / Delayed
+            if prog_type not in CHECKABLE_TYPES:
+                df.at[i, "Event_Matchday_OK"]     = pd.NA
+                df.at[i, "Event_Matchday_Remark"] = f"Not applicable (program type: '{prog_type}')"
+                continue
+
+            # ── Live / Delayed: fixture check ───────────────────────────────
             if fixture_df is None:
-                df.at[i, "Event_Matchday_OK"] = False
-                df.at[i, "Event_Matchday_Remark"] = "Fixture list missing or invalid"
+                df.at[i, "Event_Matchday_OK"]     = False
+                df.at[i, "Event_Matchday_Remark"] = "Fixture list missing or could not be loaded"
                 continue
 
-            # Extract and normalize BSR values
-            event = str(row.get(bsr_event_col, "")).strip().lower() if bsr_event_col else ""
-            home = str(row.get(bsr_home_col, "")).strip().lower() if bsr_home_col else ""
-            away = str(row.get(bsr_away_col, "")).strip().lower() if bsr_away_col else ""
-            matchday = str(row.get(bsr_md_col, "")).strip().lower() if bsr_md_col else ""
+            event   = _norm(row.get(bsr_event_col,    "")) if bsr_event_col    else ""
+            matchday = _norm(row.get(bsr_matchday_col, "")) if bsr_matchday_col else ""
+            episode  = _norm(row.get(bsr_episode_col,  "")) if bsr_episode_col  else ""
 
-            # Check for empty values
-            missing_fields = []
-            if not event or event == 'nan':
-                missing_fields.append('event')
-            if not home or home == 'nan':
-                missing_fields.append('home team')
-            if not away or away == 'nan':
-                missing_fields.append('away team')
-            if not matchday or matchday == 'nan':
-                missing_fields.append('matchday')
+            # Log what we're trying to match (first 5 rows to avoid log spam)
+            if i < 5:
+                logging.debug(
+                    f"Row {i} | prog='{prog_type}' | "
+                    f"event='{event}' | matchday='{matchday}' | episode='{episode}'"
+                )
 
-            if missing_fields:
-                df.at[i, "Event_Matchday_OK"] = False
-                df.at[i, "Event_Matchday_Remark"] = f"Missing in BSR: {', '.join(missing_fields)}"
+            if not all([event, matchday, episode]):
+                df.at[i, "Event_Matchday_OK"]     = False
+                df.at[i, "Event_Matchday_Remark"] = (
+                    f"Missing field(s) in BSR — "
+                    f"event='{event}', matchday='{matchday}', episode='{episode}'"
+                )
                 continue
 
             # Match against fixture list
             mask = (
-                (fixture_df[fix_event_col] == event)
-                & (fixture_df[fix_home_col] == home)
-                & (fixture_df[fix_away_col] == away)
-                & (fixture_df[fix_md_col] == matchday)
+                (fixture_df[fix_competition_col] == event)
+                & (fixture_df[fix_matchday_col]  == matchday)
+                & (fixture_df[fix_episode_col]   == episode)
             )
-            matched_rows = fixture_df[mask]
+            matched = fixture_df[mask]
 
-            if matched_rows.empty:
-                df.at[i, "Event_Matchday_OK"] = False
-                df.at[i, "Event_Matchday_Remark"] = (
-                    f"No matching fixture — "
-                    f"event='{event}', home='{home}', away='{away}', matchday='{matchday}'"
-                )
+            if not matched.empty:
+                df.at[i, "Event_Matchday_OK"]     = True
+                df.at[i, "Event_Matchday_Remark"] = "Fixture match"
             else:
-                df.at[i, "Event_Matchday_OK"] = True
-                df.at[i, "Event_Matchday_Remark"] = "Fixture found"
+                # ── Partial match diagnostics ───────────────────────────────
+                p1 = fixture_df[fixture_df[fix_competition_col] == event]
+                p2 = p1[p1[fix_matchday_col] == matchday]
+
+                if not p2.empty:
+                    found_eps = p2[fix_episode_col].tolist()
+                    remark = (
+                        f"Competition + matchday matched but episode mismatch — "
+                        f"BSR='{episode}', fixture has: {found_eps}"
+                    )
+                elif not p1.empty:
+                    found_mds = p1[fix_matchday_col].unique().tolist()
+                    remark = (
+                        f"Competition matched but matchday mismatch — "
+                        f"BSR='{matchday}', fixture has: {found_mds}"
+                    )
+                else:
+                    remark = (
+                        f"No fixture match — "
+                        f"event='{event}', matchday='{matchday}', episode='{episode}'"
+                    )
+
+                df.at[i, "Event_Matchday_OK"]     = False
+                df.at[i, "Event_Matchday_Remark"] = remark
 
         except Exception as e:
-            df.at[i, "Event_Matchday_OK"] = False
+            df.at[i, "Event_Matchday_OK"]     = False
             df.at[i, "Event_Matchday_Remark"] = f"Error: {e}"
 
     logging.info("✅ Event / Matchday / Fixture consistency check completed.")
     return df
+
+# ── Shared helpers (define once outside the function) ───────────────────────
+
+def _norm(val) -> str:
+    """Lowercase, strip, collapse whitespace, strip time from date strings."""
+    s = str(val).strip().lower()
+    if s in ('nan', 'none', 'nat', ''):
+        return ''
+    # Strip time portion from 'yyyy-mm-dd hh:mm...' so dates compare cleanly
+    s = re.sub(r'^(\d{4}-\d{2}-\d{2})\s+\d{2}:\d{2}.*$', r'\1', s)
+    # Collapse internal whitespace
+    s = re.sub(r'\s+', ' ', s)
+    return s
+
+def _normalise_series(series) -> 'pd.Series':
+    """Apply _norm to an entire Series."""
+    return series.astype(str).apply(_norm)
 
 # -----------------------------------------------------------
 # 9️⃣ Market / Channel / Program / Duration Consistency Check
