@@ -1355,18 +1355,16 @@ def norm(x):
 # -------------------------------
 # MAIN FUNCTION
 # -------------------------------
-def check_event_matchday_competition(df, bsr_path, col_map=None, file_rules=None):
+def check_event_matchday_competition(df, bsr_path):
 
     logging.info("🚀 Starting Event/Matchday QC check...")
 
-    # -------------------------------
-    # Default output columns
-    # -------------------------------
+    # Output columns
     df["Event_Matchday_OK"] = pd.NA
     df["Event_Matchday_Remark"] = "Not applicable"
 
     # -------------------------------
-    # Detect BSR columns dynamically
+    # Detect BSR columns
     # -------------------------------
     prog_col = find_column(df, ["type", "program"])
     home_col = find_column(df, ["home"])
@@ -1377,7 +1375,7 @@ def check_event_matchday_competition(df, bsr_path, col_map=None, file_rules=None
     if not all([prog_col, home_col, away_col, date_col]):
         logging.error("❌ Required columns missing in BSR")
         df["Event_Matchday_OK"] = False
-        df["Event_Matchday_Remark"] = "Missing required BSR columns"
+        df["Event_Matchday_Remark"] = "Missing required columns"
         return df
 
     # -------------------------------
@@ -1401,7 +1399,7 @@ def check_event_matchday_competition(df, bsr_path, col_map=None, file_rules=None
         fixture_df.columns = [c.strip() for c in fixture_df.columns]
 
     except Exception as e:
-        logging.error(f"❌ Error loading fixture sheet: {e}")
+        logging.error(f"❌ Error loading fixture: {e}")
         df["Event_Matchday_OK"] = False
         df["Event_Matchday_Remark"] = "Fixture load error"
         return df
@@ -1412,7 +1410,6 @@ def check_event_matchday_competition(df, bsr_path, col_map=None, file_rules=None
     f_home = find_column(fixture_df, ["home"])
     f_away = find_column(fixture_df, ["away"])
     f_date = find_column(fixture_df, ["matchday", "date"])
-    f_event = find_column(fixture_df, ["event", "competition"])
 
     if not all([f_home, f_away, f_date]):
         logging.error("❌ Fixture columns missing")
@@ -1421,14 +1418,14 @@ def check_event_matchday_competition(df, bsr_path, col_map=None, file_rules=None
         return df
 
     # -------------------------------
-    # Normalize BSR
+    # Normalize BSR data
     # -------------------------------
     df[home_col] = df[home_col].apply(norm)
     df[away_col] = df[away_col].apply(norm)
     df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
 
     # -------------------------------
-    # Normalize Fixture
+    # Normalize Fixture data
     # -------------------------------
     fixture_df[f_home] = fixture_df[f_home].apply(norm)
     fixture_df[f_away] = fixture_df[f_away].apply(norm)
@@ -1446,7 +1443,7 @@ def check_event_matchday_competition(df, bsr_path, col_map=None, file_rules=None
     )
 
     # -------------------------------
-    # MAIN LOGIC (vectorized style)
+    # MAIN LOGIC
     # -------------------------------
     results = []
     remarks = []
@@ -1455,8 +1452,8 @@ def check_event_matchday_competition(df, bsr_path, col_map=None, file_rules=None
 
         prog = norm(row[prog_col])
 
-        # Skip non-live
-        if prog != "live":
+        # 🔥 FIX: detect LIVE inside string
+        if "live" not in prog:
             results.append(pd.NA)
             remarks.append("Not applicable")
             continue
@@ -1470,14 +1467,13 @@ def check_event_matchday_competition(df, bsr_path, col_map=None, file_rules=None
             remarks.append("Missing data")
             continue
 
-        key = (home, away, date)
-        key_swap = (home, away, date)
-
-        if key in fixture_set:
+        # Normal match
+        if (home, away, date) in fixture_set:
             results.append(True)
             remarks.append("Fixture matched")
 
-        elif (away, home, date) in fixture_set:
+        # Swapped match
+        elif (home, away, date) in fixture_set_swapped or (away, home, date) in fixture_set:
             results.append(True)
             remarks.append("Fixture matched (swapped)")
 

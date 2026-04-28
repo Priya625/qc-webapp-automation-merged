@@ -1198,7 +1198,7 @@ with main_qc_tab:
                         
                         if fixture_sheet_name:
                             # 2. Pass BOTH the main df and the fixtures df
-                            df = qc_general.check_event_matchday_competition(df, bsr_path, col_map, file_rules)
+                            df = qc_general.check_event_matchday_competition(df, bsr_path)
                         else:
                             st.warning("⚠️ No 'Fixtures' sheet found in BSR. Skipping Event/Matchday validation.")
                             # Optional: Initialize columns as False/Skipped so the rest of the code doesn't break
@@ -1560,7 +1560,7 @@ with laliga_qc_tab:
                         bsr_xl = pd.ExcelFile(bsr_path)
                         fixture_keywords = ["fixture", "fixtures", "fixture list", "fixtures list"]
                         fixture_sheet_name = next((s for s in bsr_xl.sheet_names if any(k in s.lower() for k in fixture_keywords)), None)
-                        df = qc_general.check_event_matchday_competition(df, bsr_path, col_map, file_rules)
+                        df = qc_general.check_event_matchday_competition(df, bsr_path)
                     
                     if "market_channel_consistency" in selected_la_checks:
                         df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
