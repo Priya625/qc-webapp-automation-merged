@@ -61,7 +61,7 @@ try:
     live_delayed_check
 )
     from ops_mm_bsa_checks import (
-    duplicate_aid_final,
+    duplicate_aid_final_dpmm,
     audience_spotprice_check,
     program_category_check,
     channel_country_mapping_check,
@@ -3131,7 +3131,7 @@ with mm_bsa_tab:
                         st.error(f"Processing Error: {e}")
 
 # -----------------------------------------------------------
-#            📊 OPS-MM-BSA QC CHECKS TAB 
+#            📊 OPS-MM-BSA QC CHECKS TAB (DPMM)
 # -----------------------------------------------------------
 with ops_mm_bsa_tab:
     st.subheader("📊 OPS-MM-BSA QC Checks")
@@ -3142,9 +3142,9 @@ with ops_mm_bsa_tab:
         temp.close()
         return temp.name
     
-    # ---------------- FILE UPLOAD (Keys changed to ops_...) ----------------
+    # ---------------- FILE UPLOAD ----------------
     col1, col2, col3, col4, col5 = st.columns(5)
-    with col1: data_mm_export_file = st.file_uploader("📋 DPMM", type=["xlsx"], key="ops_up_dpmm")
+    with col1: data_mm_export_file = st.file_uploader("📋 DPMM Export", type=["xlsx"], key="ops_up_dpmm")
     with col2: ops_rosco_file = st.file_uploader("📑 ROSCO File", type=["xlsx"], key="ops_up_rosco")
     with col3: ops_fixture_file = st.file_uploader("📋 Fixture File", type=["xlsx"], key="ops_up_fixture")
     with col4: ops_prev_file = st.file_uploader("📋 Previous Delivery", type=["xlsx"], key="ops_up_prev")
@@ -3152,9 +3152,8 @@ with ops_mm_bsa_tab:
     
 
     # ---------------- CHECKS LIST ----------------
-    # Updated to ensure unique function calls and labels if necessary
     OPS_QC_CHECKS = [
-        ("duplicate_aid_final", "Duplicate AID Check"),
+        ("duplicate_aid_final_dpmm", "Duplicate AID Check"),
         ("audience_spotprice_check", "Audience & Spot Price Check"),
         ("program_category_check", "Program Category Check"),
         ("channel_country_mapping_check", "Channel & Country Mapping"),
@@ -3179,14 +3178,11 @@ with ops_mm_bsa_tab:
             st.session_state[f"ops_chk_{key}"] = st.session_state["ops_master_select"]
 
     st.markdown("⚙️ **Validation Rules**")
-    
-    # Unique Master Checkbox Key
     st.checkbox("Select All Checks", key="ops_master_select", on_change=sync_ops_checks)
     
     ops_selected = []
     ops_cols = st.columns(4)
     for index, (key, label) in enumerate(OPS_QC_CHECKS):
-        # Unique session state keys for OPS tab
         if f"ops_chk_{key}" not in st.session_state:
             st.session_state[f"ops_chk_{key}"] = False
             
@@ -3198,7 +3194,6 @@ with ops_mm_bsa_tab:
 
     st.markdown("📅 **Monitoring Period**")
     ops_c1, ops_c2, ops_c3 = st.columns(3)
-    # Unique keys for date/number inputs
     with ops_c1: ops_start_date = st.date_input("Start Date", key="ops_date_start")
     with ops_c2: ops_end_date = st.date_input("End Date", key="ops_date_end")
     with ops_c3: ops_bt_threshold = st.number_input("BT Threshold", min_value=0.0, step=0.1, key="ops_num_bt")
@@ -3209,11 +3204,10 @@ with ops_mm_bsa_tab:
         elif not ops_selected:
             st.error("Please select at least one check.")
         else:
-            # Logic continues with ops_selected and unique file variables...
             with st.spinner("Processing OPS-MM-BSA validation..."):
                 try:
-                    # Logic execution using the unique file objects from this tab
-                    mm_df = pd.read_excel(data_mm_export_file, sheet_name="mm - detailed")
+                    # CRITICAL: DPMM Export uses 'MM programlist' instead of 'mm - detailed'
+                    mm_df = pd.read_excel(data_mm_export_file, sheet_name="MM programlist")
                     mm_df.columns = mm_df.columns.str.strip()
                     
                     o_rosco_path = save_file_ops(ops_rosco_file) if ops_rosco_file else None
@@ -3221,14 +3215,69 @@ with ops_mm_bsa_tab:
                     o_fixture_df = pd.read_excel(ops_fixture_file) if ops_fixture_file else None
                     o_prev_df = pd.read_excel(ops_prev_file) if ops_prev_file else None
 
-                    # Use ops_selected list for logic
-                    if "duplicate_aid_final" in ops_selected: mm_df = duplicate_aid_final(mm_df)
-                    if "audience_spotprice_check" in ops_selected: mm_df = audience_spotprice_check(mm_df)
-                    # ... continue applying checks using ops_selected ...
+                    # --- Apply Checks ---
+                    if "duplicate_aid_final_dpmm" in ops_selected: 
+                        mm_df = duplicate_aid_final_dpmm(mm_df)
+                    
+                    if "audience_spotprice_check" in ops_selected: 
+                        mm_df = audience_spotprice_check(mm_df)
+                    
+                    if "program_category_check" in ops_selected: 
+                        mm_df = program_category_check(mm_df)
+                    
+                    if "channel_country_mapping_check" in ops_selected: 
+                        mm_df = channel_country_mapping_check(mm_df, o_rosco_path)
+                    
+                    if "apt_bt_check" in ops_selected: 
+                        mm_df = apt_bt_check(mm_df, ops_bt_threshold)
+                    
+                    if "season_monitoring_check" in ops_selected: 
+                        mm_df = season_monitoring_check(mm_df, ops_start_date, ops_end_date)
+                    
+                    if "fixture_validation_check" in ops_selected: 
+                        mm_df = fixture_validation_check(mm_df, o_fixture_df)
+                    
+                    if "stadium_consistency_check" in ops_selected: 
+                        mm_df = stadium_consistency_check(mm_df)
+                    
+                    if "event_quality_check" in ops_selected: 
+                        mm_df = event_quality_check(mm_df)
+                    
+                    if "home_market_check" in ops_selected: 
+                        mm_df = home_market_check(mm_df)
 
-                    # (Remaining processing logic follows the same pattern as MM-BSA)
+                    if "ps_market_channel_check" in ops_selected or "ps_content_check" in ops_selected:
+                        if o_rosco_path:
+                            mon_df = pd.read_excel(o_rosco_path, sheet_name="Monitoring List")
+                            if "ps_market_channel_check" in ops_selected: mm_df = ps_market_channel_check(mm_df, mon_df)
+                            if "ps_content_check" in ops_selected: mm_df = ps_content_check(mm_df, mon_df)
+                        else:
+                            st.warning("ROSCO file missing; skipping PS checks.")
+
+                    if "mm_bsr_consistency_check" in ops_selected: 
+                        mm_df = mm_bsr_consistency_check(mm_df, o_bsr_path)
+                    
+                    if "ea_creation_check" in ops_selected: 
+                        mm_df = ea_creation_check(mm_df)
+                    
+                    if "live_delayed_check" in ops_selected: 
+                        mm_df = live_delayed_check(mm_df)
+                    
+                    if "program_analysis_status_check" in ops_selected: 
+                        mm_df = program_analysis_status_check(mm_df)
+
+                    # --- Output Generation ---
+                    mm_output = io.BytesIO()
+                    # We reuse the same logic for outputting multiple sheets as the standard MM tab
+                    with pd.ExcelWriter(mm_output, engine="openpyxl") as writer:
+                        mm_df.to_excel(writer, sheet_name="OPS_QC_Results", index=False)
+
                     st.success("✅ OPS-MM-BSA QC Completed Successfully")
-                    # Ensure download button also has unique key
-                    st.download_button("📥 Download OPS Output", data=mm_df.to_csv().encode('utf-8'), file_name="OPS_Result.csv", key="ops_download_btn")
+                    st.download_button(
+                        label="📥 Download OPS Output", 
+                        data=mm_output.getvalue(), 
+                        file_name="OPS_QC_Results.xlsx", 
+                        key="ops_download_btn"
+                    )
                 except Exception as e:
                     st.error(f"Processing Error: {e}")

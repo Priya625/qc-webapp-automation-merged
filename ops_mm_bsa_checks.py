@@ -35,47 +35,48 @@ def extract_general_info_entities(general_df):
         "seasons": seasons
     }
 
-def duplicate_aid_final(df):
-
-    df = df.copy()
+def duplicate_aid_final_dpmm(mm_df):
+    df = mm_df.copy()
     df.columns = df.columns.str.strip()
 
-    # Define combination
+    # Mapping to DPMM specific columns
+    # We use 'progr. start' as it uniquely identifies the broadcast slot in this file
     group_cols = [
         "programme category",
         "country",
         "channel",
         "programme",
-        "progr. start (date)",
-        "progr. start (time)"
+        "progr. start" 
     ]
+
+    # Reference column for AID in DPMM is "aID (MM)"
+    aid_col = "aID (MM)"
 
     # Create combo id
     df["_combo_id"] = df.groupby(group_cols).ngroup()
 
-    # Count AIDs per combination
-    df["_aid_count_per_combo"] = df.groupby(group_cols)["aID (MAT)"].transform("nunique")
+    # Count AIDs per combination (Check if one slot has multiple AIDs)
+    df["_aid_count_per_combo"] = df.groupby(group_cols)[aid_col].transform("nunique")
 
-    # Count combinations per AID
-    df["_combo_count_per_aid"] = df.groupby("aID (MAT)")["_combo_id"].transform("nunique")
+    # Count combinations per AID (Check if one AID is used for different slots)
+    df["_combo_count_per_aid"] = df.groupby(aid_col)["_combo_id"].transform("nunique")
 
     flags = []
     remarks = []
 
     for _, row in df.iterrows():
-
         # PRIORITY 1: Same AID used across multiple combinations
         if row["_combo_count_per_aid"] > 1:
             flags.append(False)
             remarks.append(
-                f"AID {row['aID (MAT)']} is used across multiple program combinations"
+                f"AID {row[aid_col]} is used across multiple program combinations"
             )
 
         # PRIORITY 2: Multiple AIDs for same combination
         elif row["_aid_count_per_combo"] > 1:
             flags.append(False)
             remarks.append(
-                f"Multiple AIDs assigned to same program combination ({row['programme']} at {row['progr. start (date)']} {row['progr. start (time)']})"
+                f"Multiple AIDs assigned to same program combination ({row['programme']} at {row['progr. start']})"
             )
 
         # 🟢 VALID
@@ -83,16 +84,11 @@ def duplicate_aid_final(df):
             flags.append(True)
             remarks.append("")
 
-    # Final columns
     df["Duplicate_AID_Check_Flag"] = flags
     df["Duplicate_AID_Check_Remark"] = remarks
 
-    # Drop helper columns
-    df.drop(columns=[
-        "_combo_id",
-        "_aid_count_per_combo",
-        "_combo_count_per_aid"
-    ], inplace=True)
+    # Clean up
+    df.drop(columns=["_combo_id", "_aid_count_per_combo", "_combo_count_per_aid"], inplace=True)
 
     return df
 
