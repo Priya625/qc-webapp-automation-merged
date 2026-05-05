@@ -3173,12 +3173,12 @@ with ops_mm_bsa_tab:
         ("program_analysis_status_check", "Program Analysis Status Check")
     ]
 
-    def sync_ops_checks():
+    def sync_all_checks():
         for key, _ in OPS_QC_CHECKS:
             st.session_state[f"ops_chk_{key}"] = st.session_state["ops_master_select"]
 
     st.markdown("⚙️ **Validation Rules**")
-    st.checkbox("Select All Checks", key="ops_master_select", on_change=sync_ops_checks)
+    st.checkbox("Select All Checks", key="ops_master_select", on_change=sync_all_checks)
     
     ops_selected = []
     ops_cols = st.columns(4)
