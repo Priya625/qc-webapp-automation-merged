@@ -3159,7 +3159,7 @@ with ops_mm_bsa_tab:
         ("channel_country_mapping_check_dpmm", "Channel & Country Mapping"),
         ("apt_bt_check_dpmm", "APT / BT Check"),
         ("season_monitoring_check_dpmm", "Season Monitoring Check"),
-        ("fixture_validation_check", "Event / Matchday Validation Check"),
+        ("fixture_validation_check_dpmm", "Event / Matchday Validation Check"),
         ("stadium_consistency_check", "Stadium Consistency Check"),
         ("event_quality_check", "Event Quality Check"),
         ("home_market_check", "Home Market Check"),
