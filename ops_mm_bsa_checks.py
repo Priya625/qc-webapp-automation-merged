@@ -197,30 +197,28 @@ def normalize_channel(name):
     return name.strip()
 
 
-def channel_country_mapping_check(df, rosco_path):
-
-    df = df.copy()
+def channel_country_mapping_check_dpmm(mm_df, rosco_path):
+    # We create a copy and strip/lowercase for internal logic consistency
+    df = mm_df.copy()
+    original_cols = df.columns.tolist()
     df.columns = df.columns.str.strip().str.lower()
 
     # -----------------------------------
-    # STEP 1: READ ROSCO FILE
+    # STEP 1: READ ROSCO FILE (Logic stays same)
     # -----------------------------------
     rosco_excel = pd.ExcelFile(rosco_path)
-
     mapping_dict = {}
 
     for sheet in rosco_excel.sheet_names:
-
         if "rosco" not in sheet.lower():
             continue
 
         temp = pd.read_excel(rosco_excel, sheet_name=sheet)
         temp.columns = temp.columns.str.strip().str.lower()
 
-        # Match correct columns
         if "channelname" in temp.columns and "channelcountry" in temp.columns:
-
             for _, row in temp.iterrows():
+                # Note: normalize_channel() must be defined in your global scope
                 ch_name = normalize_channel(row["channelname"])
                 ch_country = str(row["channelcountry"]).strip().lower()
 
@@ -228,20 +226,21 @@ def channel_country_mapping_check(df, rosco_path):
                     mapping_dict[ch_name] = ch_country
 
     # -----------------------------------
-    # STEP 2: VALIDATE MM DATA
+    # STEP 2: VALIDATE DPMM DATA
     # -----------------------------------
     flags = []
     remarks = []
 
     for _, row in df.iterrows():
-
         mm_channel_raw = row.get("channel")
-        mm_country_raw = row.get("channel country")
+        
+        # FIX: In DPMM Export, the column is 'country' not 'channel country'
+        mm_country_raw = row.get("country") 
 
         mm_channel = normalize_channel(mm_channel_raw)
         mm_country = str(mm_country_raw).strip().lower()
 
-        # ❌ Channel not found
+        # ❌ Channel not found in ROSCO
         if mm_channel not in mapping_dict:
             flags.append(False)
             remarks.append(f"Channel '{mm_channel_raw}' not found in ROSCO mapping")
@@ -250,7 +249,7 @@ def channel_country_mapping_check(df, rosco_path):
         elif mapping_dict[mm_channel] != mm_country:
             flags.append(False)
             remarks.append(
-                f"Channel '{mm_channel_raw}' mapped to '{mapping_dict[mm_channel]}' but found in '{mm_country_raw}'"
+                f"Channel '{mm_channel_raw}' mapped to '{mapping_dict[mm_channel]}' but found as '{mm_country_raw}'"
             )
 
         # ✅ Valid
@@ -258,6 +257,8 @@ def channel_country_mapping_check(df, rosco_path):
             flags.append(True)
             remarks.append("")
 
+    # Restore original column casing for the output
+    df.columns = original_cols
     df["Channel_Country_Check_Flag"] = flags
     df["Channel_Country_Check_Remark"] = remarks
 

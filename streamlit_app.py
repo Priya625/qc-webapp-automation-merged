@@ -64,7 +64,7 @@ try:
     duplicate_aid_final_dpmm,
     audience_spotprice_check_dpmm,
     program_category_check_dpmm,
-    channel_country_mapping_check,
+    channel_country_mapping_check_dpmm,
     apt_bt_check,
     season_monitoring_check,
     fixture_validation_check,
@@ -3156,7 +3156,7 @@ with ops_mm_bsa_tab:
         ("duplicate_aid_final_dpmm", "Duplicate AID Check"),
         ("audience_spotprice_check_dpmm", "Audience & Spot Price Check"),
         ("program_category_check_dpmm", "Program Category Check"),
-        ("channel_country_mapping_check", "Channel & Country Mapping"),
+        ("channel_country_mapping_check_dpmm", "Channel & Country Mapping"),
         ("apt_bt_check", "APT / BT Check"),
         ("season_monitoring_check", "Season Monitoring Check"),
         ("fixture_validation_check", "Event / Matchday Validation Check"),
@@ -3226,8 +3226,8 @@ with ops_mm_bsa_tab:
                     if "program_category_check_dpmm" in ops_selected: 
                         mm_df = program_category_check_dpmm(mm_df)
                     
-                    if "channel_country_mapping_check" in ops_selected: 
-                        mm_df = channel_country_mapping_check(mm_df, o_rosco_path)
+                    if "channel_country_mapping_check_dpmm" in ops_selected: 
+                        mm_df = channel_country_mapping_check_dpmm(mm_df, o_rosco_path)
                     
                     if "apt_bt_check" in ops_selected: 
                         mm_df = apt_bt_check(mm_df, ops_bt_threshold)
