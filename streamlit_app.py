@@ -65,7 +65,7 @@ try:
     audience_spotprice_check_dpmm,
     program_category_check_dpmm,
     channel_country_mapping_check_dpmm,
-    apt_bt_check,
+    apt_bt_check_dpmm,
     season_monitoring_check,
     fixture_validation_check,
     stadium_consistency_check,
@@ -3157,7 +3157,7 @@ with ops_mm_bsa_tab:
         ("audience_spotprice_check_dpmm", "Audience & Spot Price Check"),
         ("program_category_check_dpmm", "Program Category Check"),
         ("channel_country_mapping_check_dpmm", "Channel & Country Mapping"),
-        ("apt_bt_check", "APT / BT Check"),
+        ("apt_bt_check_dpmm", "APT / BT Check"),
         ("season_monitoring_check", "Season Monitoring Check"),
         ("fixture_validation_check", "Event / Matchday Validation Check"),
         ("stadium_consistency_check", "Stadium Consistency Check"),
@@ -3229,8 +3229,8 @@ with ops_mm_bsa_tab:
                     if "channel_country_mapping_check_dpmm" in ops_selected: 
                         mm_df = channel_country_mapping_check_dpmm(mm_df, o_rosco_path)
                     
-                    if "apt_bt_check" in ops_selected: 
-                        mm_df = apt_bt_check(mm_df, ops_bt_threshold)
+                    if "apt_bt_check_dpmm" in ops_selected: 
+                        mm_df = apt_bt_check_dpmm(mm_df, ops_bt_threshold)
                     
                     if "season_monitoring_check" in ops_selected: 
                         mm_df = season_monitoring_check(mm_df, ops_start_date, ops_end_date)

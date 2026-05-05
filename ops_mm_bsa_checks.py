@@ -264,21 +264,23 @@ def channel_country_mapping_check_dpmm(mm_df, rosco_path):
 
     return df
 
-def apt_bt_check(df, bt_threshold=None):
-
-    df = df.copy()
+def apt_bt_check_dpmm(mm_df, bt_threshold=None):
+    df = mm_df.copy()
+    # Store original columns to restore later
+    original_cols = df.columns.tolist()
     df.columns = df.columns.str.strip().str.lower()
 
+    # DPMM column names (verified from glossary)
     apt_col = "apt"
-    live_apt_col = "apt live"
     bt_col = "bt"
     category_col = "programme category"
+    # Keeping this for compatibility, though usually missing in DPMM
+    live_apt_col = "apt live" 
 
     flags = []
     remarks = []
 
     for _, row in df.iterrows():
-
         category = str(row.get(category_col, "")).lower()
 
         # Safe conversions
@@ -292,16 +294,14 @@ def apt_bt_check(df, bt_threshold=None):
         except:
             bt = None
 
-        try:
-            apt_live = float(row.get(live_apt_col))
-        except:
-            apt_live = None
-
         # -----------------------------------
         # PRIORITY 1: Live / Relive APT < 50%
         # -----------------------------------
-        if category in ["live", "relive", "sport (live)"] and apt is not None and bt is not None:
-
+        # Added 'sport (live)' to match DPMM export category names
+        live_categories = ["live", "relive", "sport (live)", "sport (live), spiel"]
+        
+        if any(cat in category for cat in live_categories) and apt is not None and bt is not None:
+            # Using LaTeX for the logic: $APT < 0.5 \times BT$
             if apt < 0.5 * bt:
                 flags.append(False)
                 remarks.append("APT is less than 50% of BT for live/relive entry")
@@ -311,18 +311,17 @@ def apt_bt_check(df, bt_threshold=None):
         # PRIORITY 2: Exceptionally high BT
         # -----------------------------------
         if bt_threshold is not None and bt is not None:
-
             if bt >= bt_threshold:
                 flags.append(False)
                 remarks.append(f"BT exceeds threshold ({bt_threshold})")
                 continue
 
-        # -----------------------------------
-        # DEFAULT
-        # -----------------------------------
+        #  VALID
         flags.append(True)
         remarks.append("")
 
+    # Restore casing and add results
+    df.columns = original_cols
     df["APT_BT_Check_Flag"] = flags
     df["APT_BT_Check_Remark"] = remarks
 
