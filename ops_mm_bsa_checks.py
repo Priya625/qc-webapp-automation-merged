@@ -135,31 +135,33 @@ def audience_spotprice_check_dpmm(df):
 
     return df
 
-def program_category_check(df):
-
-    df = df.copy()
+def program_category_check_dpmm(mm_df):
+    df = mm_df.copy()
     df.columns = df.columns.str.strip()
 
     category_col = "programme category"
 
+    # Expanded valid list to match DPMM export naming conventions
     valid_categories = [
         "live",
         "sport (live)",
+        "sport (magazine)",
+        "sport (highlights)",
         "magazine",
         "highlights",
         "delayed",
         "relive",
-        "news"
+        "news",
+        "sport (news)"
     ]
 
     flags = []
     remarks = []
 
     for _, row in df.iterrows():
-
         category = row.get(category_col)
 
-        # Normalize
+        # Normalize for comparison
         if pd.isna(category):
             category_clean = ""
         else:
@@ -177,7 +179,7 @@ def program_category_check(df):
         # ✅ Valid
         else:
             flags.append(True)
-            remarks.append("Correct category")
+            remarks.append("")
 
     df["Program_Category_Check_Flag"] = flags
     df["Program_Category_Check_Remark"] = remarks
