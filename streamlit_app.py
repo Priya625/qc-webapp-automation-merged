@@ -67,7 +67,7 @@ try:
     channel_country_mapping_check_dpmm,
     apt_bt_check_dpmm,
     season_monitoring_check_dpmm,
-    fixture_validation_check,
+    fixture_validation_check_dpmm,
     stadium_consistency_check,
     event_quality_check,
     home_market_check,
@@ -3235,8 +3235,8 @@ with ops_mm_bsa_tab:
                     if "season_monitoring_check_dpmm" in ops_selected: 
                         mm_df = season_monitoring_check_dpmm(mm_df, ops_start_date, ops_end_date)
                     
-                    if "fixture_validation_check" in ops_selected: 
-                        mm_df = fixture_validation_check(mm_df, o_fixture_df)
+                    if "fixture_validation_check_dpmm" in ops_selected: 
+                        mm_df = fixture_validation_check_dpmm(mm_df, o_fixture_df)
                     
                     if "stadium_consistency_check" in ops_selected: 
                         mm_df = stadium_consistency_check(mm_df)

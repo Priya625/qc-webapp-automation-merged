@@ -369,52 +369,50 @@ def season_monitoring_check_dpmm(mm_df, start_date, end_date):
 
     return df
 
-def fixture_validation_check(df, fixture_df):
+def fixture_validation_check_dpmm(mm_df, o_fixture_df):
+    df = mm_df.copy()
+    m_fixture_df = o_fixture_df.copy()
+    
+    # Standardize column names
+    df.columns = df.columns.str.strip().str.lower()
+    m_fixture_df.columns = m_fixture_df.columns.str.strip().str.lower()
 
-    df.columns = df.columns.str.strip()
-    fixture_df.columns = fixture_df.columns.str.strip()
-
+    # Required columns based on your logic
     required_cols = ["event", "matchday", "matchday date", "match"]
 
+    # Safety Check: Verify columns exist in both files
+    missing_in_df = [c for c in required_cols if c not in df.columns]
+    if missing_in_df:
+        # If columns are missing, we flag the whole sheet as uncheckable 
+        # instead of crashing the Streamlit app.
+        df["Fixture_Validation_Flag"] = False
+        df["Fixture_Validation_Remark"] = f"Missing columns in DPMM: {missing_in_df}. Ensure you are using the 'MM matchdays' data."
+        return df
+
+    # Normalize data for comparison (lowercase and string)
     for col in required_cols:
-        if col not in df.columns or col not in fixture_df.columns:
-            raise ValueError(f"Missing column: {col}")
+        df[col] = df[col].astype(str).str.lower().str.strip()
+        m_fixture_df[col] = m_fixture_df[col].astype(str).str.lower().str.strip()
 
-    for col in required_cols + ["competition"]:
-        if col in df.columns:
-            df[col] = df[col].astype(str).str.lower().str.strip()
-        if col in fixture_df.columns:
-            fixture_df[col] = fixture_df[col].astype(str).str.lower().str.strip()
-
+    # Create a unique "fingerprint" for every valid match in the Fixture file
     fixture_set = set()
-
-    for _, row in fixture_df.iterrows():
-        key = (
-            row["event"],
-            row["matchday"],
-            row["matchday date"],
-            row["match"]
-        )
+    for _, row in m_fixture_df.iterrows():
+        key = (row["event"], row["matchday"], row["matchday date"], row["match"])
         fixture_set.add(key)
 
     flags = []
     remarks = []
 
+    # Check each row in the DPMM data against the official fixture list
     for _, row in df.iterrows():
-
-        key = (
-            row["event"],
-            row["matchday"],
-            row["matchday date"],
-            row["match"]
-        )
+        key = (row["event"], row["matchday"], row["matchday date"], row["match"])
 
         if key in fixture_set:
             flags.append(True)
             remarks.append("")
         else:
             flags.append(False)
-            remarks.append("Match/Event not found in Fixture file")
+            remarks.append("Match details (Event/Matchday/Date/Match) do not match official Fixture file")
 
     df["Fixture_Validation_Flag"] = flags
     df["Fixture_Validation_Remark"] = remarks
