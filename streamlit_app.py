@@ -62,7 +62,7 @@ try:
 )
     from ops_mm_bsa_checks import (
     duplicate_aid_final_dpmm,
-    audience_spotprice_check,
+    audience_spotprice_check_dpmm,
     program_category_check,
     channel_country_mapping_check,
     apt_bt_check,
@@ -3154,7 +3154,7 @@ with ops_mm_bsa_tab:
     # ---------------- CHECKS LIST ----------------
     OPS_QC_CHECKS = [
         ("duplicate_aid_final_dpmm", "Duplicate AID Check"),
-        ("audience_spotprice_check", "Audience & Spot Price Check"),
+        ("audience_spotprice_check_dpmm", "Audience & Spot Price Check"),
         ("program_category_check", "Program Category Check"),
         ("channel_country_mapping_check", "Channel & Country Mapping"),
         ("apt_bt_check", "APT / BT Check"),
@@ -3219,8 +3219,9 @@ with ops_mm_bsa_tab:
                     if "duplicate_aid_final_dpmm" in ops_selected: 
                         mm_df = duplicate_aid_final_dpmm(mm_df)
                     
-                    if "audience_spotprice_check" in ops_selected: 
-                        mm_df = audience_spotprice_check(mm_df)
+                    if "audience_spotprice_check_dpmm" in ops_selected: 
+                        # Use the dpmm version to ensure column names match the export
+                        mm_df = audience_spotprice_check_dpmm(mm_df)
                     
                     if "program_category_check" in ops_selected: 
                         mm_df = program_category_check(mm_df)

@@ -93,41 +93,43 @@ def duplicate_aid_final_dpmm(mm_df):
     return df
 
 
-def audience_spotprice_check(df):
-
+def audience_spotprice_check_dpmm(df):
+    df = df.copy()
     df.columns = df.columns.str.strip()
 
-    audience_col = "audience (in mio)"
+    # DPMM Specific Column Names
+    # Note: Using 'audience (in 000\'s)' based on Column S in image_043dd0.png
+    audience_col = "audience (in 000's)"
     spot_price_col = "spot price"
 
     flags = []
     remarks = []
 
     for _, row in df.iterrows():
+        # Get values safely
+        aud_val = row.get(audience_col, None)
+        spot_val = row.get(spot_price_col, None)
 
-        audience = row[audience_col]
-        spot_price = row[spot_price_col]
-
-        audience_blank = pd.isna(audience) or str(audience).strip() == ""
-        spot_blank = pd.isna(spot_price) or str(spot_price).strip() == ""
+        # Logic to determine if "blank" (Checking for NaN, empty strings, OR 0)
+        audience_blank = pd.isna(aud_val) or str(aud_val).strip() == "" or aud_val == 0
+        spot_blank = pd.isna(spot_val) or str(spot_val).strip() == "" or spot_val == 0
 
         if audience_blank and spot_blank:
             flags.append(False)
-            remarks.append("Audience and Spot Price both are missing")
+            remarks.append("Audience and Spot Price both are missing or zero")
 
         elif audience_blank:
             flags.append(False)
-            remarks.append("Audience value is missing")
+            remarks.append("Audience value is missing or zero")
 
         elif spot_blank:
             flags.append(False)
-            remarks.append("Spot Price is missing")
+            remarks.append("Spot Price is missing or zero")
 
         else:
             flags.append(True)
             remarks.append("")
 
-    # 👉 IMPORTANT: Assign directly to SAME DF
     df["Audience_SpotPrice_Check_Flag"] = flags
     df["Audience_SpotPrice_Check_Remark"] = remarks
 
