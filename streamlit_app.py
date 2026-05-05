@@ -66,7 +66,7 @@ try:
     program_category_check_dpmm,
     channel_country_mapping_check_dpmm,
     apt_bt_check_dpmm,
-    season_monitoring_check,
+    season_monitoring_check_dpmm,
     fixture_validation_check,
     stadium_consistency_check,
     event_quality_check,
@@ -3158,7 +3158,7 @@ with ops_mm_bsa_tab:
         ("program_category_check_dpmm", "Program Category Check"),
         ("channel_country_mapping_check_dpmm", "Channel & Country Mapping"),
         ("apt_bt_check_dpmm", "APT / BT Check"),
-        ("season_monitoring_check", "Season Monitoring Check"),
+        ("season_monitoring_check_dpmm", "Season Monitoring Check"),
         ("fixture_validation_check", "Event / Matchday Validation Check"),
         ("stadium_consistency_check", "Stadium Consistency Check"),
         ("event_quality_check", "Event Quality Check"),
@@ -3232,8 +3232,8 @@ with ops_mm_bsa_tab:
                     if "apt_bt_check_dpmm" in ops_selected: 
                         mm_df = apt_bt_check_dpmm(mm_df, ops_bt_threshold)
                     
-                    if "season_monitoring_check" in ops_selected: 
-                        mm_df = season_monitoring_check(mm_df, ops_start_date, ops_end_date)
+                    if "season_monitoring_check_dpmm" in ops_selected: 
+                        mm_df = season_monitoring_check_dpmm(mm_df, ops_start_date, ops_end_date)
                     
                     if "fixture_validation_check" in ops_selected: 
                         mm_df = fixture_validation_check(mm_df, o_fixture_df)

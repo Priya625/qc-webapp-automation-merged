@@ -327,14 +327,15 @@ def apt_bt_check_dpmm(mm_df, bt_threshold=None):
 
     return df
 
-def season_monitoring_check(df, start_date, end_date):
-
-    df = df.copy()
+def season_monitoring_check_dpmm(mm_df, start_date, end_date):
+    df = mm_df.copy()
+    original_cols = df.columns.tolist()
     df.columns = df.columns.str.strip().str.lower()
 
-    date_col = "progr. start (date)"
+    # DPMM combined date-time column
+    date_col = "progr. start"
 
-    # Convert input dates
+    # Convert Streamlit input dates to datetime objects
     start = pd.to_datetime(start_date, errors="coerce")
     end = pd.to_datetime(end_date, errors="coerce")
 
@@ -342,23 +343,27 @@ def season_monitoring_check(df, start_date, end_date):
     remarks = []
 
     for _, row in df.iterrows():
-
+        # Extract date from the combined string (e.g., '01/03/2026 13:21:00')
+        # We use dayfirst=True because European exports usually follow DD/MM/YYYY
         prog_date = pd.to_datetime(row.get(date_col), dayfirst=True, errors="coerce")
 
         if pd.isna(prog_date):
             flags.append(False)
-            remarks.append("Invalid programme start date")
+            remarks.append("Invalid or missing programme start date")
 
-        elif prog_date < start or prog_date > end:
+        # Check if the date falls outside the selected window
+        elif prog_date.date() < start.date() or prog_date.date() > end.date():
             flags.append(False)
             remarks.append(
-                f"Date {prog_date.date()} outside monitoring period ({start.date()} to {end.date()})"
+                f"Date {prog_date.date()} is outside monitoring period ({start.date()} to {end.date()})"
             )
 
         else:
             flags.append(True)
             remarks.append("")
 
+    # Restore column casing and add flags
+    df.columns = original_cols
     df["Season_Check_Flag"] = flags
     df["Season_Check_Remark"] = remarks
 
