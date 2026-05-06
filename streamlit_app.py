@@ -3209,89 +3209,111 @@ with ops_mm_bsa_tab:
                     # CRITICAL: DPMM Export uses 'MM programlist' instead of 'mm - detailed'
                     mm_df = pd.read_excel(data_mm_export_file, sheet_name="MM programlist")
                     mm_df.columns = mm_df.columns.str.strip()
-                    
+
                     o_rosco_path = save_file_ops(ops_rosco_file) if ops_rosco_file else None
                     o_bsr_path = save_file_ops(ops_bsr_file) if ops_bsr_file else None
                     o_fixture_df = pd.read_excel(ops_fixture_file) if ops_fixture_file else None
                     o_prev_df = pd.read_excel(ops_prev_file) if ops_prev_file else None
 
                     # --- Apply Checks ---
-                    if "duplicate_aid_final_dpmm" in ops_selected: 
+                    if "duplicate_aid_final_dpmm" in ops_selected:
                         mm_df = duplicate_aid_final_dpmm(mm_df)
-                    
-                    if "audience_spotprice_check_dpmm" in ops_selected: 
-                        # Use the dpmm version to ensure column names match the export
+
+                    if "audience_spotprice_check_dpmm" in ops_selected:
                         mm_df = audience_spotprice_check_dpmm(mm_df)
-                    
-                    if "program_category_check_dpmm" in ops_selected: 
+
+                    if "program_category_check_dpmm" in ops_selected:
                         mm_df = program_category_check_dpmm(mm_df)
-                    
-                    if "channel_country_mapping_check_dpmm" in ops_selected: 
+
+                    if "channel_country_mapping_check_dpmm" in ops_selected:
                         mm_df = channel_country_mapping_check_dpmm(mm_df, o_rosco_path)
-                    
-                    if "apt_bt_check_dpmm" in ops_selected: 
+
+                    if "apt_bt_check_dpmm" in ops_selected:
                         mm_df = apt_bt_check_dpmm(mm_df, ops_bt_threshold)
-                    
-                    if "season_monitoring_check_dpmm" in ops_selected: 
+
+                    if "season_monitoring_check_dpmm" in ops_selected:
                         mm_df = season_monitoring_check_dpmm(mm_df, ops_start_date, ops_end_date)
-                    
-                    if "fixture_validation_check_dpmm" in ops_selected: 
+
+                    if "fixture_validation_check_dpmm" in ops_selected:
                         mm_df = fixture_validation_check_dpmm(mm_df, o_fixture_df)
-                    
-                    if "stadium_consistency_check_dpmm" in ops_selected: 
+
+                    if "stadium_consistency_check_dpmm" in ops_selected:
                         mm_df = stadium_consistency_check_dpmm(mm_df)
-                    
-                    if "event_quality_check_dpmm" in ops_selected: 
+
+                    if "event_quality_check_dpmm" in ops_selected:
                         mm_df = event_quality_check_dpmm(mm_df)
-                    
-                    if "home_market_check_dpmm" in ops_selected: 
+
+                    if "home_market_check_dpmm" in ops_selected:
                         mm_df = home_market_check_dpmm(mm_df)
 
-                    if "ps_market_channel_check_dpmm" in ops_selected or "ps_content_check" in ops_selected:
+                    if (
+                        "ps_market_channel_check_dpmm" in ops_selected
+                        or "ps_content_check_dpmm" in ops_selected
+                    ):
                         if o_rosco_path:
                             mon_df = pd.read_excel(o_rosco_path, sheet_name="Monitoring List")
-                            if "ps_market_channel_check_dpmm" in ops_selected: mm_df = ps_market_channel_check_dpmm(mm_df, mon_df)
-                            if "ps_content_check_dpmm" in ops_selected: mm_df = ps_content_check_dpmm(mm_df, mon_df)
+
+                            if "ps_market_channel_check_dpmm" in ops_selected:
+                                mm_df = ps_market_channel_check_dpmm(mm_df, mon_df)
+
+                            if "ps_content_check_dpmm" in ops_selected:
+                                mm_df = ps_content_check_dpmm(mm_df, mon_df)
                         else:
                             st.warning("ROSCO file missing; skipping PS checks.")
 
-                    if "mm_bsr_consistency_check_dpmm" in ops_selected: 
+                    if "mm_bsr_consistency_check_dpmm" in ops_selected:
                         mm_df = mm_bsr_consistency_check_dpmm(mm_df, o_bsr_path)
 
                     if "audience_spot_range_clean_view_dpmm" in ops_selected:
-                        # This creates the summary dataframe
                         range_summary_df = audience_spot_range_clean_view_dpmm(mm_df)
-                        # In your ExcelWriter section, save this to its own sheet
-                        range_summary_df.to_excel(writer, sheet_name="Audience_Range", index=False)
-                    
-                    if "ea_creation_check_dpmm" in ops_selected: 
+
+                    if "ea_creation_check_dpmm" in ops_selected:
                         mm_df = ea_creation_check_dpmm(mm_df)
 
                     if "previous_delivery_check_dpmm" in ops_selected:
                         if ops_prev_file:
                             prev_summary = previous_delivery_check_dpmm(mm_df, o_prev_df)
-                            prev_summary.to_excel(writer, sheet_name="Previous_Delivery", index=False)
                         else:
                             st.error("Previous Delivery file required for benchmarking.")
-                    
-                    if "live_delayed_check_dpmm" in ops_selected: 
+
+                    if "live_delayed_check_dpmm" in ops_selected:
                         mm_df = live_delayed_check_dpmm(mm_df)
-                    
-                    if "program_analysis_status_check_dpmm" in ops_selected: 
+
+                    if "program_analysis_status_check_dpmm" in ops_selected:
                         mm_df = program_analysis_status_check_dpmm(mm_df)
 
                     # --- Output Generation ---
                     mm_output = io.BytesIO()
-                    # We reuse the same logic for outputting multiple sheets as the standard MM tab
+
                     with pd.ExcelWriter(mm_output, engine="openpyxl") as writer:
+
                         mm_df.to_excel(writer, sheet_name="OPS_QC_Results", index=False)
 
+                        if "audience_spot_range_clean_view_dpmm" in ops_selected:
+                            range_summary_df.to_excel(
+                                writer,
+                                sheet_name="Audience_Range",
+                                index=False
+                            )
+
+                        if (
+                            "previous_delivery_check_dpmm" in ops_selected
+                            and o_prev_df is not None
+                        ):
+                            prev_summary.to_excel(
+                                writer,
+                                sheet_name="Previous_Delivery",
+                                index=False
+                            )
+
                     st.success("✅ OPS-MM-BSA QC Completed Successfully")
+
                     st.download_button(
-                        label="📥 Download OPS Output", 
-                        data=mm_output.getvalue(), 
-                        file_name="OPS_QC_Results.xlsx", 
+                        label="📥 Download OPS Output",
+                        data=mm_output.getvalue(),
+                        file_name="OPS_QC_Results.xlsx",
                         key="ops_download_btn"
                     )
+
                 except Exception as e:
-                    st.error(f"Processing Error: {e}")
+                    st.error(f"Error occurred: {e}")
