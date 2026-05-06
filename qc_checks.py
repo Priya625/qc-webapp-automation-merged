@@ -1336,14 +1336,19 @@ import logging
 
 
 def _norm(val):
+    """
+    Strong normalization for matching
+    """
 
     if pd.isna(val):
         return ""
 
     val = str(val).strip().lower()
 
+    # remove duplicate spaces
     val = " ".join(val.split())
 
+    # remove trailing .0
     if val.endswith(".0"):
         val = val[:-2]
 
@@ -1351,6 +1356,9 @@ def _norm(val):
 
 
 def _norm_date(val):
+    """
+    Normalize dates to YYYY-MM-DD
+    """
 
     if pd.isna(val):
         return ""
@@ -1380,7 +1388,7 @@ def check_event_matchday_competition(
     fix_cols = col_map.get("fixture", {})
 
     # ---------------------------------------------------------
-    # PROGRAM TYPE COLUMN
+    # TYPE OF PROGRAM COLUMN
     # ---------------------------------------------------------
     col_progtype = _find_column(
         df,
@@ -1400,6 +1408,9 @@ def check_event_matchday_competition(
 
         return df
 
+    # ---------------------------------------------------------
+    # DEFAULT OUTPUT COLUMNS
+    # ---------------------------------------------------------
     df["Event_Matchday_OK"] = pd.NA
     df["Event_Matchday_Remark"] = "Not applicable"
 
@@ -1466,7 +1477,7 @@ def check_event_matchday_competition(
         )
 
     # ---------------------------------------------------------
-    # FIXTURE DF CHECK
+    # FIXTURE SHEET VALIDATION
     # ---------------------------------------------------------
     if fixture_df is None:
 
@@ -1479,9 +1490,8 @@ def check_event_matchday_competition(
         return df
 
     # ---------------------------------------------------------
-    # SAFE COLUMN MAPPING
+    # SAFE EPISODE MAPPING
     # ---------------------------------------------------------
-
     fixture_episode_mapping = (
         fix_cols.get("phase_fixture_episode")
         or fix_cols.get("episode")
@@ -1520,6 +1530,11 @@ def check_event_matchday_competition(
         bsr_cols.get("competition")
     )
 
+    bsr_event_col = _find_column(
+        df,
+        bsr_cols.get("event")
+    )
+
     bsr_matchday_col = _find_column(
         df,
         bsr_cols.get("match_day")
@@ -1533,25 +1548,25 @@ def check_event_matchday_competition(
     logging.info(
         f"""
         Fixture cols:
-        comp      = {fix_comp_col}
-        matchday  = {fix_matchday_col}
-        episode   = {fix_episode_col}
+        competition = {fix_comp_col}
+        matchday    = {fix_matchday_col}
+        episode     = {fix_episode_col}
 
         BSR cols:
-        comp      = {bsr_comp_col}
-        matchday  = {bsr_matchday_col}
-        episode   = {bsr_episode_col}
+        competition = {bsr_comp_col}
+        event       = {bsr_event_col}
+        matchday    = {bsr_matchday_col}
+        episode     = {bsr_episode_col}
         """
     )
 
     # ---------------------------------------------------------
-    # VALIDATE REQUIRED COLS
+    # REQUIRED COLUMN VALIDATION
     # ---------------------------------------------------------
     required_cols = {
         "fix_comp_col": fix_comp_col,
         "fix_matchday_col": fix_matchday_col,
         "fix_episode_col": fix_episode_col,
-        "bsr_comp_col": bsr_comp_col,
         "bsr_matchday_col": bsr_matchday_col,
         "bsr_episode_col": bsr_episode_col,
     }
@@ -1578,7 +1593,7 @@ def check_event_matchday_competition(
     # ---------------------------------------------------------
     # NORMALIZE FIXTURE DATA
     # ---------------------------------------------------------
-    fixture_df["_comp"] = fixture_df[
+    fixture_df["_competition"] = fixture_df[
         fix_comp_col
     ].apply(_norm)
 
@@ -1591,10 +1606,10 @@ def check_event_matchday_competition(
     ].apply(_norm)
 
     # ---------------------------------------------------------
-    # CREATE FIXTURE KEY SET
+    # CREATE FIXTURE KEY
     # ---------------------------------------------------------
-    fixture_df["_key"] = (
-        fixture_df["_comp"]
+    fixture_df["_fixture_key"] = (
+        fixture_df["_competition"]
         + "||"
         + fixture_df["_matchday"]
         + "||"
@@ -1602,7 +1617,7 @@ def check_event_matchday_competition(
     )
 
     fixture_keys = set(
-        fixture_df["_key"]
+        fixture_df["_fixture_key"]
     )
 
     logging.info(
@@ -1621,7 +1636,7 @@ def check_event_matchday_competition(
             )
 
             # -------------------------------------------------
-            # SKIP
+            # SKIP PROGRAM TYPES
             # -------------------------------------------------
             if prog_type in SKIP_TYPES:
 
@@ -1634,7 +1649,7 @@ def check_event_matchday_competition(
                 continue
 
             # -------------------------------------------------
-            # NON CHECKABLE
+            # NON CHECKABLE TYPES
             # -------------------------------------------------
             if prog_type not in CHECKABLE_TYPES:
 
@@ -1647,16 +1662,39 @@ def check_event_matchday_competition(
                 continue
 
             # -------------------------------------------------
-            # NORMALIZE BSR VALUES
+            # COMPETITION / EVENT FALLBACK
             # -------------------------------------------------
-            comp = _norm(
-                row.get(bsr_comp_col, "")
-            )
+            competition_value = ""
 
+            # Prefer Competition
+            if bsr_comp_col:
+
+                competition_value = _norm(
+                    row.get(bsr_comp_col, "")
+                )
+
+            # Fallback to Event
+            if (
+                not competition_value
+                and bsr_event_col
+            ):
+
+                competition_value = _norm(
+                    row.get(bsr_event_col, "")
+                )
+
+            comp = competition_value
+
+            # -------------------------------------------------
+            # MATCHDAY
+            # -------------------------------------------------
             matchday = _norm_date(
                 row.get(bsr_matchday_col, "")
             )
 
+            # -------------------------------------------------
+            # EPISODE
+            # -------------------------------------------------
             episode = _norm(
                 row.get(bsr_episode_col, "")
             )
@@ -1670,7 +1708,7 @@ def check_event_matchday_competition(
 
                 df.at[i, "Event_Matchday_Remark"] = (
                     f"Missing values | "
-                    f"comp='{comp}' | "
+                    f"competition/event='{comp}' | "
                     f"matchday='{matchday}' | "
                     f"episode='{episode}'"
                 )
@@ -1678,7 +1716,7 @@ def check_event_matchday_competition(
                 continue
 
             # -------------------------------------------------
-            # CREATE KEY
+            # CREATE BSR KEY
             # -------------------------------------------------
             bsr_key = (
                 comp
@@ -1689,7 +1727,7 @@ def check_event_matchday_competition(
             )
 
             # -------------------------------------------------
-            # MATCH
+            # MATCH AGAINST FIXTURE
             # -------------------------------------------------
             if bsr_key in fixture_keys:
 
