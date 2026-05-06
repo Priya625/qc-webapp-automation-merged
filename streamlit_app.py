@@ -70,15 +70,15 @@ try:
     fixture_validation_check_dpmm,
     stadium_consistency_check_dpmm,
     event_quality_check_dpmm,
-    home_market_check,
-    ps_market_channel_check,
-    ps_content_check,
-    mm_bsr_consistency_check,
-    audience_spot_range_clean_view,
-    ea_creation_check,
-    previous_delivery_check,
-    live_delayed_check,
-    program_analysis_status_check
+    home_market_check_dpmm,
+    ps_market_channel_check_dpmm,
+    ps_content_check_dpmm,
+    mm_bsr_consistency_check_dpmm,
+    audience_spot_range_clean_view_dpmm,
+    ea_creation_check_dpmm,
+    previous_delivery_check_dpmm,
+    live_delayed_check_dpmm,
+    program_analysis_status_check_dpmm
 )
 
 except ImportError as e:
@@ -3162,15 +3162,15 @@ with ops_mm_bsa_tab:
         ("fixture_validation_check_dpmm", "Event / Matchday Validation Check"),
         ("stadium_consistency_check_dpmm", "Stadium Consistency Check"),
         ("event_quality_check_dpmm", "Event Quality Check"),
-        ("home_market_check", "Home Market Check"),
-        ("ps_market_channel_check", "PS Market & Channel Check"),
-        ("ps_content_check", "PS Content Check"),
-        ("mm_bsr_consistency_check", "MM vs BSR Consistency Check"),
-        ("audience_spot_range_clean_view", "Audience Range Check"),
-        ("ea_creation_check", "EA Creation Check"),
-        ("previous_delivery_check", "Previous Delivery Check"),
-        ("live_delayed_check", "Live vs Delayed Check"),
-        ("program_analysis_status_check", "Program Analysis Status Check")
+        ("home_market_check_dpmm", "Home Market Check"),
+        ("ps_market_channel_check_dpmm", "PS Market & Channel Check"),
+        ("ps_content_check_dpmm", "PS Content Check"),
+        ("mm_bsr_consistency_check_dpmm", "MM vs BSR Consistency Check"),
+        ("audience_spot_range_clean_view_dpmm", "Audience Range Check"),
+        ("ea_creation_check_dpmm", "EA Creation Check"),
+        ("previous_delivery_check_dpmm", "Previous Delivery Check"),
+        ("live_delayed_check_dpmm", "Live vs Delayed Check"),
+        ("program_analysis_status_check_dpmm", "Program Analysis Status Check")
     ]
 
     def sync_all_checks():
@@ -3244,28 +3244,41 @@ with ops_mm_bsa_tab:
                     if "event_quality_check_dpmm" in ops_selected: 
                         mm_df = event_quality_check_dpmm(mm_df)
                     
-                    if "home_market_check" in ops_selected: 
-                        mm_df = home_market_check(mm_df)
+                    if "home_market_check_dpmm" in ops_selected: 
+                        mm_df = home_market_check_dpmm(mm_df)
 
-                    if "ps_market_channel_check" in ops_selected or "ps_content_check" in ops_selected:
+                    if "ps_market_channel_check_dpmm" in ops_selected or "ps_content_check" in ops_selected:
                         if o_rosco_path:
                             mon_df = pd.read_excel(o_rosco_path, sheet_name="Monitoring List")
-                            if "ps_market_channel_check" in ops_selected: mm_df = ps_market_channel_check(mm_df, mon_df)
-                            if "ps_content_check" in ops_selected: mm_df = ps_content_check(mm_df, mon_df)
+                            if "ps_market_channel_check_dpmm" in ops_selected: mm_df = ps_market_channel_check_dpmm(mm_df, mon_df)
+                            if "ps_content_check_dpmm" in ops_selected: mm_df = ps_content_check_dpmm(mm_df, mon_df)
                         else:
                             st.warning("ROSCO file missing; skipping PS checks.")
 
-                    if "mm_bsr_consistency_check" in ops_selected: 
-                        mm_df = mm_bsr_consistency_check(mm_df, o_bsr_path)
+                    if "mm_bsr_consistency_check_dpmm" in ops_selected: 
+                        mm_df = mm_bsr_consistency_check_dpmm(mm_df, o_bsr_path)
+
+                    if "audience_spot_range_clean_view_dpmm" in ops_selected:
+                        # This creates the summary dataframe
+                        range_summary_df = audience_spot_range_clean_view_dpmm(mm_df)
+                        # In your ExcelWriter section, save this to its own sheet
+                        range_summary_df.to_excel(writer, sheet_name="Audience_Range", index=False)
                     
-                    if "ea_creation_check" in ops_selected: 
-                        mm_df = ea_creation_check(mm_df)
+                    if "ea_creation_check_dpmm" in ops_selected: 
+                        mm_df = ea_creation_check_dpmm(mm_df)
+
+                    if "previous_delivery_check_dpmm" in ops_selected:
+                        if ops_prev_file:
+                            prev_summary = previous_delivery_check_dpmm(mm_df, o_prev_df)
+                            prev_summary.to_excel(writer, sheet_name="Previous_Delivery", index=False)
+                        else:
+                            st.error("Previous Delivery file required for benchmarking.")
                     
-                    if "live_delayed_check" in ops_selected: 
-                        mm_df = live_delayed_check(mm_df)
+                    if "live_delayed_check_dpmm" in ops_selected: 
+                        mm_df = live_delayed_check_dpmm(mm_df)
                     
-                    if "program_analysis_status_check" in ops_selected: 
-                        mm_df = program_analysis_status_check(mm_df)
+                    if "program_analysis_status_check_dpmm" in ops_selected: 
+                        mm_df = program_analysis_status_check_dpmm(mm_df)
 
                     # --- Output Generation ---
                     mm_output = io.BytesIO()
