@@ -68,8 +68,8 @@ try:
     apt_bt_check_dpmm,
     season_monitoring_check_dpmm,
     fixture_validation_check_dpmm,
-    stadium_consistency_check,
-    event_quality_check,
+    stadium_consistency_check_dpmm,
+    event_quality_check_dpmm,
     home_market_check,
     ps_market_channel_check,
     ps_content_check,
@@ -3160,8 +3160,8 @@ with ops_mm_bsa_tab:
         ("apt_bt_check_dpmm", "APT / BT Check"),
         ("season_monitoring_check_dpmm", "Season Monitoring Check"),
         ("fixture_validation_check_dpmm", "Event / Matchday Validation Check"),
-        ("stadium_consistency_check", "Stadium Consistency Check"),
-        ("event_quality_check", "Event Quality Check"),
+        ("stadium_consistency_check_dpmm", "Stadium Consistency Check"),
+        ("event_quality_check_dpmm", "Event Quality Check"),
         ("home_market_check", "Home Market Check"),
         ("ps_market_channel_check", "PS Market & Channel Check"),
         ("ps_content_check", "PS Content Check"),
@@ -3238,11 +3238,11 @@ with ops_mm_bsa_tab:
                     if "fixture_validation_check_dpmm" in ops_selected: 
                         mm_df = fixture_validation_check_dpmm(mm_df, o_fixture_df)
                     
-                    if "stadium_consistency_check" in ops_selected: 
-                        mm_df = stadium_consistency_check(mm_df)
+                    if "stadium_consistency_check_dpmm" in ops_selected: 
+                        mm_df = stadium_consistency_check_dpmm(mm_df)
                     
-                    if "event_quality_check" in ops_selected: 
-                        mm_df = event_quality_check(mm_df)
+                    if "event_quality_check_dpmm" in ops_selected: 
+                        mm_df = event_quality_check_dpmm(mm_df)
                     
                     if "home_market_check" in ops_selected: 
                         mm_df = home_market_check(mm_df)

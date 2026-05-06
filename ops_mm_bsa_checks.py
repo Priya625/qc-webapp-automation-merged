@@ -419,160 +419,140 @@ def fixture_validation_check_dpmm(mm_df, o_fixture_df):
 
     return df
 
-def stadium_consistency_check(df):
+def stadium_consistency_check_dpmm(mm_df):
+    df = mm_df.copy()
+    # Standardize column naming
+    df.columns = df.columns.str.strip().str.lower()
 
-    df.columns = df.columns.str.strip()
-
+    # Required columns for DPMM context
     required_cols = [
         "programme category",
         "matchday date",
         "stadium"
     ]
 
+    # Verify column existence to prevent crashes
     for col in required_cols:
         if col not in df.columns:
-            raise ValueError(f"Missing column: {col}")
+            df["Stadium_Consistency_Flag"] = False
+            df["Stadium_Consistency_Remark"] = f"Missing column: {col}. Check if 'MM matchdays' sheet is being used."
+            return df
 
-    # Optional columns
-    match_col_exists = "match" in df.columns
-    team_col_exists = "team" in df.columns
+    # Optional but helpful identifiers
+    match_col = "match" if "match" in df.columns else None
+    team_col = "team" if "team" in df.columns else None
 
-    # ----------------------------
-    # CLEAN DATA
-    # ----------------------------
-    df["programme category"] = df["programme category"].astype(str).str.strip().str.lower()
+    # 1. Clean and Normalize Data
+    df["programme category"] = df["programme category"].astype(str).str.lower()
     df["matchday date"] = df["matchday date"].astype(str).str.strip()
-    df["stadium"] = df["stadium"].astype(str).str.strip().str.lower()
+    df["stadium"] = df["stadium"].astype(str).str.strip().lower()
 
-    if match_col_exists:
-        df["match"] = df["match"].astype(str).str.strip().str.lower()
-
-    if team_col_exists:
-        df["team"] = df["team"].astype(str).str.strip().str.lower()
-
-    # ----------------------------
-    # FILTER ONLY LIVE PROGRAMS
-    # ----------------------------
+    # 2. Filter for Live Events
+    # DPMM categories like 'Sport (live)' are captured here
     live_df = df[df["programme category"].str.contains("live", na=False)].copy()
 
-    # ----------------------------
-    # CREATE IDENTIFIER
-    # ----------------------------
-    def get_identifier(row):
-        if match_col_exists and row.get("match"):
-            if row["match"] not in ["", "nan"]:
-                return row["match"]
-        if team_col_exists:
-            return row["team"]
-        return "unknown"
+    if live_df.empty:
+        df["Stadium_Consistency_Flag"] = True
+        df["Stadium_Consistency_Remark"] = "No live programs found to check."
+        return df
 
-    live_df["identifier"] = live_df.apply(get_identifier, axis=1)
+    # 3. Create a unique ID for the Match/Team
+    def get_id(row):
+        m = str(row.get("match", "")).strip().lower()
+        t = str(row.get("team", "")).strip().lower()
+        if m and m not in ["", "nan"]: return m
+        if t and t not in ["", "nan"]: return t
+        return "unknown_id"
 
-    # ----------------------------
-    # GROUPING LOGIC
-    # ----------------------------
-    group = live_df.groupby(["identifier", "matchday date"])["stadium"].nunique()
+    live_df["identifier"] = live_df.apply(get_id, axis=1)
 
-    invalid_groups = group[group > 1].index
+    # 4. Group by Identifier + Date and count unique Stadiums
+    # If count > 1, the same match has different stadiums in different rows
+    stats = live_df.groupby(["identifier", "matchday date"])["stadium"].nunique()
+    invalid_keys = stats[stats > 1].index
 
-    # ----------------------------
-    # APPLY FLAG TO ORIGINAL DF
-    # ----------------------------
-    flag = []
-    remark = []
+    # 5. Apply Flags
+    flags = []
+    remarks = []
 
     for _, row in df.iterrows():
-
-        category = str(row["programme category"]).lower()
-
-        # Skip non-live rows
-        if "live" not in category:
-            flag.append("TRUE")
-            remark.append("")
+        cat = str(row["programme category"]).lower()
+        if "live" not in cat:
+            flags.append(True)
+            remarks.append("")
             continue
 
-        # Determine identifier
-        identifier = ""
-
-        if match_col_exists and str(row.get("match", "")).strip().lower() not in ["", "nan"]:
-            identifier = str(row["match"]).strip().lower()
-        elif team_col_exists:
-            identifier = str(row.get("team", "")).strip().lower()
+        m_id = get_id(row)
+        m_date = str(row["matchday date"]).strip()
+        
+        if (m_id, m_date) in invalid_keys:
+            flags.append(False)
+            remarks.append(f"Inconsistent Stadium: '{row['stadium']}' does not match other entries for this match/date")
         else:
-            identifier = "unknown"
+            flags.append(True)
+            remarks.append("")
 
-        key = (identifier, str(row["matchday date"]).strip())
-
-        if key in invalid_groups:
-            flag.append("FALSE")
-            remark.append("Multiple stadiums for same match/team on same date")
-        else:
-            flag.append("TRUE")
-            remark.append("")
-
-    df["stadium_consistency_flag"] = flag
-    df["stadium_consistency_remark"] = remark
+    df["Stadium_Consistency_Flag"] = flags
+    df["Stadium_Consistency_Remark"] = remarks
 
     return df
 
-def event_quality_check(df):
-
+def event_quality_check_dpmm(mm_df):
+    df = mm_df.copy()
+    # Handle both casing styles to be safe
     df.columns = df.columns.str.strip()
+    
+    # Required columns
+    category_col = "programme category"
+    # In DPMM, the column is usually lowercase 'bt'
+    bt_col = "bt" if "bt" in df.columns else ("BT" if "BT" in df.columns else None)
 
-    required_cols = ["programme category"]
+    if category_col not in df.columns:
+        df["Event_Quality_Flag"] = False
+        df["Event_Quality_Remark"] = f"Missing column: {category_col}"
+        return df
 
-    for col in required_cols:
-        if col not in df.columns:
-            raise ValueError(f"Missing column: {col}")
+    # Normalize category strings
+    df[category_col] = df[category_col].astype(str).str.lower().str.strip()
 
-    # Optional
-    bt_col = "BT" if "BT" in df.columns else None
+    # Allowed keywords based on DPMM Export categories
+    allowed_keywords = ["live", "delayed", "highlight", "highlights", "magazine", "news"]
 
-    # Clean
-    df["programme category"] = df["programme category"].astype(str).str.lower().str.strip()
-
-    # Allowed categories
-    allowed_categories = ["live", "delayed", "highlight", "magazine"]
-
-    flag = []
-    remark = []
+    flags = []
+    remarks = []
 
     for _, row in df.iterrows():
+        category = row[category_col]
 
-        category = row["programme category"]
-
-        # ----------------------------
-        # CATEGORY VALIDATION
-        # ----------------------------
-        if not any(x in category for x in allowed_categories):
-            flag.append("FALSE")
-            remark.append("Invalid programme category")
+        # 1. Category Existence Check
+        if not any(keyword in category for keyword in allowed_keywords):
+            flags.append(False)
+            remarks.append(f"Unrecognized category type: {category}")
             continue
 
-        # ----------------------------
-        # LIVE BT CHECK (BASIC)
-        # ----------------------------
+        # 2. Minimum Duration Check for Live Programs
+        # Logic: If it's a live sport, it should generally be longer than a few minutes.
         if "live" in category and bt_col:
-
             try:
                 bt_value = float(row[bt_col])
-                if bt_value < 60:   # threshold (can adjust)
-                    flag.append("FALSE")
-                    remark.append("BT too low for live program")
+                # Threshold check: In many exports, BT is in days. 
+                # If your BT is in minutes, use 60. If BT is in days, 60 mins = ~0.0416
+                # Assuming minutes for this logic:
+                if bt_value < 45:  # Adjust this threshold based on your specific requirements
+                    flags.append(False)
+                    remarks.append(f"BT too low ({bt_value}) for a live program")
                     continue
-            except:
-                flag.append("FALSE")
-                remark.append("Invalid BT value")
+            except (ValueError, TypeError):
+                flags.append(False)
+                remarks.append("Invalid or missing BT value")
                 continue
 
-        # ----------------------------
-        # DEFAULT PASS
-        # ----------------------------
-        flag.append("TRUE")
-        remark.append("")
+        # ✅ DEFAULT PASS
+        flags.append(True)
+        remarks.append("")
 
-    df["event_quality_flag"] = flag
-    df["event_quality_remark"] = remark
+    df["Event_Quality_Flag"] = flags
+    df["Event_Quality_Remark"] = remarks
 
     return df
 
