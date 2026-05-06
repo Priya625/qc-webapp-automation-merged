@@ -1334,193 +1334,353 @@ def program_category_check(bsr_path, df, col_map, rules, file_rules):
 import pandas as pd
 import logging
 
-# -------------------------------
-# Helper: Find column by keywords
-# -------------------------------
-def find_column(df, keywords):
-    for col in df.columns:
-        col_clean = col.strip().lower()
-        if any(k in col_clean for k in keywords):
-            return col
-    return None
+
+def _norm(val):
+    """
+    Strong normalization for matching.
+    """
+    if pd.isna(val):
+        return ""
+
+    val = str(val).strip().lower()
+
+    # remove duplicate spaces
+    val = " ".join(val.split())
+
+    # remove trailing .0 from excel numerics
+    if val.endswith(".0"):
+        val = val[:-2]
+
+    return val
 
 
-# -------------------------------
-# Helper: Normalize string
-# -------------------------------
-def norm(x):
-    return str(x).strip().lower() if pd.notna(x) else ""
+def _norm_date(val):
+    """
+    Normalize dates to YYYY-MM-DD
+    """
+    if pd.isna(val):
+        return ""
+
+    try:
+        return pd.to_datetime(val, dayfirst=True).strftime("%Y-%m-%d")
+    except Exception:
+        return _norm(val)
+
 
 def check_event_matchday_competition(df, bsr_path, col_map, file_rules):
 
     logging.info("Starting Event / Matchday / Fixture consistency check...")
 
-    bsr_cols = col_map['bsr']
-    fix_cols = col_map['fixture']
+    bsr_cols = col_map["bsr"]
+    fix_cols = col_map["fixture"]
 
-    col_progtype = _find_column(df, bsr_cols['type_of_program'])
+    # ---------------------------------------------------------
+    # PROGRAM TYPE COLUMN
+    # ---------------------------------------------------------
+    col_progtype = _find_column(df, bsr_cols["type_of_program"])
+
     if not col_progtype:
-        logging.error("❌ 'Type of program' column not found. Skipping Event check.")
+        logging.error("❌ Type of program column not found")
+
         df["Event_Matchday_OK"] = False
-        df["Event_Matchday_Remark"] = "Error: 'Type of program' column not found."
+        df["Event_Matchday_Remark"] = "Type of program column missing"
+
         return df
 
     df["Event_Matchday_OK"] = pd.NA
-    df["Event_Matchday_Remark"] = "Not applicable for this program type"
+    df["Event_Matchday_Remark"] = "Not applicable"
 
-    # Program types that require fixture checking (lowercase for comparison)
-    CHECKABLE_TYPES = {'live', 'delayed', 'live delayed', 'delay'}
-    SKIP_TYPES      = {'highlights', 'magazine', 'support'}
+    CHECKABLE_TYPES = {
+        "live",
+        "delayed",
+        "live delayed",
+        "delay",
+    }
 
-    # ── Load fixture sheet ──────────────────────────────────────────────────
+    SKIP_TYPES = {
+        "highlights",
+        "magazine",
+        "support",
+    }
+
+    # ---------------------------------------------------------
+    # LOAD FIXTURE SHEET
+    # ---------------------------------------------------------
     fixture_df = None
+
     try:
-        excel_file    = pd.ExcelFile(bsr_path)
-        fixture_keyword = file_rules.get('fixture_sheet_keyword', 'fixture')
+
+        excel_file = pd.ExcelFile(bsr_path)
+
+        fixture_keyword = file_rules.get(
+            "fixture_sheet_keyword",
+            "fixture"
+        )
+
         fixture_sheet = next(
-            (s for s in excel_file.sheet_names if fixture_keyword in s.lower()), None
+            (
+                s for s in excel_file.sheet_names
+                if fixture_keyword.lower() in s.lower()
+            ),
+            None
         )
+
         if fixture_sheet:
+
             fixture_df = excel_file.parse(fixture_sheet)
-            fixture_df.columns = [str(c).strip() for c in fixture_df.columns]
-            logging.info(f"✅ Loaded fixture sheet: '{fixture_sheet}' | columns: {list(fixture_df.columns)}")
-        else:
-            logging.warning("⚠️ No sheet containing 'fixture' keyword found.")
-    except Exception as e:
-        logging.error(f"❌ Error loading fixture list: {e}")
 
-    # ── Resolve fixture columns ─────────────────────────────────────────────
-    fix_competition_col = fix_matchday_col = fix_episode_col = None
-
-    if fixture_df is not None:
-        # Competition column in fixture list (same as event)
-        fix_competition_col = _find_column(fixture_df, fix_cols.get('competition', fix_cols.get('event')))
-        fix_matchday_col    = _find_column(fixture_df, fix_cols['match_day'])
-        fix_episode_col     = _find_column(fixture_df, fix_cols.get('phase_fixture_episode', fix_cols.get('episode')))
-
-        logging.info(
-            f"Fixture cols resolved → "
-            f"competition='{fix_competition_col}', "
-            f"matchday='{fix_matchday_col}', "
-            f"episode='{fix_episode_col}'"
-        )
-
-        missing = [
-            label for label, col in [
-                ('competition', fix_competition_col),
-                ('match_day',   fix_matchday_col),
-                ('episode',     fix_episode_col),
-            ] if not col
-        ]
-        if missing:
-            logging.warning(f"⚠️ Fixture sheet missing columns for: {missing}. Invalidating fixture data.")
-            fixture_df = None
-        else:
-            # Normalise key columns
-            for col in [fix_competition_col, fix_matchday_col, fix_episode_col]:
-                fixture_df[col] = _normalise_series(fixture_df[col])
+            fixture_df.columns = [
+                str(c).strip()
+                for c in fixture_df.columns
+            ]
 
             logging.info(
-                f"Sample fixture data after normalisation:\n"
-                f"{fixture_df[[fix_competition_col, fix_matchday_col, fix_episode_col]].head(3).to_string()}"
+                f"✅ Fixture sheet loaded: {fixture_sheet}"
             )
 
-    # ── Resolve BSR columns ─────────────────────────────────────────────────
-    bsr_event_col   = _find_column(df, bsr_cols.get('event'))
-    bsr_matchday_col = _find_column(df, bsr_cols.get('match_day'))
-    bsr_episode_col  = _find_column(df, bsr_cols.get('phase_fixture_episode', bsr_cols.get('episode')))
+        else:
+            logging.warning(
+                "⚠️ Fixture sheet not found"
+            )
 
-    logging.info(
-        f"BSR cols resolved → "
-        f"event='{bsr_event_col}', "
-        f"matchday='{bsr_matchday_col}', "
-        f"episode='{bsr_episode_col}'"
+    except Exception as e:
+        logging.error(f"❌ Error loading fixture sheet: {e}")
+
+    # ---------------------------------------------------------
+    # VALIDATE FIXTURE DF
+    # ---------------------------------------------------------
+    if fixture_df is None:
+
+        df["Event_Matchday_OK"] = False
+        df["Event_Matchday_Remark"] = "Fixture sheet missing"
+
+        return df
+
+    # ---------------------------------------------------------
+    # RESOLVE FIXTURE COLUMNS
+    # ---------------------------------------------------------
+    fix_comp_col = _find_column(
+        fixture_df,
+        fix_cols["competition"]
     )
 
-    # ── Row-by-row check ────────────────────────────────────────────────────
+    fix_matchday_col = _find_column(
+        fixture_df,
+        fix_cols["match_day"]
+    )
+
+    fix_episode_col = _find_column(
+        fixture_df,
+        fix_cols["phase_fixture_episode"]
+    )
+
+    logging.info(
+        f"""
+        Fixture columns:
+        competition = {fix_comp_col}
+        matchday    = {fix_matchday_col}
+        episode     = {fix_episode_col}
+        """
+    )
+
+    # ---------------------------------------------------------
+    # RESOLVE BSR COLUMNS
+    # IMPORTANT FIX:
+    # USE COMPETITION INSTEAD OF EVENT
+    # ---------------------------------------------------------
+    bsr_comp_col = _find_column(
+        df,
+        bsr_cols["competition"]
+    )
+
+    bsr_matchday_col = _find_column(
+        df,
+        bsr_cols["match_day"]
+    )
+
+    bsr_episode_col = _find_column(
+        df,
+        bsr_cols["phase_fixture_episode"]
+    )
+
+    logging.info(
+        f"""
+        BSR columns:
+        competition = {bsr_comp_col}
+        matchday    = {bsr_matchday_col}
+        episode     = {bsr_episode_col}
+        """
+    )
+
+    required_cols = [
+        fix_comp_col,
+        fix_matchday_col,
+        fix_episode_col,
+        bsr_comp_col,
+        bsr_matchday_col,
+        bsr_episode_col,
+    ]
+
+    if any(c is None for c in required_cols):
+
+        missing = [c for c in required_cols if c is None]
+
+        logging.error(
+            f"❌ Missing required columns: {missing}"
+        )
+
+        df["Event_Matchday_OK"] = False
+        df["Event_Matchday_Remark"] = "Required columns missing"
+
+        return df
+
+    # ---------------------------------------------------------
+    # NORMALIZE FIXTURE DATA
+    # ---------------------------------------------------------
+    fixture_df["_comp"] = fixture_df[
+        fix_comp_col
+    ].apply(_norm)
+
+    fixture_df["_matchday"] = fixture_df[
+        fix_matchday_col
+    ].apply(_norm_date)
+
+    fixture_df["_episode"] = fixture_df[
+        fix_episode_col
+    ].apply(_norm)
+
+    # ---------------------------------------------------------
+    # CREATE FIXTURE KEY SET
+    # ---------------------------------------------------------
+    fixture_df["_key"] = (
+        fixture_df["_comp"]
+        + "||"
+        + fixture_df["_matchday"]
+        + "||"
+        + fixture_df["_episode"]
+    )
+
+    fixture_keys = set(
+        fixture_df["_key"].dropna()
+    )
+
+    logging.info(
+        f"✅ Fixture keys created: {len(fixture_keys)}"
+    )
+
+    # ---------------------------------------------------------
+    # MAIN CHECK
+    # ---------------------------------------------------------
     for i, row in df.iterrows():
+
         try:
-            prog_type = _norm(row.get(col_progtype, ""))
 
-            # Skip non-checkable types explicitly
-            if prog_type in SKIP_TYPES:
-                df.at[i, "Event_Matchday_OK"]     = pd.NA
-                df.at[i, "Event_Matchday_Remark"] = "Not applicable for this program type"
-                continue
-
-            # Only check Live / Delayed
-            if prog_type not in CHECKABLE_TYPES:
-                df.at[i, "Event_Matchday_OK"]     = pd.NA
-                df.at[i, "Event_Matchday_Remark"] = f"Not applicable (program type: '{prog_type}')"
-                continue
-
-            # ── Live / Delayed: fixture check ───────────────────────────────
-            if fixture_df is None:
-                df.at[i, "Event_Matchday_OK"]     = False
-                df.at[i, "Event_Matchday_Remark"] = "Fixture list missing or could not be loaded"
-                continue
-
-            event   = _norm(row.get(bsr_event_col,    "")) if bsr_event_col    else ""
-            matchday = _norm(row.get(bsr_matchday_col, "")) if bsr_matchday_col else ""
-            episode  = _norm(row.get(bsr_episode_col,  "")) if bsr_episode_col  else ""
-
-            # Log what we're trying to match (first 5 rows to avoid log spam)
-            if i < 5:
-                logging.debug(
-                    f"Row {i} | prog='{prog_type}' | "
-                    f"event='{event}' | matchday='{matchday}' | episode='{episode}'"
-                )
-
-            if not all([event, matchday, episode]):
-                df.at[i, "Event_Matchday_OK"]     = False
-                df.at[i, "Event_Matchday_Remark"] = (
-                    f"Missing field(s) in BSR — "
-                    f"event='{event}', matchday='{matchday}', episode='{episode}'"
-                )
-                continue
-
-            # Match against fixture list
-            mask = (
-                (fixture_df[fix_competition_col] == event)
-                & (fixture_df[fix_matchday_col]  == matchday)
-                & (fixture_df[fix_episode_col]   == episode)
+            prog_type = _norm(
+                row.get(col_progtype, "")
             )
-            matched = fixture_df[mask]
 
-            if not matched.empty:
-                df.at[i, "Event_Matchday_OK"]     = True
-                df.at[i, "Event_Matchday_Remark"] = "Fixture match"
+            # ---------------------------------------------
+            # SKIP TYPES
+            # ---------------------------------------------
+            if prog_type in SKIP_TYPES:
+
+                df.at[i, "Event_Matchday_OK"] = pd.NA
+
+                df.at[i, "Event_Matchday_Remark"] = (
+                    "Not applicable"
+                )
+
+                continue
+
+            # ---------------------------------------------
+            # NON-CHECKABLE
+            # ---------------------------------------------
+            if prog_type not in CHECKABLE_TYPES:
+
+                df.at[i, "Event_Matchday_OK"] = pd.NA
+
+                df.at[i, "Event_Matchday_Remark"] = (
+                    f"Not applicable ({prog_type})"
+                )
+
+                continue
+
+            # ---------------------------------------------
+            # NORMALIZE BSR VALUES
+            # ---------------------------------------------
+            comp = _norm(
+                row.get(bsr_comp_col, "")
+            )
+
+            matchday = _norm_date(
+                row.get(bsr_matchday_col, "")
+            )
+
+            episode = _norm(
+                row.get(bsr_episode_col, "")
+            )
+
+            # ---------------------------------------------
+            # EMPTY CHECK
+            # ---------------------------------------------
+            if not comp or not matchday or not episode:
+
+                df.at[i, "Event_Matchday_OK"] = False
+
+                df.at[i, "Event_Matchday_Remark"] = (
+                    f"Missing values | "
+                    f"competition='{comp}' | "
+                    f"matchday='{matchday}' | "
+                    f"episode='{episode}'"
+                )
+
+                continue
+
+            # ---------------------------------------------
+            # BUILD KEY
+            # ---------------------------------------------
+            bsr_key = (
+                comp
+                + "||"
+                + matchday
+                + "||"
+                + episode
+            )
+
+            # ---------------------------------------------
+            # EXACT MATCH
+            # ---------------------------------------------
+            if bsr_key in fixture_keys:
+
+                df.at[i, "Event_Matchday_OK"] = True
+
+                df.at[i, "Event_Matchday_Remark"] = (
+                    "Fixture match"
+                )
+
             else:
-                # ── Partial match diagnostics ───────────────────────────────
-                p1 = fixture_df[fixture_df[fix_competition_col] == event]
-                p2 = p1[p1[fix_matchday_col] == matchday]
 
-                if not p2.empty:
-                    found_eps = p2[fix_episode_col].tolist()
-                    remark = (
-                        f"Competition + matchday matched but episode mismatch — "
-                        f"BSR='{episode}', fixture has: {found_eps}"
-                    )
-                elif not p1.empty:
-                    found_mds = p1[fix_matchday_col].unique().tolist()
-                    remark = (
-                        f"Competition matched but matchday mismatch — "
-                        f"BSR='{matchday}', fixture has: {found_mds}"
-                    )
-                else:
-                    remark = (
-                        f"No fixture match — "
-                        f"event='{event}', matchday='{matchday}', episode='{episode}'"
-                    )
+                df.at[i, "Event_Matchday_OK"] = False
 
-                df.at[i, "Event_Matchday_OK"]     = False
-                df.at[i, "Event_Matchday_Remark"] = remark
+                df.at[i, "Event_Matchday_Remark"] = (
+                    f"No fixture match | "
+                    f"{bsr_key}"
+                )
 
         except Exception as e:
-            df.at[i, "Event_Matchday_OK"]     = False
-            df.at[i, "Event_Matchday_Remark"] = f"Error: {e}"
 
-    logging.info("✅ Event / Matchday / Fixture consistency check completed.")
+            logging.exception(e)
+
+            df.at[i, "Event_Matchday_OK"] = False
+
+            df.at[i, "Event_Matchday_Remark"] = (
+                f"Error: {e}"
+            )
+
+    logging.info(
+        "✅ Event / Matchday / Fixture check completed"
+    )
+
     return df
 
 # ── Shared helpers (define once outside the function) ───────────────────────
