@@ -571,6 +571,7 @@ def home_market_check_dpmm(mm_df):
         "country"
     ]
 
+
     for col in required_cols:
         if col not in df.columns:
             df["Home_Market_Flag"] = False
