@@ -2050,85 +2050,150 @@ def home_away_vs_phase_check(df, col_map):
     return df
 
 # -----------------------------------------------------------
-# 15️⃣ Multiple Live Match Consistency Check
+# 15️⃣ Multiple Live Match Consistency Check (Corrected)
 # -----------------------------------------------------------
+
 def multiple_live_match_check(df, col_map):
+
     result_col = "Multiple_Live_Match_OK"
+
     df = df.copy()
 
-    # Ensure consistent string dtype
+    # Default value
     df[result_col] = "NA"
 
-    # Safely get mapping dictionary
+    # -------------------------------------------------------
+    # Safe config mapping
+    # -------------------------------------------------------
     b = col_map.get("bsr", {}) if isinstance(col_map.get("bsr"), dict) else col_map
 
-    # Helper to find columns
+    # -------------------------------------------------------
+    # Helper: find best matching column
+    # -------------------------------------------------------
     def _get_best_col(df, config_key, fallbacks):
+
         config_val = b.get(config_key, [])
         search_terms = []
 
         if isinstance(config_val, list):
             search_terms.extend(config_val)
+
         elif isinstance(config_val, str):
             search_terms.append(config_val)
 
         search_terms.extend(fallbacks)
 
         for term in search_terms:
+
             if not term:
                 continue
+
+            # Exact match
             if term in df.columns:
                 return term
+
+            # Case-insensitive match
             for actual_col in df.columns:
-                if str(actual_col).strip().lower() == str(term).strip().lower():
+
+                if (
+                    str(actual_col).strip().lower()
+                    == str(term).strip().lower()
+                ):
                     return actual_col
+
         return None
 
-    # Detect Columns
+    # -------------------------------------------------------
+    # Detect columns
+    # -------------------------------------------------------
+
     col_program_type = _get_best_col(
-        df, "type_of_program",
+        df,
+        "type_of_program",
         ["Program Type", "Type of Program", "Status", "Live/Repeat"]
     )
+
     col_market = _get_best_col(
-        df, "market",
+        df,
+        "market",
         ["Market", "Region", "Country"]
     )
+
     col_broadcaster = _get_best_col(
-        df, "broadcaster",
+        df,
+        "broadcaster",
         ["Broadcaster", "Station"]
     )
+
     col_channel = _get_best_col(
-        df, "tv_channel",
+        df,
+        "tv_channel",
         ["Channel", "TV Channel", "Channel ID"]
     )
-    col_matchday = _get_best_col(
-        df, "matchday",
-        ["Matchday", "Match Day", "MD"]
+
+    col_date = _get_best_col(
+        df,
+        "date",
+        ["Date", "BSR_Local_Date", "BSR Date"]
     )
+
+    col_start = _get_best_col(
+        df,
+        "start_time",
+        ["Start", "Program Start", "Start Time"]
+    )
+
+    col_end = _get_best_col(
+        df,
+        "end_time",
+        ["End", "End Time"]
+    )
+
+    # IMPORTANT:
+    # Use the strongest match identifier possible
     col_match = _get_best_col(
-        df, "phase_fixture_episode",
-        ["PhaseFixtureEpisode", "Phase", "Fixture", "Event", "Combined (translated)"]
+        df,
+        "phase_fixture_episode",
+        [
+            "PhaseFixtureEpisode",
+            "Program title",
+            "Combined (translated)"
+        ]
     )
+
+    # -------------------------------------------------------
+    # Validate required columns
+    # -------------------------------------------------------
 
     required_cols_map = {
         "Program Type": col_program_type,
         "Market": col_market,
         "Broadcaster": col_broadcaster,
         "Channel": col_channel,
-        "Matchday": col_matchday,
-        "Match/Phase": col_match
+        "Date": col_date,
+        "Start": col_start,
+        "End": col_end,
+        "Match Identifier": col_match
     }
 
-    # Validate required columns
     missing_headers = [
-        label for label, val in required_cols_map.items() if not val
+        label
+        for label, val in required_cols_map.items()
+        if not val
     ]
 
     if missing_headers:
-        df[result_col] = f"Error: Missing Headers ({', '.join(missing_headers)})"
+
+        df[result_col] = (
+            f"Error: Missing Headers ({', '.join(missing_headers)})"
+        )
+
         return df
 
-    # Identify Live rows
+    # -------------------------------------------------------
+    # LIVE rows only
+    # -------------------------------------------------------
+
     live_mask = (
         df[col_program_type]
         .astype(str)
@@ -2137,29 +2202,77 @@ def multiple_live_match_check(df, col_map):
         .eq("live")
     )
 
+    # No live rows
     if not live_mask.any():
+
         df[result_col] = "Not Applicable"
+
         return df
 
-    # Grouping logic
+    # -------------------------------------------------------
+    # Normalize fields
+    # -------------------------------------------------------
+
+    for col in [
+        col_market,
+        col_broadcaster,
+        col_channel,
+        col_date,
+        col_start,
+        col_end,
+        col_match
+    ]:
+
+        df[col] = (
+            df[col]
+            .astype(str)
+            .str.strip()
+            .str.lower()
+        )
+
+    # -------------------------------------------------------
+    # Duplicate detection logic
+    # -------------------------------------------------------
+
+    # Exact LIVE duplicate definition:
+    # same market + broadcaster + channel
+    # same date + start + end
+    # same match/program
+
     group_cols = [
         col_market,
         col_broadcaster,
         col_channel,
-        col_matchday,
+        col_date,
+        col_start,
+        col_end,
         col_match
     ]
 
     live_df = df[live_mask]
-    duplicate_mask = live_df.duplicated(subset=group_cols, keep=False)
 
+    duplicate_mask = live_df.duplicated(
+        subset=group_cols,
+        keep="first"
+    )
+
+    # -------------------------------------------------------
     # Assign results
+    # -------------------------------------------------------
+
+    # Default for live rows
     df.loc[live_mask, result_col] = "True"
-    df.loc[duplicate_mask[duplicate_mask].index, result_col] = "False"
+
+    # Only repeated duplicate rows become False
+    df.loc[
+        duplicate_mask[duplicate_mask].index,
+        result_col
+    ] = "False"
+
+    # Non-live rows
     df.loc[~live_mask, result_col] = "Not Applicable"
 
     return df
-
 # -----------------------------------------------------------
 # 16️⃣ Metered Channel Estimation Check (Robust Column Matching)
 # -----------------------------------------------------------
