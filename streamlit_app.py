@@ -3133,9 +3133,10 @@ with mm_bsa_tab:
 # -----------------------------------------------------------
 #            📊 OPS-MM-BSA QC CHECKS TAB (DPMM)
 # -----------------------------------------------------------
-#                SPORT / LEAGUE CONFIG
+#                SPORT / EVENT CONFIG
 
-SPORT_LEAGUE_MAPPING = {
+
+SPORT_EVENT_MAPPING = {
 
     "Football": [
         "Bundesliga",
@@ -3145,6 +3146,10 @@ SPORT_LEAGUE_MAPPING = {
         "Ligue 1",
         "Champions League",
         "Europa League",
+        "UEFA EURO",
+        "UEFA European Qualifiers",
+        "2. Bundesliga",
+        "3. Liga"
     ],
 
     "Basketball": [
@@ -3165,36 +3170,54 @@ SPORT_LEAGUE_MAPPING = {
 }
 
 # ===========================================================
-#                  HELPER FUNCTIONS
+#                SAFE FILE SAVE FUNCTION
 # ===========================================================
 
 def save_file_ops(uploaded_file):
 
-    temp = tempfile.NamedTemporaryFile(delete=False)
+    """
+    Safely save uploaded file to temp location
+    """
 
-    temp.write(uploaded_file.read())
+    suffix = Path(uploaded_file.name).suffix
 
-    temp.close()
+    with tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=suffix
+    ) as temp:
 
-    return temp.name
+        temp.write(uploaded_file.getbuffer())
 
+        return temp.name
 
-def validate_rosco(uploaded_file, selected_sport, selected_event):
+# ===========================================================
+#               ROSCO VALIDATION FUNCTION
+# ===========================================================
+
+def validate_rosco(
+    uploaded_file,
+    selected_sport,
+    selected_event
+):
+
+    """
+    Validate uploaded ROSCO belongs to selected sport/event
+    """
 
     try:
 
         # IMPORTANT
-        # Read without headers
+        # Read WITHOUT headers
         gi_df = pd.read_excel(
             uploaded_file,
             sheet_name="General Information",
             header=None
         )
 
-        # Convert everything to string
+        # Fill NA + convert to string
         gi_df = gi_df.fillna("").astype(str)
 
-        # Flatten all sheet text
+        # Convert full sheet into text blob
         full_text = " ".join(
             gi_df.values.flatten()
         ).lower()
@@ -3204,7 +3227,7 @@ def validate_rosco(uploaded_file, selected_sport, selected_event):
             selected_sport.lower() in full_text
         )
 
-        # Validate event / league
+        # Validate event
         event_valid = (
             selected_event.lower() in full_text
         )
@@ -3215,11 +3238,12 @@ def validate_rosco(uploaded_file, selected_sport, selected_event):
 
         st.error(f"ROSCO validation failed: {e}")
 
+        st.code(traceback.format_exc())
+
         return False
 
-
 # ===========================================================
-#                    OPS-MM-BSA TAB
+#                OPS-MM-BSA TAB
 # ===========================================================
 
 with ops_mm_bsa_tab:
@@ -3227,10 +3251,10 @@ with ops_mm_bsa_tab:
     st.subheader("📊 OPS-MM-BSA QC Checks")
 
     # =======================================================
-    #                SPORT / LEAGUE
+    #              SPORT / EVENT SELECTION
     # =======================================================
 
-    st.subheader("Sport & League Selection")
+    st.markdown("## 🏆 Sport & Event Selection")
 
     sport_col1, sport_col2 = st.columns(2)
 
@@ -3238,29 +3262,30 @@ with ops_mm_bsa_tab:
 
         selected_sport = st.selectbox(
             "Select Sport",
-            list(SPORT_LEAGUE_MAPPING.keys()),
+            list(SPORT_EVENT_MAPPING.keys()),
             key="ops_selected_sport"
         )
 
     with sport_col2:
 
-        selected_league = st.selectbox(
-            "Select League",
-            SPORT_LEAGUE_MAPPING[selected_sport],
-            key="ops_selected_league"
+        selected_event = st.selectbox(
+            "Select Event",
+            SPORT_EVENT_MAPPING[selected_sport],
+            key="ops_selected_event"
         )
 
     st.success(
-        f"Selected Sport: {selected_sport} | League: {selected_league}"
+        f"Selected Sport: {selected_sport} | "
+        f"Selected Event: {selected_event}"
     )
 
     st.divider()
 
     # =======================================================
-    #                  FILE UPLOADS
+    #                   FILE UPLOADS
     # =======================================================
 
-    st.subheader("Upload Required Files")
+    st.markdown("## 📂 Upload Required Files")
 
     col1, col2, col3 = st.columns(3)
 
@@ -3275,7 +3300,7 @@ with ops_mm_bsa_tab:
     with col2:
 
         ops_rosco_file = st.file_uploader(
-            f"📑 Upload {selected_league} ROSCO",
+            f"📑 Upload {selected_event} ROSCO",
             type=["xlsx"],
             key="ops_up_rosco"
         )
@@ -3309,7 +3334,7 @@ with ops_mm_bsa_tab:
     st.divider()
 
     # =======================================================
-    #                  QC CHECKS
+    #                    QC CHECKS
     # =======================================================
 
     OPS_QC_CHECKS = [
@@ -3352,15 +3377,18 @@ with ops_mm_bsa_tab:
     ]
 
     # =======================================================
-    #                 SELECT ALL LOGIC
+    #                  SELECT ALL LOGIC
     # =======================================================
 
     def sync_all_checks():
 
         for key, _ in OPS_QC_CHECKS:
-            st.session_state[f"ops_chk_{key}"] = st.session_state["ops_master_select"]
 
-    st.subheader("Validation Rules")
+            st.session_state[f"ops_chk_{key}"] = (
+                st.session_state["ops_master_select"]
+            )
+
+    st.markdown("## ⚙️ Validation Rules")
 
     st.checkbox(
         "Select All Checks",
@@ -3375,11 +3403,15 @@ with ops_mm_bsa_tab:
     for index, (key, label) in enumerate(OPS_QC_CHECKS):
 
         if f"ops_chk_{key}" not in st.session_state:
+
             st.session_state[f"ops_chk_{key}"] = False
 
         with ops_cols[index % 4]:
 
-            if st.checkbox(label, key=f"ops_chk_{key}"):
+            if st.checkbox(
+                label,
+                key=f"ops_chk_{key}"
+            ):
 
                 ops_selected.append(key)
 
@@ -3389,7 +3421,7 @@ with ops_mm_bsa_tab:
     #                 MONITORING PERIOD
     # =======================================================
 
-    st.subheader("Monitoring Period")
+    st.markdown("## 📅 Monitoring Period")
 
     ops_c1, ops_c2, ops_c3 = st.columns(3)
 
@@ -3422,7 +3454,10 @@ with ops_mm_bsa_tab:
     #                    RUN BUTTON
     # =======================================================
 
-    if st.button("🚀 Run OPS-MM-BSA Checks", key="ops_run_btn_final"):
+    if st.button(
+        "🚀 Run OPS-MM-BSA Checks",
+        key="ops_run_btn_final"
+    ):
 
         # ===================================================
         #                    VALIDATIONS
@@ -3431,46 +3466,58 @@ with ops_mm_bsa_tab:
         if not data_mm_export_file:
 
             st.error("Please upload DPMM Export file.")
+
             st.stop()
 
         if not ops_rosco_file:
 
             st.error("Please upload ROSCO file.")
+
             st.stop()
 
         if not ops_selected:
 
-            st.error("Please select at least one QC check.")
-            st.stop()
-
-        # ===================================================
-        #            VALIDATE CORRECT ROSCO
-        # ===================================================
-
-        is_valid_rosco = validate_rosco(
-            ops_rosco_file,
-            selected_sport,
-            selected_league
-        )
-
-        if not is_valid_rosco:
-
             st.error(
-                f"The uploaded ROSCO does not belong to" f"{selected_sport} - {selected_league}"
+                "Please select at least one QC check."
             )
 
             st.stop()
 
         # ===================================================
+        #              VALIDATE ROSCO
+        # ===================================================
+
+        is_valid_rosco = validate_rosco(
+            ops_rosco_file,
+            selected_sport,
+            selected_event
+        )
+
+        if not is_valid_rosco:
+
+            st.error(
+                f"Uploaded ROSCO does not belong to "
+                f"{selected_sport} - {selected_event}"
+            )
+
+            st.stop()
+
+        # IMPORTANT
+        # Reset stream pointer
+        ops_rosco_file.seek(0)
+
+        # ===================================================
         #                  PROCESSING
         # ===================================================
 
-        with st.spinner("Processing OPS-MM-BSA validation..."):
+        with st.spinner(
+            "Processing OPS-MM-BSA validation..."
+        ):
 
             try:
 
                 # ============================================
-                #           READ DPMM EXPORT
+                #              READ DPMM
                 # ============================================
 
                 mm_df = pd.read_excel(
@@ -3478,13 +3525,17 @@ with ops_mm_bsa_tab:
                     sheet_name="MM programlist"
                 )
 
-                mm_df.columns = mm_df.columns.str.strip()
+                mm_df.columns = (
+                    mm_df.columns.str.strip()
+                )
 
                 # ============================================
-                #             SAVE FILES
+                #               SAVE FILES
                 # ============================================
 
-                o_rosco_path = save_file_ops(ops_rosco_file)
+                o_rosco_path = save_file_ops(
+                    ops_rosco_file
+                )
 
                 o_bsr_path = (
                     save_file_ops(ops_bsr_file)
@@ -3509,55 +3560,86 @@ with ops_mm_bsa_tab:
                 # ============================================
 
                 if "duplicate_aid_final_dpmm" in ops_selected:
-                    mm_df = duplicate_aid_final_dpmm(mm_df)
+
+                    mm_df = duplicate_aid_final_dpmm(
+                        mm_df
+                    )
 
                 if "audience_spotprice_check_dpmm" in ops_selected:
-                    mm_df = audience_spotprice_check_dpmm(mm_df)
+
+                    mm_df = audience_spotprice_check_dpmm(
+                        mm_df
+                    )
 
                 if "program_category_check_dpmm" in ops_selected:
-                    mm_df = program_category_check_dpmm(mm_df)
+
+                    mm_df = program_category_check_dpmm(
+                        mm_df
+                    )
 
                 if "channel_country_mapping_check_dpmm" in ops_selected:
-                    mm_df = channel_country_mapping_check_dpmm(
-                        mm_df,
-                        o_rosco_path
+
+                    mm_df = (
+                        channel_country_mapping_check_dpmm(
+                            mm_df,
+                            o_rosco_path
+                        )
                     )
 
                 if "apt_bt_check_dpmm" in ops_selected:
+
                     mm_df = apt_bt_check_dpmm(
                         mm_df,
                         ops_bt_threshold
                     )
 
                 if "season_monitoring_check_dpmm" in ops_selected:
-                    mm_df = season_monitoring_check_dpmm(
-                        mm_df,
-                        ops_start_date,
-                        ops_end_date
+
+                    mm_df = (
+                        season_monitoring_check_dpmm(
+                            mm_df,
+                            ops_start_date,
+                            ops_end_date
+                        )
                     )
 
                 if "fixture_validation_check_dpmm" in ops_selected:
-                    mm_df = fixture_validation_check_dpmm(
-                        mm_df,
-                        o_fixture_df
+
+                    mm_df = (
+                        fixture_validation_check_dpmm(
+                            mm_df,
+                            o_fixture_df
+                        )
                     )
 
                 if "stadium_consistency_check_dpmm" in ops_selected:
-                    mm_df = stadium_consistency_check_dpmm(mm_df)
+
+                    mm_df = stadium_consistency_check_dpmm(
+                        mm_df
+                    )
 
                 if "event_quality_check_dpmm" in ops_selected:
-                    mm_df = event_quality_check_dpmm(mm_df)
+
+                    mm_df = event_quality_check_dpmm(
+                        mm_df
+                    )
 
                 if "home_market_check_dpmm" in ops_selected:
-                    mm_df = home_market_check_dpmm(mm_df)
+
+                    mm_df = home_market_check_dpmm(
+                        mm_df
+                    )
 
                 # ============================================
                 #                 PS CHECKS
                 # ============================================
 
                 if (
-                    "ps_market_channel_check_dpmm" in ops_selected
-                    or "ps_content_check_dpmm" in ops_selected
+                    "ps_market_channel_check_dpmm"
+                    in ops_selected
+                    or
+                    "ps_content_check_dpmm"
+                    in ops_selected
                 ):
 
                     mon_df = pd.read_excel(
@@ -3565,57 +3647,87 @@ with ops_mm_bsa_tab:
                         sheet_name="Monitoring List"
                     )
 
-                    if "ps_market_channel_check_dpmm" in ops_selected:
-                        mm_df = ps_market_channel_check_dpmm(
-                            mm_df,
-                            mon_df
+                    if (
+                        "ps_market_channel_check_dpmm"
+                        in ops_selected
+                    ):
+
+                        mm_df = (
+                            ps_market_channel_check_dpmm(
+                                mm_df,
+                                mon_df
+                            )
                         )
 
-                    if "ps_content_check_dpmm" in ops_selected:
-                        mm_df = ps_content_check_dpmm(
-                            mm_df,
-                            mon_df
+                    if (
+                        "ps_content_check_dpmm"
+                        in ops_selected
+                    ):
+
+                        mm_df = (
+                            ps_content_check_dpmm(
+                                mm_df,
+                                mon_df
+                            )
                         )
 
                 # ============================================
-                #              BSR CONSISTENCY
+                #             BSR CONSISTENCY
                 # ============================================
 
-                if "mm_bsr_consistency_check_dpmm" in ops_selected:
+                if (
+                    "mm_bsr_consistency_check_dpmm"
+                    in ops_selected
+                ):
 
-                    mm_df = mm_bsr_consistency_check_dpmm(
-                        mm_df,
-                        o_bsr_path
+                    mm_df = (
+                        mm_bsr_consistency_check_dpmm(
+                            mm_df,
+                            o_bsr_path
+                        )
                     )
 
                 # ============================================
                 #             AUDIENCE RANGE
                 # ============================================
 
-                if "audience_spot_range_clean_view_dpmm" in ops_selected:
+                if (
+                    "audience_spot_range_clean_view_dpmm"
+                    in ops_selected
+                ):
 
                     range_summary_df = (
-                        audience_spot_range_clean_view_dpmm(mm_df)
+                        audience_spot_range_clean_view_dpmm(
+                            mm_df
+                        )
                     )
 
                 # ============================================
-                #              EA CREATION
+                #               EA CREATION
                 # ============================================
 
                 if "ea_creation_check_dpmm" in ops_selected:
-                    mm_df = ea_creation_check_dpmm(mm_df)
+
+                    mm_df = ea_creation_check_dpmm(
+                        mm_df
+                    )
 
                 # ============================================
                 #           PREVIOUS DELIVERY
                 # ============================================
 
-                if "previous_delivery_check_dpmm" in ops_selected:
+                if (
+                    "previous_delivery_check_dpmm"
+                    in ops_selected
+                ):
 
                     if ops_prev_file:
 
-                        prev_summary = previous_delivery_check_dpmm(
-                            mm_df,
-                            o_prev_df
+                        prev_summary = (
+                            previous_delivery_check_dpmm(
+                                mm_df,
+                                o_prev_df
+                            )
                         )
 
                     else:
@@ -3625,21 +3737,32 @@ with ops_mm_bsa_tab:
                         )
 
                 # ============================================
-                #             LIVE DELAYED
+                #              LIVE DELAYED
                 # ============================================
 
                 if "live_delayed_check_dpmm" in ops_selected:
-                    mm_df = live_delayed_check_dpmm(mm_df)
+
+                    mm_df = live_delayed_check_dpmm(
+                        mm_df
+                    )
 
                 # ============================================
-                #      PROGRAM ANALYSIS STATUS
+                #        PROGRAM ANALYSIS STATUS
                 # ============================================
 
-                if "program_analysis_status_check_dpmm" in ops_selected:
-                    mm_df = program_analysis_status_check_dpmm(mm_df)
+                if (
+                    "program_analysis_status_check_dpmm"
+                    in ops_selected
+                ):
+
+                    mm_df = (
+                        program_analysis_status_check_dpmm(
+                            mm_df
+                        )
+                    )
 
                 # ============================================
-                #            OUTPUT GENERATION
+                #             OUTPUT GENERATION
                 # ============================================
 
                 mm_output = io.BytesIO()
@@ -3679,20 +3802,25 @@ with ops_mm_bsa_tab:
                         )
 
                 # ============================================
-                #                 SUCCESS
+                #                  SUCCESS
                 # ============================================
 
                 st.success(
-                    f"✅ OPS-MM-BSA QC Completed Successfully for {selected_league}"
+                    f"✅ OPS-MM-BSA QC Completed "
+                    f"Successfully for {selected_event}"
                 )
 
                 st.download_button(
                     label="📥 Download OPS Output",
                     data=mm_output.getvalue(),
-                    file_name=f"OPS_QC_{selected_league}.xlsx",
+                    file_name=(
+                        f"OPS_QC_{selected_event}.xlsx"
+                    ),
                     key="ops_download_btn"
                 )
 
             except Exception as e:
 
-                st.error(f"Error occurred: {e}")
+                st.error(str(e))
+
+                st.code(traceback.format_exc())
