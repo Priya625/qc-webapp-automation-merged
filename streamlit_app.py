@@ -3352,7 +3352,7 @@ with ops_mm_bsa_tab:
         for key, _ in OPS_QC_CHECKS:
             st.session_state[f"ops_chk_{key}"] = st.session_state["ops_master_select"]
 
-    st.markdown("## ⚙️ Validation Rules")
+    st.subheader("Validation Rules")
 
     st.checkbox(
         "Select All Checks",
@@ -3381,7 +3381,7 @@ with ops_mm_bsa_tab:
     #                 MONITORING PERIOD
     # =======================================================
 
-    st.markdown("## 📅 Monitoring Period")
+    st.subheader("📅 Monitoring Period")
 
     ops_c1, ops_c2, ops_c3 = st.columns(3)
 
