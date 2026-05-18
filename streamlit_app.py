@@ -1,6 +1,7 @@
 # streamlit_app.py (corrected for simplified qc_checks.py signatures)
 from datetime import datetime, timedelta, date, time
 import tempfile
+import traceback
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -3254,7 +3255,7 @@ with ops_mm_bsa_tab:
     #              SPORT / EVENT SELECTION
     # =======================================================
 
-    st.markdown("## 🏆 Sport & Event Selection")
+    st.subheader("Sport & Event Selection")
 
     sport_col1, sport_col2 = st.columns(2)
 
@@ -3285,7 +3286,7 @@ with ops_mm_bsa_tab:
     #                   FILE UPLOADS
     # =======================================================
 
-    st.markdown("## 📂 Upload Required Files")
+    st.subheader(" Upload Required Files")
 
     col1, col2, col3 = st.columns(3)
 
@@ -3388,7 +3389,7 @@ with ops_mm_bsa_tab:
                 st.session_state["ops_master_select"]
             )
 
-    st.markdown("## ⚙️ Validation Rules")
+    st.subheader(" Validation Rules")
 
     st.checkbox(
         "Select All Checks",
@@ -3421,7 +3422,7 @@ with ops_mm_bsa_tab:
     #                 MONITORING PERIOD
     # =======================================================
 
-    st.markdown("## 📅 Monitoring Period")
+    st.subheader("Monitoring Period")
 
     ops_c1, ops_c2, ops_c3 = st.columns(3)
 
