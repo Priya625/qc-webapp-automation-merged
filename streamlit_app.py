@@ -3179,32 +3179,42 @@ def save_file_ops(uploaded_file):
     return temp.name
 
 
-def validate_rosco(uploaded_file, selected_league):
-
-    """
-    Validate uploaded ROSCO belongs to selected league
-    """
+def validate_rosco(uploaded_file, selected_sport, selected_event):
 
     try:
 
-        mon_df = pd.read_excel(
+        # IMPORTANT
+        # Read without headers
+        gi_df = pd.read_excel(
             uploaded_file,
-            sheet_name="General Information"
+            sheet_name="General Information",
+            header=None
         )
 
-        mon_df = mon_df.astype(str)
+        # Convert everything to string
+        gi_df = gi_df.fillna("").astype(str)
 
-        found = mon_df.apply(
-            lambda col: col.str.contains(
-                selected_league,
-                case=False,
-                na=False
-            )
-        ).any().any()
+        # Flatten all sheet text
+        full_text = " ".join(
+            gi_df.values.flatten()
+        ).lower()
 
-        return found
+        # Validate sport
+        sport_valid = (
+            selected_sport.lower() in full_text
+        )
 
-    except Exception:
+        # Validate event / league
+        event_valid = (
+            selected_event.lower() in full_text
+        )
+
+        return sport_valid and event_valid
+
+    except Exception as e:
+
+        st.error(f"ROSCO validation failed: {e}")
+
         return False
 
 
@@ -3439,13 +3449,14 @@ with ops_mm_bsa_tab:
 
         is_valid_rosco = validate_rosco(
             ops_rosco_file,
+            selected_sport,
             selected_league
         )
 
         if not is_valid_rosco:
 
             st.error(
-                f"The uploaded ROSCO does not belong to {selected_league}"
+                f"The uploaded ROSCO does not belong to" f"{selected_sport} - {selected_league}"
             )
 
             st.stop()
