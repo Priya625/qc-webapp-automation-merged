@@ -3222,7 +3222,7 @@ with ops_mm_bsa_tab:
     #                SPORT / LEAGUE
     # =======================================================
 
-    st.markdown("#Sport & League Selection")
+    st.subheader("Sport & League Selection")
 
     sport_col1, sport_col2 = st.columns(2)
 
@@ -3252,7 +3252,7 @@ with ops_mm_bsa_tab:
     #                  FILE UPLOADS
     # =======================================================
 
-    st.markdown("## 📂 Upload Required Files")
+    st.subheader("Upload Required Files")
 
     col1, col2, col3 = st.columns(3)
 
