@@ -3222,7 +3222,7 @@ with ops_mm_bsa_tab:
     #                SPORT / LEAGUE
     # =======================================================
 
-    st.markdown("## 🏆 Sport & League Selection")
+    st.markdown("#Sport & League Selection")
 
     sport_col1, sport_col2 = st.columns(2)
 
