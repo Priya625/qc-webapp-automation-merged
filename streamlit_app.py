@@ -3381,7 +3381,7 @@ with ops_mm_bsa_tab:
     #                 MONITORING PERIOD
     # =======================================================
 
-    st.subheader("📅 Monitoring Period")
+    st.subheader("Monitoring Period")
 
     ops_c1, ops_c2, ops_c3 = st.columns(3)
 
