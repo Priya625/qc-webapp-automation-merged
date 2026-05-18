@@ -3133,187 +3133,557 @@ with mm_bsa_tab:
 # -----------------------------------------------------------
 #            📊 OPS-MM-BSA QC CHECKS TAB (DPMM)
 # -----------------------------------------------------------
+#                SPORT / LEAGUE CONFIG
+
+SPORT_LEAGUE_MAPPING = {
+
+    "Football": [
+        "Bundesliga",
+        "Premier League",
+        "La Liga",
+        "Serie A",
+        "Ligue 1",
+        "Champions League",
+        "Europa League",
+        "2. Bundesliga",
+        "3. Liga"
+    ],
+
+    "Basketball": [
+        "NBA",
+        "EuroLeague"
+    ],
+
+    "Ice Hockey": [
+        "NHL",
+        "DEL"
+    ],
+
+    "Tennis": [
+        "ATP",
+        "WTA",
+        "Grand Slam"
+    ]
+}
+
+# ===========================================================
+#                  HELPER FUNCTIONS
+# ===========================================================
+
+def save_file_ops(uploaded_file):
+
+    temp = tempfile.NamedTemporaryFile(delete=False)
+
+    temp.write(uploaded_file.read())
+
+    temp.close()
+
+    return temp.name
+
+
+def validate_rosco(uploaded_file, selected_league):
+
+    """
+    Validate uploaded ROSCO belongs to selected league
+    """
+
+    try:
+
+        mon_df = pd.read_excel(
+            uploaded_file,
+            sheet_name="Monitoring List"
+        )
+
+        mon_df = mon_df.astype(str)
+
+        found = mon_df.apply(
+            lambda col: col.str.contains(
+                selected_league,
+                case=False,
+                na=False
+            )
+        ).any().any()
+
+        return found
+
+    except Exception:
+        return False
+
+
+# ===========================================================
+#                    OPS-MM-BSA TAB
+# ===========================================================
+
 with ops_mm_bsa_tab:
+
     st.subheader("📊 OPS-MM-BSA QC Checks")
 
-    def save_file_ops(uploaded_file):
-        temp = tempfile.NamedTemporaryFile(delete=False)
-        temp.write(uploaded_file.read())
-        temp.close()
-        return temp.name
-    
-    # ---------------- FILE UPLOAD ----------------
-    col1, col2, col3, col4, col5 = st.columns(5)
-    with col1: data_mm_export_file = st.file_uploader("📋 DPMM Export", type=["xlsx"], key="ops_up_dpmm")
-    with col2: ops_rosco_file = st.file_uploader("📑 ROSCO File", type=["xlsx"], key="ops_up_rosco")
-    with col3: ops_fixture_file = st.file_uploader("📋 Fixture File", type=["xlsx"], key="ops_up_fixture")
-    with col4: ops_prev_file = st.file_uploader("📋 Previous Delivery", type=["xlsx"], key="ops_up_prev")
-    with col5: ops_bsr_file = st.file_uploader("📋 BSR File", type=["xlsx"], key="ops_up_bsr")
-    
+    # =======================================================
+    #                SPORT / LEAGUE
+    # =======================================================
 
-    # ---------------- CHECKS LIST ----------------
+    st.markdown("## 🏆 Sport & League Selection")
+
+    sport_col1, sport_col2 = st.columns(2)
+
+    with sport_col1:
+
+        selected_sport = st.selectbox(
+            "Select Sport",
+            list(SPORT_LEAGUE_MAPPING.keys()),
+            key="ops_selected_sport"
+        )
+
+    with sport_col2:
+
+        selected_league = st.selectbox(
+            "Select League",
+            SPORT_LEAGUE_MAPPING[selected_sport],
+            key="ops_selected_league"
+        )
+
+    st.success(
+        f"Selected Sport: {selected_sport} | League: {selected_league}"
+    )
+
+    st.divider()
+
+    # =======================================================
+    #                  FILE UPLOADS
+    # =======================================================
+
+    st.markdown("## 📂 Upload Required Files")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+
+        data_mm_export_file = st.file_uploader(
+            "📋 DPMM Export",
+            type=["xlsx"],
+            key="ops_up_dpmm"
+        )
+
+    with col2:
+
+        ops_rosco_file = st.file_uploader(
+            f"📑 Upload {selected_league} ROSCO",
+            type=["xlsx"],
+            key="ops_up_rosco"
+        )
+
+    with col3:
+
+        ops_fixture_file = st.file_uploader(
+            "📋 Fixture File",
+            type=["xlsx"],
+            key="ops_up_fixture"
+        )
+
+    col4, col5 = st.columns(2)
+
+    with col4:
+
+        ops_prev_file = st.file_uploader(
+            "📋 Previous Delivery",
+            type=["xlsx"],
+            key="ops_up_prev"
+        )
+
+    with col5:
+
+        ops_bsr_file = st.file_uploader(
+            "📋 BSR File",
+            type=["xlsx"],
+            key="ops_up_bsr"
+        )
+
+    st.divider()
+
+    # =======================================================
+    #                  QC CHECKS
+    # =======================================================
+
     OPS_QC_CHECKS = [
+
         ("duplicate_aid_final_dpmm", "Duplicate AID Check"),
+
         ("audience_spotprice_check_dpmm", "Audience & Spot Price Check"),
+
         ("program_category_check_dpmm", "Program Category Check"),
+
         ("channel_country_mapping_check_dpmm", "Channel & Country Mapping"),
+
         ("apt_bt_check_dpmm", "APT / BT Check"),
+
         ("season_monitoring_check_dpmm", "Season Monitoring Check"),
+
         ("fixture_validation_check_dpmm", "Event / Matchday Validation Check"),
+
         ("stadium_consistency_check_dpmm", "Stadium Consistency Check"),
+
         ("event_quality_check_dpmm", "Event Quality Check"),
+
         ("home_market_check_dpmm", "Home Market Check"),
+
         ("ps_market_channel_check_dpmm", "PS Market & Channel Check"),
+
         ("ps_content_check_dpmm", "PS Content Check"),
+
         ("mm_bsr_consistency_check_dpmm", "MM vs BSR Consistency Check"),
+
         ("audience_spot_range_clean_view_dpmm", "Audience Range Check"),
+
         ("ea_creation_check_dpmm", "EA Creation Check"),
+
         ("previous_delivery_check_dpmm", "Previous Delivery Check"),
+
         ("live_delayed_check_dpmm", "Live vs Delayed Check"),
+
         ("program_analysis_status_check_dpmm", "Program Analysis Status Check")
     ]
 
+    # =======================================================
+    #                 SELECT ALL LOGIC
+    # =======================================================
+
     def sync_all_checks():
+
         for key, _ in OPS_QC_CHECKS:
             st.session_state[f"ops_chk_{key}"] = st.session_state["ops_master_select"]
 
-    st.markdown("⚙️ **Validation Rules**")
-    st.checkbox("Select All Checks", key="ops_master_select", on_change=sync_all_checks)
-    
+    st.markdown("## ⚙️ Validation Rules")
+
+    st.checkbox(
+        "Select All Checks",
+        key="ops_master_select",
+        on_change=sync_all_checks
+    )
+
     ops_selected = []
+
     ops_cols = st.columns(4)
+
     for index, (key, label) in enumerate(OPS_QC_CHECKS):
+
         if f"ops_chk_{key}" not in st.session_state:
             st.session_state[f"ops_chk_{key}"] = False
-            
+
         with ops_cols[index % 4]:
+
             if st.checkbox(label, key=f"ops_chk_{key}"):
+
                 ops_selected.append(key)
 
     st.divider()
 
-    st.markdown("📅 **Monitoring Period**")
+    # =======================================================
+    #                 MONITORING PERIOD
+    # =======================================================
+
+    st.markdown("## 📅 Monitoring Period")
+
     ops_c1, ops_c2, ops_c3 = st.columns(3)
-    with ops_c1: ops_start_date = st.date_input("Start Date", key="ops_date_start")
-    with ops_c2: ops_end_date = st.date_input("End Date", key="ops_date_end")
-    with ops_c3: ops_bt_threshold = st.number_input("BT Threshold", min_value=0.0, step=0.1, key="ops_num_bt")
+
+    with ops_c1:
+
+        ops_start_date = st.date_input(
+            "Start Date",
+            key="ops_date_start"
+        )
+
+    with ops_c2:
+
+        ops_end_date = st.date_input(
+            "End Date",
+            key="ops_date_end"
+        )
+
+    with ops_c3:
+
+        ops_bt_threshold = st.number_input(
+            "BT Threshold",
+            min_value=0.0,
+            step=0.1,
+            key="ops_num_bt"
+        )
+
+    st.divider()
+
+    # =======================================================
+    #                    RUN BUTTON
+    # =======================================================
 
     if st.button("🚀 Run OPS-MM-BSA Checks", key="ops_run_btn_final"):
+
+        # ===================================================
+        #                    VALIDATIONS
+        # ===================================================
+
         if not data_mm_export_file:
-            st.error("Please upload the DPMM file.")
-        elif not ops_selected:
-            st.error("Please select at least one check.")
-        else:
-            with st.spinner("Processing OPS-MM-BSA validation..."):
-                try:
-                    # CRITICAL: DPMM Export uses 'MM programlist' instead of 'mm - detailed'
-                    mm_df = pd.read_excel(data_mm_export_file, sheet_name="MM programlist")
-                    mm_df.columns = mm_df.columns.str.strip()
 
-                    o_rosco_path = save_file_ops(ops_rosco_file) if ops_rosco_file else None
-                    o_bsr_path = save_file_ops(ops_bsr_file) if ops_bsr_file else None
-                    o_fixture_df = pd.read_excel(ops_fixture_file) if ops_fixture_file else None
-                    o_prev_df = pd.read_excel(ops_prev_file) if ops_prev_file else None
+            st.error("Please upload DPMM Export file.")
+            st.stop()
 
-                    # --- Apply Checks ---
-                    if "duplicate_aid_final_dpmm" in ops_selected:
-                        mm_df = duplicate_aid_final_dpmm(mm_df)
+        if not ops_rosco_file:
 
-                    if "audience_spotprice_check_dpmm" in ops_selected:
-                        mm_df = audience_spotprice_check_dpmm(mm_df)
+            st.error("Please upload ROSCO file.")
+            st.stop()
 
-                    if "program_category_check_dpmm" in ops_selected:
-                        mm_df = program_category_check_dpmm(mm_df)
+        if not ops_selected:
 
-                    if "channel_country_mapping_check_dpmm" in ops_selected:
-                        mm_df = channel_country_mapping_check_dpmm(mm_df, o_rosco_path)
+            st.error("Please select at least one QC check.")
+            st.stop()
 
-                    if "apt_bt_check_dpmm" in ops_selected:
-                        mm_df = apt_bt_check_dpmm(mm_df, ops_bt_threshold)
+        # ===================================================
+        #            VALIDATE CORRECT ROSCO
+        # ===================================================
 
-                    if "season_monitoring_check_dpmm" in ops_selected:
-                        mm_df = season_monitoring_check_dpmm(mm_df, ops_start_date, ops_end_date)
+        is_valid_rosco = validate_rosco(
+            ops_rosco_file,
+            selected_league
+        )
 
-                    if "fixture_validation_check_dpmm" in ops_selected:
-                        mm_df = fixture_validation_check_dpmm(mm_df, o_fixture_df)
+        if not is_valid_rosco:
 
-                    if "stadium_consistency_check_dpmm" in ops_selected:
-                        mm_df = stadium_consistency_check_dpmm(mm_df)
+            st.error(
+                f"The uploaded ROSCO does not belong to {selected_league}"
+            )
 
-                    if "event_quality_check_dpmm" in ops_selected:
-                        mm_df = event_quality_check_dpmm(mm_df)
+            st.stop()
 
-                    if "home_market_check_dpmm" in ops_selected:
-                        mm_df = home_market_check_dpmm(mm_df)
+        # ===================================================
+        #                  PROCESSING
+        # ===================================================
 
-                    if (
-                        "ps_market_channel_check_dpmm" in ops_selected
-                        or "ps_content_check_dpmm" in ops_selected
-                    ):
-                        if o_rosco_path:
-                            mon_df = pd.read_excel(o_rosco_path, sheet_name="Monitoring List")
+        with st.spinner("Processing OPS-MM-BSA validation..."):
 
-                            if "ps_market_channel_check_dpmm" in ops_selected:
-                                mm_df = ps_market_channel_check_dpmm(mm_df, mon_df)
+            try:
 
-                            if "ps_content_check_dpmm" in ops_selected:
-                                mm_df = ps_content_check_dpmm(mm_df, mon_df)
-                        else:
-                            st.warning("ROSCO file missing; skipping PS checks.")
+                # ============================================
+                #           READ DPMM EXPORT
+                # ============================================
 
-                    if "mm_bsr_consistency_check_dpmm" in ops_selected:
-                        mm_df = mm_bsr_consistency_check_dpmm(mm_df, o_bsr_path)
+                mm_df = pd.read_excel(
+                    data_mm_export_file,
+                    sheet_name="MM programlist"
+                )
 
-                    if "audience_spot_range_clean_view_dpmm" in ops_selected:
-                        range_summary_df = audience_spot_range_clean_view_dpmm(mm_df)
+                mm_df.columns = mm_df.columns.str.strip()
 
-                    if "ea_creation_check_dpmm" in ops_selected:
-                        mm_df = ea_creation_check_dpmm(mm_df)
+                # ============================================
+                #             SAVE FILES
+                # ============================================
 
-                    if "previous_delivery_check_dpmm" in ops_selected:
-                        if ops_prev_file:
-                            prev_summary = previous_delivery_check_dpmm(mm_df, o_prev_df)
-                        else:
-                            st.error("Previous Delivery file required for benchmarking.")
+                o_rosco_path = save_file_ops(ops_rosco_file)
 
-                    if "live_delayed_check_dpmm" in ops_selected:
-                        mm_df = live_delayed_check_dpmm(mm_df)
+                o_bsr_path = (
+                    save_file_ops(ops_bsr_file)
+                    if ops_bsr_file
+                    else None
+                )
 
-                    if "program_analysis_status_check_dpmm" in ops_selected:
-                        mm_df = program_analysis_status_check_dpmm(mm_df)
+                o_fixture_df = (
+                    pd.read_excel(ops_fixture_file)
+                    if ops_fixture_file
+                    else None
+                )
 
-                    # --- Output Generation ---
-                    mm_output = io.BytesIO()
+                o_prev_df = (
+                    pd.read_excel(ops_prev_file)
+                    if ops_prev_file
+                    else None
+                )
 
-                    with pd.ExcelWriter(mm_output, engine="openpyxl") as writer:
+                # ============================================
+                #               APPLY CHECKS
+                # ============================================
 
-                        mm_df.to_excel(writer, sheet_name="OPS_QC_Results", index=False)
+                if "duplicate_aid_final_dpmm" in ops_selected:
+                    mm_df = duplicate_aid_final_dpmm(mm_df)
 
-                        if "audience_spot_range_clean_view_dpmm" in ops_selected:
-                            range_summary_df.to_excel(
-                                writer,
-                                sheet_name="Audience_Range",
-                                index=False
-                            )
+                if "audience_spotprice_check_dpmm" in ops_selected:
+                    mm_df = audience_spotprice_check_dpmm(mm_df)
 
-                        if (
-                            "previous_delivery_check_dpmm" in ops_selected
-                            and o_prev_df is not None
-                        ):
-                            prev_summary.to_excel(
-                                writer,
-                                sheet_name="Previous_Delivery",
-                                index=False
-                            )
+                if "program_category_check_dpmm" in ops_selected:
+                    mm_df = program_category_check_dpmm(mm_df)
 
-                    st.success("✅ OPS-MM-BSA QC Completed Successfully")
-
-                    st.download_button(
-                        label="📥 Download OPS Output",
-                        data=mm_output.getvalue(),
-                        file_name="OPS_QC_Results.xlsx",
-                        key="ops_download_btn"
+                if "channel_country_mapping_check_dpmm" in ops_selected:
+                    mm_df = channel_country_mapping_check_dpmm(
+                        mm_df,
+                        o_rosco_path
                     )
 
-                except Exception as e:
-                    st.error(f"Error occurred: {e}")
+                if "apt_bt_check_dpmm" in ops_selected:
+                    mm_df = apt_bt_check_dpmm(
+                        mm_df,
+                        ops_bt_threshold
+                    )
+
+                if "season_monitoring_check_dpmm" in ops_selected:
+                    mm_df = season_monitoring_check_dpmm(
+                        mm_df,
+                        ops_start_date,
+                        ops_end_date
+                    )
+
+                if "fixture_validation_check_dpmm" in ops_selected:
+                    mm_df = fixture_validation_check_dpmm(
+                        mm_df,
+                        o_fixture_df
+                    )
+
+                if "stadium_consistency_check_dpmm" in ops_selected:
+                    mm_df = stadium_consistency_check_dpmm(mm_df)
+
+                if "event_quality_check_dpmm" in ops_selected:
+                    mm_df = event_quality_check_dpmm(mm_df)
+
+                if "home_market_check_dpmm" in ops_selected:
+                    mm_df = home_market_check_dpmm(mm_df)
+
+                # ============================================
+                #                 PS CHECKS
+                # ============================================
+
+                if (
+                    "ps_market_channel_check_dpmm" in ops_selected
+                    or "ps_content_check_dpmm" in ops_selected
+                ):
+
+                    mon_df = pd.read_excel(
+                        o_rosco_path,
+                        sheet_name="Monitoring List"
+                    )
+
+                    if "ps_market_channel_check_dpmm" in ops_selected:
+                        mm_df = ps_market_channel_check_dpmm(
+                            mm_df,
+                            mon_df
+                        )
+
+                    if "ps_content_check_dpmm" in ops_selected:
+                        mm_df = ps_content_check_dpmm(
+                            mm_df,
+                            mon_df
+                        )
+
+                # ============================================
+                #              BSR CONSISTENCY
+                # ============================================
+
+                if "mm_bsr_consistency_check_dpmm" in ops_selected:
+
+                    mm_df = mm_bsr_consistency_check_dpmm(
+                        mm_df,
+                        o_bsr_path
+                    )
+
+                # ============================================
+                #             AUDIENCE RANGE
+                # ============================================
+
+                if "audience_spot_range_clean_view_dpmm" in ops_selected:
+
+                    range_summary_df = (
+                        audience_spot_range_clean_view_dpmm(mm_df)
+                    )
+
+                # ============================================
+                #              EA CREATION
+                # ============================================
+
+                if "ea_creation_check_dpmm" in ops_selected:
+                    mm_df = ea_creation_check_dpmm(mm_df)
+
+                # ============================================
+                #           PREVIOUS DELIVERY
+                # ============================================
+
+                if "previous_delivery_check_dpmm" in ops_selected:
+
+                    if ops_prev_file:
+
+                        prev_summary = previous_delivery_check_dpmm(
+                            mm_df,
+                            o_prev_df
+                        )
+
+                    else:
+
+                        st.error(
+                            "Previous Delivery file required."
+                        )
+
+                # ============================================
+                #             LIVE DELAYED
+                # ============================================
+
+                if "live_delayed_check_dpmm" in ops_selected:
+                    mm_df = live_delayed_check_dpmm(mm_df)
+
+                # ============================================
+                #      PROGRAM ANALYSIS STATUS
+                # ============================================
+
+                if "program_analysis_status_check_dpmm" in ops_selected:
+                    mm_df = program_analysis_status_check_dpmm(mm_df)
+
+                # ============================================
+                #            OUTPUT GENERATION
+                # ============================================
+
+                mm_output = io.BytesIO()
+
+                with pd.ExcelWriter(
+                    mm_output,
+                    engine="openpyxl"
+                ) as writer:
+
+                    mm_df.to_excel(
+                        writer,
+                        sheet_name="OPS_QC_Results",
+                        index=False
+                    )
+
+                    if (
+                        "audience_spot_range_clean_view_dpmm"
+                        in ops_selected
+                    ):
+
+                        range_summary_df.to_excel(
+                            writer,
+                            sheet_name="Audience_Range",
+                            index=False
+                        )
+
+                    if (
+                        "previous_delivery_check_dpmm"
+                        in ops_selected
+                        and o_prev_df is not None
+                    ):
+
+                        prev_summary.to_excel(
+                            writer,
+                            sheet_name="Previous_Delivery",
+                            index=False
+                        )
+
+                # ============================================
+                #                 SUCCESS
+                # ============================================
+
+                st.success(
+                    f"✅ OPS-MM-BSA QC Completed Successfully for {selected_league}"
+                )
+
+                st.download_button(
+                    label="📥 Download OPS Output",
+                    data=mm_output.getvalue(),
+                    file_name=f"OPS_QC_{selected_league}.xlsx",
+                    key="ops_download_btn"
+                )
+
+            except Exception as e:
+
+                st.error(f"Error occurred: {e}")
