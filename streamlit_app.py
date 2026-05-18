@@ -3134,7 +3134,7 @@ with mm_bsa_tab:
 #            📊 OPS-MM-BSA QC CHECKS TAB (DPMM)
 # -----------------------------------------------------------
 #                SPORT / EVENT CONFIG
-
+from pathlib import Path
 
 SPORT_EVENT_MAPPING = {
 
