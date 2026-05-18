@@ -3145,8 +3145,6 @@ SPORT_LEAGUE_MAPPING = {
         "Ligue 1",
         "Champions League",
         "Europa League",
-        "2. Bundesliga",
-        "3. Liga"
     ],
 
     "Basketball": [
