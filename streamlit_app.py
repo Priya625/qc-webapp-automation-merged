@@ -3189,7 +3189,7 @@ def validate_rosco(uploaded_file, selected_league):
 
         mon_df = pd.read_excel(
             uploaded_file,
-            sheet_name="Monitoring List"
+            sheet_name="General Information"
         )
 
         mon_df = mon_df.astype(str)
