@@ -1481,7 +1481,6 @@ with laliga_qc_tab:
     st.write("---")
 
     # --- 2. Define LaLiga Checks ---
-    # These represent the steps executed in your logic below
     LALIGA_CHECKS = [
         ("period_check", "Period Check (Rosco Dates)"),
         ("completeness_check", "Completeness Check (Required Fields)"),
@@ -1495,13 +1494,13 @@ with laliga_qc_tab:
         ("duplicated_market_check", "Duplicated Market (Macro) Check")
     ]
 
-    # --- 3. Select All Logic ---
-    # 1. Safely initialize the key BEFORE the widget uses it
+    # --- 3. Select All Logic (FIXED) ---
+    # Safely initialize the key BEFORE the widget uses it to prevent KeyErrors
     if "la_master_select" not in st.session_state:
         st.session_state["la_master_select"] = False
 
     def sync_laliga_checks():
-        # 2. Safely get the value using .get() to prevent KeyErrors
+        # Safely get the value using .get()
         master_checked = st.session_state.get("la_master_select", False)
         for key, _ in LALIGA_CHECKS:
             st.session_state[f"la_chk_{key}"] = master_checked
@@ -1554,7 +1553,7 @@ with laliga_qc_tab:
                         df = qc_general.period_check(df, start_date, end_date)
                     
                     if "completeness_check" in selected_la_checks:
-                        df = qc_general.completeness_check(df, col_map["bsr"], rules["program_category"],rosco_path) 
+                        df = qc_general.completeness_check(df, col_map["bsr"], rules["program_category"], rosco_path) 
                     
                     if "overlap_duplicate_check" in selected_la_checks:
                         df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules["overlap_check"]) 
