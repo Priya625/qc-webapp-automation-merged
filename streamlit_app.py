@@ -1496,9 +1496,15 @@ with laliga_qc_tab:
     ]
 
     # --- 3. Select All Logic ---
+    # 1. Safely initialize the key BEFORE the widget uses it
+    if "la_master_select" not in st.session_state:
+        st.session_state["la_master_select"] = False
+
     def sync_laliga_checks():
+        # 2. Safely get the value using .get() to prevent KeyErrors
+        master_checked = st.session_state.get("la_master_select", False)
         for key, _ in LALIGA_CHECKS:
-            st.session_state[f"la_chk_{key}"] = st.session_state["la_master_select"]
+            st.session_state[f"la_chk_{key}"] = master_checked
 
     st.markdown("### ⚙️ Select Validation Rules")
     st.checkbox("Select All Laliga Checks", key="la_master_select", on_change=sync_laliga_checks)
