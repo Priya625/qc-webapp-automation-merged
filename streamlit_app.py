@@ -1494,13 +1494,11 @@ with laliga_qc_tab:
         ("duplicated_market_check", "Duplicated Market (Macro) Check")
     ]
 
-    # --- 3. Select All Logic (FIXED) ---
-    # Safely initialize the key BEFORE the widget uses it to prevent KeyErrors
+    # --- 3. Select All Logic (Safely Initialized) ---
     if "la_master_select" not in st.session_state:
         st.session_state["la_master_select"] = False
 
     def sync_laliga_checks():
-        # Safely get the value using .get()
         master_checked = st.session_state.get("la_master_select", False)
         for key, _ in LALIGA_CHECKS:
             st.session_state[f"la_chk_{key}"] = master_checked
@@ -1511,7 +1509,6 @@ with laliga_qc_tab:
     selected_la_checks = []
     la_cols = st.columns(3)
     for index, (key, label) in enumerate(LALIGA_CHECKS):
-        # Initialize session state for each checkbox
         if f"la_chk_{key}" not in st.session_state:
             st.session_state[f"la_chk_{key}"] = False
             
@@ -1530,72 +1527,143 @@ with laliga_qc_tab:
         else:
             with st.spinner("Running Laliga QC checks..."):
                 try:
-                    # Load config
-                    col_map = config["column_mappings"]
-                    rules = config["qc_rules"]
-                    project = config["project_rules"]
-                    file_rules = config["file_rules"]
+                    # --- Load Configuration ---
+                    col_map = config.get("column_mappings", {})
+                    rules = config.get("qc_rules", {})
+                    project = config.get("project_rules", {})
+                    file_rules = config.get("file_rules", {})
                     
-                    # Save files temporarily
+                    # --- Save Files Temporarily ---
                     rosco_path = os.path.join(UPLOAD_FOLDER, laliga_rosco_file.name)
                     bsr_path = os.path.join(UPLOAD_FOLDER, laliga_bsr_file.name)
                     macro_path = os.path.join(UPLOAD_FOLDER, laliga_macro_file.name)
+                    
                     with open(rosco_path, "wb") as f: f.write(laliga_rosco_file.getbuffer())
                     with open(bsr_path, "wb") as f: f.write(laliga_bsr_file.getbuffer())
                     with open(macro_path, "wb") as f: f.write(laliga_macro_file.getbuffer())
                     
-                    # --- Load Data ---
-                    start_date, end_date = qc_general.detect_period_from_rosco(rosco_path)
-                    df = qc_general.load_bsr(bsr_path)
+                    # --- Base Loading & Sorting ---
+                    try:
+                        start_date, end_date = qc_general.detect_period_from_rosco(rosco_path)
+                    except Exception as e:
+                        raise RuntimeError(f"Error detecting period from Rosco: {e}")
 
-                    # --- CONDITIONAL EXECUTION BASED ON UI SELECTION ---
+                    try:
+                        df = qc_general.load_bsr(bsr_path)
+                        df = qc_general.auto_sort_bsr(df, col_map.get("bsr", {})) # Borrowed from Gen QC
+                    except Exception as e:
+                        raise RuntimeError(f"Error loading and sorting BSR: {e}")
+
+                    # --- CONDITIONAL EXECUTION (Wrapped in Try/Except) ---
                     if "period_check" in selected_la_checks:
-                        df = qc_general.period_check(df, start_date, end_date)
+                        try:
+                            df = qc_general.period_check(df, start_date, end_date)
+                        except Exception as e:
+                            raise RuntimeError(f"Error in Period Check: {e}")
                     
                     if "completeness_check" in selected_la_checks:
-                        df = qc_general.completeness_check(df, col_map["bsr"], rules["program_category"], rosco_path) 
-                    
+                        try:
+                            df = qc_general.completeness_check(df, col_map.get("bsr", {}), rules.get("program_category", {}), rosco_path) 
+                        except Exception as e:
+                            raise RuntimeError(f"Error in Completeness Check: {e}")
+
                     if "overlap_duplicate_check" in selected_la_checks:
-                        df = qc_general.overlap_duplicate_daybreak_check(df, col_map["bsr"], rules["overlap_check"]) 
-                    
+                        try:
+                            df = qc_general.overlap_duplicate_daybreak_check(df, col_map.get("bsr", {}), rules.get("overlap_check", {})) 
+                        except Exception as e:
+                            raise RuntimeError(f"Error in Overlap Check: {e}")
+
                     if "program_category_check" in selected_la_checks:
-                        df = qc_general.program_category_check(bsr_path, df, col_map, rules["program_category"], file_rules)
-                    
+                        try:
+                            df = qc_general.program_category_check(bsr_path, df, col_map, rules.get("program_category", {}), file_rules)
+                        except Exception as e:
+                            raise RuntimeError(f"Error in Program Category Check: {e}")
+
                     if "event_matchday_check" in selected_la_checks:
-                        bsr_xl = pd.ExcelFile(bsr_path)
-                        fixture_keywords = ["fixture", "fixtures", "fixture list", "fixtures list"]
-                        fixture_sheet_name = next((s for s in bsr_xl.sheet_names if any(k in s.lower() for k in fixture_keywords)), None)
-                        df = qc_general.check_event_matchday_competition(df, bsr_path, col_map, file_rules)
-                    
+                        try:
+                            bsr_xl = pd.ExcelFile(bsr_path)
+                            fixture_keywords = ["fixture", "fixtures", "fixture list", "fixtures list"]
+                            fixture_sheet_name = next((s for s in bsr_xl.sheet_names if any(k in s.lower() for k in fixture_keywords)), None)
+                            
+                            if fixture_sheet_name:
+                                df = qc_general.check_event_matchday_competition(df, bsr_path, col_map, file_rules)
+                            else:
+                                st.warning("⚠️ No 'Fixtures' sheet found in BSR. Skipping Event/Matchday validation.")
+                                df["Event_Matchday_Competition_OK"] = False
+                                df["Event_Matchday_Competition_Remark"] = "Fixtures sheet missing from BSR"
+                        except Exception as e:
+                            raise RuntimeError(f"Error in Event/Matchday Check: {e}")
+
                     if "market_channel_consistency" in selected_la_checks:
-                        df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
-                    
+                        try:
+                            df = qc_general.market_channel_consistency_check(df, rosco_path, col_map, file_rules)
+                        except Exception as e:
+                            raise RuntimeError(f"Error in Market-Channel Consistency Check: {e}")
+
                     if "rates_ratings_check" in selected_la_checks:
-                        df = qc_general.rates_and_ratings_check(df, col_map["bsr"])
-                    
+                        try:
+                            df = qc_general.rates_and_ratings_check(df, col_map.get("bsr", {}))
+                        except Exception as e:
+                            raise RuntimeError(f"Error in Rates/Ratings Check: {e}")
+
                     if "country_channel_id_check" in selected_la_checks:
-                        df = qc_general.country_channel_id_check(df, col_map["bsr"])
-                    
+                        try:
+                            df = qc_general.country_channel_id_check(df, col_map.get("bsr", {}))
+                        except Exception as e:
+                            raise RuntimeError(f"Error in Country-Channel ID Check: {e}")
+
                     if "domestic_market_check" in selected_la_checks:
-                        df = qc_general.domestic_market_check(df, col_map["bsr"], project.get("monitoring_start_date"), debug=True)
-                    
+                        try:
+                            df = qc_general.domestic_market_check(df, col_map.get("bsr", {}), project.get("monitoring_start_date"), debug=True)
+                        except Exception as e:
+                            raise RuntimeError(f"Error in Domestic Market Check: {e}")
+
                     if "duplicated_market_check" in selected_la_checks:
-                        df = qc_general.duplicated_market_check(df, macro_path, project, col_map, file_rules, debug=True)
+                        try:
+                            df = qc_general.duplicated_market_check(df, macro_path, project, col_map, file_rules, debug=True)
+                        except Exception as e:
+                            raise RuntimeError(f"Error in Duplicated Market Check: {e}")
 
                     # --- Generate Output File ---
                     output_file = f"Laliga_QC_Result_{os.path.splitext(laliga_bsr_file.name)[0]}.xlsx"
                     output_path = os.path.join(OUTPUT_FOLDER, output_file)
                     
-                    df_export = normalize_datetime_columns(df)  # Normalize datetime columns before export
-                    df_export = stringify_datetime_columns(df_export)  # Ensure datetime columns are stringified for Excel export
-                    df_export = force_time_string_format(df_export)  # ✅ ENSURE TIME COLUMNS ARE PROPERLY FORMATTED AS STRINGS
-                    df_export = df_export.astype(str)
-                    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-                        df_export.to_excel(writer, index=False, sheet_name="Laliga QC Results")
+                    try:
+                        df_export = normalize_datetime_columns(df) 
+                        df_export = stringify_datetime_columns(df_export.copy())
+                        df_export = force_time_string_format(df_export)
+                        df_export = df_export.astype(str)
+                        
+                        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+                            df_export.to_excel(writer, index=False, sheet_name="Laliga QC Results")
+                            
+                            # Safely attempt to carry over the original fixtures sheet
+                            try:
+                                bsr_xl = pd.ExcelFile(bsr_path)
+                                fixture_keywords = ["fixture", "fixtures", "fixture list", "fixtures list"]
+                                fixture_sheet = next((s for s in bsr_xl.sheet_names if any(k in s.lower() for k in fixture_keywords)), None)
+                                if fixture_sheet:
+                                    df_fixtures = bsr_xl.parse(fixture_sheet)
+                                    df_fixtures.to_excel(writer, index=False, sheet_name="Original Fixtures")
+                            except Exception as fe:
+                                st.warning(f"Could not extract Fixtures sheet: {fe}")
+                                
+                    except Exception as e:
+                        raise RuntimeError(f"Error saving core QC Excel file: {e}")
 
-                    qc_general.color_excel(output_path, df)
-                    qc_general.generate_summary_sheet(output_path, df) 
+                    # --- Apply Heavy Formatting (with Warnings instead of crashing) ---
+                    with st.spinner("Applying cell colors and summary sheets (this may take a minute)..."):
+                        try:
+                            qc_general.color_excel(output_path, df)
+                        except Exception as e:
+                            st.warning(f"Warning: color_excel formatting failed, but data was saved. Error: {e}")
+
+                        try:
+                            qc_general.generate_summary_sheet(output_path, df) 
+                        except Exception as e:
+                            st.warning(f"Warning: summary sheet generation failed, but data was saved. Error: {e}")
                     
+                    # --- Final Success ---
                     st.success("✅ Laliga QC completed successfully!")
                     with open(output_path, "rb") as f:
                         st.download_button(
@@ -1604,8 +1672,9 @@ with laliga_qc_tab:
                             file_name=output_file,
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         )
+                        
                 except Exception as e:
-                    st.error(f"❌ An error occurred during Laliga QC: {e}")
+                    st.error(f"❌ QC Pipeline Halted: {e}")
 
 # -----------------------------------------------------------
 #         🏎️ F1 MARKET SPECIFIC CHECKS TAB 
